@@ -203,3 +203,9 @@
  GET /api/email/threads 200 in 49ms
  GET /api/email/followups 200 in 52ms
  GET /api/email/followups 200 in 21ms
+ GET /api/email/threads 200 in 37ms
+ GET /api/email/threads 200 in 50ms
+ GET /api/email/followups 200 in 62ms
+ GET /api/email/followups 200 in 28ms
+ GET /api/email/threads 200 in 48ms
+ GET /api/email/followups 200 in 47ms

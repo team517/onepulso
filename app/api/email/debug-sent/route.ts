@@ -57,7 +57,7 @@ export async function GET() {
           from,
           to,
           subject,
-          date: m.internalDate?.toISOString(),
+          date: m.internalDate instanceof Date ? m.internalDate.toISOString() : m.internalDate,
         });
       } catch {
         /* skip */

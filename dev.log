@@ -96,3 +96,12 @@
  GET /api/email/threads 200 in 117ms
  GET /api/email/followups 200 in 42ms
  GET /api/email/followups 200 in 45ms
+[email-scheduler] inbox sync: 1 new in 1 threads
+[email-scheduler] inbox sync: 1 new in 1 threads
+[email-scheduler] inbox sync: 1 new in 1 threads
+ GET /api/email/threads 200 in 36ms
+ GET /api/email/threads 200 in 54ms
+ GET /api/email/followups 200 in 59ms
+ GET /api/email/followups 200 in 29ms
+ GET /api/email/threads 200 in 22ms
+ GET /api/email/followups 200 in 27ms

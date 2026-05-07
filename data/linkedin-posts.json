@@ -1,0 +1,119 @@
+[
+  {
+    "id": "742ef40f-a892-4110-b218-ab68b3e543e7",
+    "text": "El año pasado casi pierdo un cliente de 5k€ por no leer un email.\r\n\r\nLlevábamos tres semanas con una secuencia outbound funcionando bien para una scale-up de logística. El CEO respondió al FU2 con un \"interesante, hablemos\". Y yo, en modo piloto automático, le mandé el calendly genérico.\r\n\r\nMe contestó otro email. Cortito: \"Si quieres que te dedique 30 minutos, dedícame tú 30 segundos para elegir hueco tú mismo.\"\r\n\r\nAhí entendí algo que llevo grabado desde entonces: el outbound personalizado no acaba cuando el lead responde. Empieza ahí.\r\n\r\nLa investigación, las variables, el copy currado en los tres pasos previos... todo se cae si en la respuesta vuelves a tratarle como a uno más de la lista.\r\n\r\nLe propuse tres huecos concretos esa misma tarde, justificados con por qué cada uno encajaba con su agenda pública. Cerramos a la semana.\r\n\r\nLa lección no es \"sé personal\". Es: el coste de personalizar la respuesta es 2 minutos, el coste de no hacerlo es el deal entero.\r\n\r\n¿Cuántos leads se os caen entre que responden y la reunión?",
+    "visibility": "PUBLIC",
+    "status": "published",
+    "scheduled_at": "2026-05-05T08:00:00.000Z",
+    "created_at": "2026-05-02T21:46:42.673Z",
+    "updated_at": "2026-05-02T22:04:09.653Z",
+    "published_at": "2026-05-02T22:04:09.650Z",
+    "linkedin_post_urn": "urn:li:share:7456463565160411136"
+  },
+  {
+    "id": "9a7e9e3f-0396-4121-b2c5-7179a618473d",
+    "text": "Opinión impopular: la mayoría de agencias de lead generation venden volumen porque no saben hacer personalización a escala.\r\n\r\nEs más fácil cobrar por 10.000 emails al mes que por 800 emails que abren conversaciones reales.\r\n\r\nEl problema es que el mercado se ha acostumbrado a medir outbound por inputs (emails enviados, contactos cargados) en lugar de por outputs (reuniones cualificadas, pipeline generado).\r\n\r\nY claro, cuando todo el mundo manda lo mismo, los dominios se queman, los inboxes se saturan, y el response rate del sector ha caído a mínimos.\r\n\r\nNosotros en onepulso hacemos lo contrario: menos cuentas, más investigación por cuenta, copy que parece escrito a mano (porque casi lo está), y secuencias que asumen que el receptor es inteligente.\r\n\r\nResultado típico: 8-15% de positive reply rate en nichos donde la media está en 1-2%.\r\n\r\nNo es magia. Es decidir que prefieres mandar 500 emails que abran 30 conversaciones, antes que 5.000 que abran 10.\r\n\r\nLa pregunta no es cuánto outbound puedes hacer. Es cuánto outbound puedes hacer bien.",
+    "visibility": "PUBLIC",
+    "status": "published",
+    "scheduled_at": "2026-05-06T08:00:00.000Z",
+    "created_at": "2026-05-02T21:46:42.679Z",
+    "updated_at": "2026-05-06T14:23:05.560Z",
+    "image_path": "C:\\Users\\USUARIO\\Nueva carpeta\\platform\\data\\linkedin-images\\b202f7da-efc2-44a0-8c03-261d64a00c02.png",
+    "published_at": "2026-05-06T14:23:05.559Z",
+    "linkedin_post_urn": "urn:li:share:7457797072520581120"
+  },
+  {
+    "id": "adb9ebb6-fc2d-449c-8366-91f6b11d0cf4",
+    "text": "El 80% de los emails outbound que recibo usan mal las variables.\r\n\r\n\"Hola {{firstName}}, vi que en {{companyName}} estáis en el sector de {{industry}}...\"\r\n\r\nEso no es personalización. Es mail merge disfrazado.\r\n\r\nLa personalización real empieza cuando la primera frase no podría enviarse a otra empresa sin sonar absurda. Si cambias el nombre y el email sigue funcionando, no has personalizado: has rellenado huecos.\r\n\r\nLo que sí funciona en el primer email:\r\n\r\n- Una observación específica sobre algo que han publicado, lanzado o cambiado en los últimos 60 días.\r\n- Un dato del sector que conecte con su realidad concreta (no genérico).\r\n- Una hipótesis sobre un problema que probablemente tengan, basada en señales reales.\r\n\r\nLas variables clásicas ({{firstName}}, {{companyName}}, {{city}}) son el suelo, no el techo. Sirven para escalar la base, pero la diferencia entre un 1% y un 10% de respuesta está en la línea que NO se puede automatizar del todo.\r\n\r\nLa pregunta correcta no es \"¿cuántas variables uso?\". Es \"¿este email podría haberlo enviado a otra empresa tal cual?\". Si la respuesta es sí, vuelve a empezar.",
+    "visibility": "PUBLIC",
+    "status": "scheduled",
+    "scheduled_at": "2026-05-07T08:00:00.000Z",
+    "created_at": "2026-05-02T21:46:42.687Z",
+    "updated_at": "2026-05-04T08:22:42.206Z",
+    "image_path": "C:\\Users\\USUARIO\\Nueva carpeta\\platform\\data\\linkedin-images\\7a0c4fa4-f1f3-4345-901d-29cce3067a97.png"
+  },
+  {
+    "id": "a69e0e31-b086-4137-8600-6723fda72c0f",
+    "text": "Caso real de hace dos meses. SaaS B2B vendiendo a despachos de abogados medianos en España.\r\n\r\nLlevaban un año con outbound interno. Resultados: 0,7% positive reply rate, 3-4 reuniones al mes, ciclo de venta eterno porque los leads que entraban estaban poco cualificados.\r\n\r\nLo que cambiamos:\r\n\r\n1. Reducimos la lista de 8.000 cuentas a 600. Solo despachos con entre 15 y 80 abogados, con presencia activa en LinkedIn del managing partner.\r\n\r\n2. Reescribimos el step 1 desde cero. Hook basado en una señal pública concreta (nuevo socio, apertura de oficina, cambio en la web). Nada de \"vi que sois despacho\".\r\n\r\n3. FU2 con un dato específico del sector legal español sobre tiempos de facturación. Pregunta de cualificación directa.\r\n\r\n4. FU3 breakup que en vez de cerrar la puerta, la dejaba entornada para Q4.\r\n\r\nResultado a las 6 semanas: 11% positive reply rate, 18 reuniones cualificadas, 4 deals cerrados.\r\n\r\nLa lección: no era un problema de canal ni de producto. Era un problema de a quién y cómo.\r\n\r\nLa mayoría de \"el outbound no funciona\" es en realidad \"mi outbound no funciona\".",
+    "visibility": "PUBLIC",
+    "status": "scheduled",
+    "scheduled_at": "2026-05-12T08:00:00.000Z",
+    "created_at": "2026-05-02T21:46:42.693Z",
+    "updated_at": "2026-05-04T08:40:10.012Z",
+    "image_path": "C:\\Users\\USUARIO\\Nueva carpeta\\platform\\data\\linkedin-images\\7edf21dc-e3bf-4055-90f8-b2c11c87ca5f.png"
+  },
+  {
+    "id": "c63baff7-79e3-44f1-918d-a4b1c8cd3d6e",
+    "text": "Llevo años probando CTAs en cold emails y sigo sin tener una respuesta cerrada.\r\n\r\nLas opciones clásicas:\r\n\r\nA) \"¿Tienes 10 minutos esta semana para una demo personalizada?\"\r\nB) \"¿Te paso un Loom de 2 minutos con cómo lo aplicaríamos a {{companyName}}?\"\r\nC) \"¿Es algo que tenga sentido explorar o lo dejamos para más adelante?\"\r\nD) \"¿Quién en tu equipo lleva esto? Le escribo directamente si me dices.\"\r\n\r\nMi experiencia hasta ahora:\r\n\r\n- A funciona bien con perfiles operativos, mal con C-level.\r\n- B genera mucha curiosidad pero menos compromiso real.\r\n- C es la que más respuestas trae, pero también la que más \"no por ahora\" educados.\r\n- D es brutal cuando le escribes a la persona equivocada a propósito.\r\n\r\nDepende del nicho, del momento del año, del paso de la secuencia, y de si el lead ya ha tenido contacto previo con la marca.\r\n\r\nNo hay CTA universal. Hay CTA que encaja con el contexto.\r\n\r\n¿Cuál os funciona mejor a vosotros y en qué tipo de cuenta? Curiosidad real, no retórica.",
+    "visibility": "PUBLIC",
+    "status": "scheduled",
+    "scheduled_at": "2026-05-13T08:00:00.000Z",
+    "created_at": "2026-05-02T21:46:42.699Z",
+    "updated_at": "2026-05-04T08:43:29.755Z",
+    "image_path": "C:\\Users\\USUARIO\\Nueva carpeta\\platform\\data\\linkedin-images\\2c59d386-675e-487c-849f-8d17dfd3c82f.png"
+  },
+  {
+    "id": "43fab6c9-f3bc-46d9-9b5f-33a4388f087b",
+    "text": "Hace año y medio descalifiqué a un lead en 30 segundos. Hoy es uno de los mejores clientes que tengo.\r\n\r\nMe escribió un fundador de una empresa pequeña, 12 personas, ARR bajo. Quería hablar de outbound. Yo, en mi sabiduría infinita, le respondí que probablemente no éramos un fit y le recomendé tres herramientas baratas.\r\n\r\nA los seis meses, su empresa había levantado ronda, había multiplicado por cuatro el equipo de ventas, y necesitaba justo lo que hacemos. Contrató a un competidor.\r\n\r\nMe lo encontré en un evento. Me lo contó riéndose. Yo no me reí tanto.\r\n\r\nLecciones que me llevé:\r\n\r\n1. La cualificación por tamaño actual es un atajo perezoso. Mejor cualificar por trayectoria y por quién está al frente.\r\n\r\n2. Un \"no fit hoy\" bien gestionado vale más que un \"sí\" mal cerrado. Le podía haber metido en un nurture trimestral. No lo hice.\r\n\r\n3. El outbound no es solo conseguir reuniones nuevas. Es también no quemar las que vienen solas a tu puerta.\r\n\r\nDesde entonces, todo inbound que parece pequeño pasa por una segunda revisión. Y todos los \"no\" llevan follow-up automático a 6 meses.\r\n\r\nEl coste de esa lección: un cliente. Lo barato sale caro.",
+    "visibility": "PUBLIC",
+    "status": "scheduled",
+    "scheduled_at": "2026-05-14T08:00:00.000Z",
+    "created_at": "2026-05-02T21:46:42.702Z",
+    "updated_at": "2026-05-04T09:09:37.574Z",
+    "image_path": "C:\\Users\\USUARIO\\Nueva carpeta\\platform\\data\\linkedin-images\\96a8c227-b180-4231-96e0-4ceb52a5f200.png"
+  },
+  {
+    "id": "d3c72a5c-ca84-46b6-b2f6-dbf17e29343f",
+    "text": "Tres reglas que aplico a todos los subject lines de cold email después de mandar millones:\n\n1. Que parezca un email interno, no una campaña.\n\nSubjects como \"Pregunta rápida\", \"{{companyName}} + onepulso\", o \"Idea para Q3\" funcionan porque no activan el filtro mental de \"esto es publi\". Los subjects con mayúsculas, signos, o promesas grandes están muertos antes de abrirse.\n\n2. Que no prometa lo que el cuerpo no cumple.\n\nSi el subject dice \"Idea para reducir CAC\", el primer párrafo tiene que ir directo a la idea. No a presentarte. El gap entre subject y cuerpo es la principal causa de que te marquen como spam manualmente.\n\n3. Que sea más corto que el preview.\n\nEn móvil, tienes 35-40 caracteres antes de que se corte. Todo lo que pase de ahí, el receptor no lo lee. Si tu subject necesita 60 caracteres para tener sentido, el problema no es el subject, es el ángulo.\n\nBonus: los follow-ups van sin subject. Mantienen el thread, suben el email arriba en el inbox, y evitan que parezca una secuencia.\n\nEsto no es opinión. Es lo que sale al testar A/B durante meses en distintos nichos. La sencillez gana siempre.",
+    "visibility": "PUBLIC",
+    "status": "scheduled",
+    "scheduled_at": "2026-05-19T08:00:00.000Z",
+    "created_at": "2026-05-02T21:46:42.707Z",
+    "updated_at": "2026-05-02T21:46:42.707Z"
+  },
+  {
+    "id": "a5fe7208-0974-4bab-88a5-813bba8edb10",
+    "text": "Dato que asusta: el inbox placement medio en cold email B2B en España ha caído del 78% al 54% en los últimos 18 meses.\n\nTraducción: casi la mitad de los emails que crees que estás mandando, no llegan a la bandeja principal. Ni a spam. A promociones, a otra pestaña, o directamente a un agujero negro.\n\n¿Por qué está pasando?\n\n- Google y Microsoft han apretado los filtros tras los cambios de febrero de 2024.\n- El volumen de outbound ha explotado con las herramientas de IA, saturando inboxes.\n- La mayoría de agencias siguen usando dominios principales en vez de dominios secundarios.\n- Casi nadie está calentando los buzones más de 2 semanas antes de empezar.\n\nLo que estamos viendo funciona en 2026:\n\n1. Dominios secundarios dedicados (.co, .io del dominio principal) calentados mínimo 4 semanas.\n2. Máximo 25-30 emails por buzón al día. Menos es más.\n3. Texto plano. Sin imágenes, sin tracking pixels, sin links en el primer email.\n4. Rotación de copy cada 2 semanas para evitar fingerprints.\n\nSi tu agencia o tu equipo interno no te habla de esto, no estás haciendo outbound. Estás mandando emails al vacío.",
+    "visibility": "PUBLIC",
+    "status": "scheduled",
+    "scheduled_at": "2026-05-20T08:00:00.000Z",
+    "created_at": "2026-05-02T21:46:42.710Z",
+    "updated_at": "2026-05-02T21:46:42.710Z"
+  },
+  {
+    "id": "0b071251-c932-4f34-9553-b426576fca8b",
+    "text": "Opinión que va a molestar a más de uno: contratar un SDR junior interno es casi siempre peor que externalizar el outbound.\n\nNo porque el SDR sea malo. Porque el sistema en el que le metes está roto.\n\nLe pides a alguien con 6 meses de experiencia que:\n\n- Configure dominios y caliente buzones (skill técnico).\n- Construya listas con scoring (skill analítico).\n- Escriba copy que convierta (skill creativo).\n- Gestione secuencias multi-step en herramientas que cambian cada trimestre (skill operativo).\n- Y encima, haga discovery calls cuando entren reuniones.\n\nNadie es bueno en las cinco cosas. Ni con dos años de experiencia.\n\nEl resultado típico: 6 meses de rampa, 30k€ de coste cargado, y un pipeline mediocre porque el SDR se ha pasado el tiempo peleándose con la herramienta en vez de hablando con leads.\n\nLo que sí funciona:\n\n- Externalizar la maquinaria (listas, copy, deliverability, secuencias) a quien lo hace todos los días.\n- Dejar al SDR/AE interno enfocado en lo que NO se puede externalizar: discovery, cualificación humana, cierre.\n\nEsto no es marketing de mi propia agencia. Es matemáticas.\n\nLas empresas que mejor escalan outbound separan la fábrica de leads del equipo de venta. Las que no, se queman.",
+    "visibility": "PUBLIC",
+    "status": "scheduled",
+    "scheduled_at": "2026-05-21T08:00:00.000Z",
+    "created_at": "2026-05-02T21:46:42.717Z",
+    "updated_at": "2026-05-02T21:46:42.717Z"
+  },
+  {
+    "id": "f466b97a-142d-414b-bcec-68b7696b2c18",
+    "text": "La reunión más rentable que he tenido este año duró 4 minutos.\n\nLead cualificado, COO de una empresa industrial mediana, agenda imposible. Aceptó la call después del FU2. Entró tarde, con cámara apagada, y de fondo se oía a alguien gritando algo de un albarán.\n\nA los 30 segundos me dijo: \"Xavi, tengo 4 minutos. Cuéntame por qué debería seguir esta conversación.\"\n\nNi pitch. Ni slides. Ni discovery clásico. Le dije tres cosas:\n\n1. Lo que hacemos en una frase (outbound personalizado a cuentas que ellos eligen).\n2. Por qué creía que tenía sentido para ellos en concreto (sector, momento, señal pública que había detectado).\n3. Una pregunta directa: \"¿Generar 8-12 reuniones al mes con managers de planta os movería la aguja o no?\"\n\nMe dijo \"sí, claramente\". Cerró agenda con su comercial para la semana siguiente. Colgó.\n\nFirmamos a los 12 días.\n\nLecciones:\n\n- Las discovery calls de 45 minutos están sobrevaloradas. La gente senior decide en minutos, no en horas.\n- Si no puedes resumir tu propuesta en tres frases, no la entiendes lo suficiente.\n- El respeto por el tiempo del otro es la forma más rápida de generar confianza.\n\nMenos es más. Casi siempre.",
+    "visibility": "PUBLIC",
+    "status": "scheduled",
+    "scheduled_at": "2026-05-26T08:00:00.000Z",
+    "created_at": "2026-05-02T21:46:42.724Z",
+    "updated_at": "2026-05-02T21:46:42.724Z"
+  },
+  {
+    "id": "424f58a5-01d2-4668-8e5a-002d137f9cc3",
+    "text": "Si tu outbound no funciona, el problema casi nunca es el copy. Es la lista.\n\nLlevo años revisando setups de empresas que llegan diciendo \"necesitamos mejorar el email\". El 80% de las veces, el email está bien. Lo que está mal es a quién se lo mandan.\n\nSeñales de que tienes un problema de lista, no de copy:\n\n- Open rate alto (40%+) pero respuestas planas o irrelevantes.\n- Respuestas tipo \"esto no aplica a nosotros\" repetidas.\n- Reuniones que se caen porque el lead descubre que no encaja.\n- Sales qualified leads que el AE rechaza después.\n\nEl orden correcto para construir outbound es:\n\n1. ICP brutalmente concreto. No \"empresas industriales\". Sí \"fabricantes de componentes de automoción con entre 50 y 200 empleados, con planta en España, que hayan publicado vacante de operaciones en los últimos 3 meses\".\n\n2. Señales de compra reales. Cambios de equipo, rondas, expansiones, nuevas vacantes, lanzamientos.\n\n3. Cualificación manual de la lista antes de cargar nada. Sí, manual. Sí, cuesta. Por eso funciona.\n\n4. Y AHORA sí, copy.\n\nEl mejor email del mundo a la lista equivocada da cero. El email mediocre a la lista perfecta cierra deals.\n\nEmpieza por el quién. Siempre.",
+    "visibility": "PUBLIC",
+    "status": "scheduled",
+    "scheduled_at": "2026-05-27T08:00:00.000Z",
+    "created_at": "2026-05-02T21:46:42.727Z",
+    "updated_at": "2026-05-02T21:46:42.727Z"
+  },
+  {
+    "id": "40c5c0b7-049d-4e70-b86e-4a8dc61ecb9a",
+    "text": "Pregunta abierta para los que vendéis B2B: ¿cómo creéis que va a estar el outbound en 18 meses?\n\nLo que yo veo desde onepulso, observando lo que pasa cada semana en cuentas reales:\n\n- La IA generativa ha bajado el coste de mandar emails personalizados a casi cero. Eso significa que el suelo de calidad ha subido, pero el techo también es más difícil de alcanzar.\n\n- LinkedIn como canal de cold outreach está saturándose rápido. Los inmails y las invitaciones con nota tienen response rates en caída libre desde Q4 2025.\n\n- El email sigue funcionando, pero exige más infraestructura técnica que nunca: dominios, warming, rotación, monitorización de deliverability en tiempo real.\n\n- El teléfono está volviendo. En serio. En nichos donde nadie llama, una llamada bien hecha vuelve a destacar.\n\n- Los buyers están más cansados, más escépticos, y más rápidos en filtrar. La paciencia para leer pitches genéricos es cero.\n\nMi apuesta: el outbound del 2027 va a ser multicanal obligatorio (email + teléfono + LinkedIn coordinados), con menos volumen, más investigación, y agencias o equipos que sepan operar las tres capas a la vez.\n\nLas que sigan vendiendo \"10.000 emails al mes\" se van a quedar fuera.\n\n¿Vosotros qué estáis viendo desde dentro?",
+    "visibility": "PUBLIC",
+    "status": "scheduled",
+    "scheduled_at": "2026-05-28T08:00:00.000Z",
+    "created_at": "2026-05-02T21:46:42.732Z",
+    "updated_at": "2026-05-02T21:46:42.732Z"
+  }
+]

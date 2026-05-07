@@ -1,0 +1,10 @@
+{
+  "onepulso-campaign-structure": ["campaigns"],
+  "apify-lead-generation": ["campaigns"],
+  "cold-email": ["campaigns"],
+  "cold-email-4-sequence": ["campaigns"],
+  "copywriting": ["campaigns"],
+  "email-sequence": ["campaigns"],
+  "find-skills": ["campaigns", "linkedin"],
+  "lead-generation-and-demand": ["campaigns"]
+}

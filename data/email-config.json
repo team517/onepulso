@@ -1,0 +1,18 @@
+{
+  "email": "team@onepulso.online",
+  "display_name": "",
+  "smtp_host": "smtp.gmail.com",
+  "smtp_port": 465,
+  "smtp_secure": true,
+  "smtp_user": "team@onepulso.online",
+  "imap_host": "imap.gmail.com",
+  "imap_port": 993,
+  "imap_secure": true,
+  "imap_user": "team@onepulso.online",
+  "smtp_password": "erch pvye mdtr fbgc",
+  "imap_password": "erch pvye mdtr fbgc",
+  "connected_at": "2026-05-05T12:47:33.184Z",
+  "send_aliases": [
+    "team@onepulso.online"
+  ]
+}

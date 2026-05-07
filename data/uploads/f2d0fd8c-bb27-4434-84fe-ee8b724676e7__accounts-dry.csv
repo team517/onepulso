@@ -1,0 +1,3 @@
+email,smtp_host,smtp_port,smtp_password,imap_host,imap_port,imap_password,first_name
+test1@example-fake.com,smtp.example-fake.com,587,fakepass1,imap.example-fake.com,993,fakepass1,Test1
+test2@example-fake.com,smtp.example-fake.com,587,fakepass2,imap.example-fake.com,993,fakepass2,Test2

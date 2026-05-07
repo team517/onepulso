@@ -1,0 +1,32 @@
+{
+  "id": "1cad83bf-b6fa-4744-b0dc-f7893ab1afb9",
+  "title": "Lee mi memoria y dime qué sabes de mí",
+  "messages": [
+    {
+      "role": "user",
+      "text": "Lee mi memoria y dime qué sabes de mí"
+    },
+    {
+      "role": "assistant",
+      "text": "Esto es lo que tengo guardado de ti:\n\n**Identidad**\n- Xavi, dueño de **onepulso** (agencia de lead generation B2B).\n- Vendes outbound hiper-personalizado a escala para abrir conversaciones con decision-makers en cuentas objetivo.\n- Idioma: castellano España. Tono: directo, sin corporate-speak. Firma: \"Xavi\".\n\n**Framework de copy**\n- Email 1: investigación específica → problema concreto del nicho → qué hacéis → consecuencia → CTA de 10 min.\n- FU1 (3d): subir thread + algo personalizado preparado.\n- FU2 (4d): caso real con número concreto + pregunta de cualificación.\n- FU3 (5d): breakup invitando a retomar.\n- Siempre 3 variantes por step, variables {{firstName}} {{companyName}} {{industry}} {{city}}.\n\n**Lo que NO tengo todavía** (y conviene que vayamos guardando a medida que trabajemos):\n- ICPs concretos (sectores, tamaños, cargos objetivo).\n- Value prop afinada (qué resultado prometes, en qué plazo, con qué prueba).\n- Ejemplos ganadores reales (examples-good) — son los que más mueven la aguja para clonar tono.\n- Nichos que ya has trabajado y cuáles funcionan mejor.\n\n¿Quieres que empecemos a llenar alguno de esos huecos, o vamos directos a montar una campaña?",
+      "events": [
+        {
+          "type": "tool_use",
+          "data": {
+            "name": "read_memory",
+            "input": {}
+          }
+        },
+        {
+          "type": "tool_result",
+          "data": {
+            "name": "read_memory",
+            "output": "### [framework] Framework de copy de cold email\nEstructura por defecto del primer email:\n1. Investigación específica sobre la empresa/persona (usar {{companyName}}, {{industry}}, {{city}}).\n2. Problema concreto que vemos en empresas como la suya.\n3. Nuestra solución (qué hacemos).\n4. Consecuencia/resultado esperado.\n5. CTA claro: \"10 minutos esta semana para una demo personalizada\".\n\nFollow-ups (3 normalmente, sin subject para mantener thread):\n- FU1 (3d): Subir el thread + mencionar que tenemos algo personalizado preparado.\n- FU2 (4d): Caso real / dato concreto del nicho + pregunta de cualifi"
+          }
+        }
+      ]
+    }
+  ],
+  "created_at": "2026-05-03T09:19:12.986Z",
+  "updated_at": "2026-05-03T09:19:29.864Z"
+}

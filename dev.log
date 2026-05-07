@@ -1,0 +1,98 @@
+
+> onepulso-platform@0.1.0 dev
+> next dev -p 3000
+
+   ▲ Next.js 15.1.6
+   - Local:        http://localhost:3000
+   - Network:      http://192.168.0.15:3000
+   - Environments: .env.local
+
+ ✓ Starting...
+ ✓ Ready in 3.9s
+ ○ Compiling / ...
+ ✓ Compiled / in 1002ms (584 modules)
+ GET / 200 in 1344ms
+ ○ Compiling /seguimientos ...
+ ✓ Compiled /seguimientos in 707ms (591 modules)
+ GET /seguimientos 200 in 905ms
+ ○ Compiling /api/email/sequences ...
+ ✓ Compiled /api/email/sequences in 1157ms (977 modules)
+[email-scheduler] starting (60s tick: followups + inbox sync)
+ GET /api/email/sequences 200 in 1814ms
+ GET /api/email/config 200 in 1853ms
+ GET /api/email/threads 200 in 1867ms
+ ✓ Compiled /api/email/followups in 169ms (979 modules)
+ GET /api/email/followups 200 in 266ms
+ GET / 200 in 647ms
+ GET /seguimientos 200 in 47ms
+ GET /api/email/config 200 in 459ms
+ GET /api/email/sequences 200 in 492ms
+ GET /api/email/threads 200 in 527ms
+ GET /api/email/config 200 in 80ms
+ GET /api/email/sequences 200 in 69ms
+ GET /api/email/threads 200 in 89ms
+ GET /api/email/followups 200 in 118ms
+ GET /api/email/followups 200 in 43ms
+ ○ Compiling /api/email/threads/[id] ...
+ ✓ Compiled /api/email/threads/[id] in 677ms (981 modules)
+ GET /api/email/threads/7f8048c4-d778-4926-811c-ecff0e9fb2a2 200 in 1337ms
+[email-scheduler] inbox sync: 5 new in 4 threads
+ GET /api/email/threads 200 in 67ms
+ GET /api/email/followups 200 in 72ms
+ GET /api/email/threads 200 in 59ms
+ GET /api/email/followups 200 in 52ms
+ GET /api/email/threads 200 in 47ms
+ GET /api/email/followups 200 in 52ms
+ GET /api/email/threads 200 in 74ms
+ GET /api/email/followups 200 in 47ms
+ GET /api/email/threads 200 in 30ms
+ GET /api/email/followups 200 in 23ms
+ GET /api/email/threads 200 in 59ms
+ GET /api/email/followups 200 in 34ms
+ GET /api/email/threads 200 in 30ms
+ GET /api/email/followups 200 in 32ms
+ GET /api/email/threads 200 in 26ms
+ GET /api/email/followups 200 in 19ms
+ GET /api/email/threads 200 in 41ms
+ GET /api/email/followups 200 in 38ms
+ GET /api/email/threads 200 in 34ms
+ GET /api/email/followups 200 in 28ms
+ GET /api/email/threads 200 in 27ms
+ GET /api/email/followups 200 in 26ms
+ GET /api/email/threads 200 in 34ms
+ GET /api/email/followups 200 in 26ms
+ GET /api/email/threads 200 in 48ms
+ GET /api/email/followups 200 in 23ms
+ GET / 200 in 175ms
+ GET /api/email/threads 200 in 78ms
+ GET /api/email/threads 200 in 100ms
+ GET /api/email/followups 200 in 73ms
+ GET /api/email/followups 200 in 42ms
+ GET /api/email/threads 200 in 52ms
+ GET /api/email/threads 200 in 67ms
+ GET /api/email/followups 200 in 85ms
+ GET /api/email/followups 200 in 83ms
+ GET /api/email/threads 200 in 39ms
+ GET /api/email/threads 200 in 29ms
+ GET /api/email/followups 200 in 36ms
+ GET /api/email/followups 200 in 38ms
+ GET /api/email/threads 200 in 73ms
+ GET /api/email/threads 200 in 91ms
+ GET /api/email/followups 200 in 40ms
+ GET /api/email/followups 200 in 43ms
+ GET /api/email/threads 200 in 38ms
+ GET /api/email/threads 200 in 129ms
+ GET /api/email/followups 200 in 63ms
+ GET /api/email/followups 200 in 63ms
+ GET /api/email/threads 200 in 70ms
+ GET /api/email/threads 200 in 56ms
+ GET /api/email/followups 200 in 67ms
+ GET /api/email/followups 200 in 50ms
+ GET /api/email/threads 200 in 59ms
+ GET /api/email/threads 200 in 67ms
+ GET /api/email/followups 200 in 98ms
+ GET /api/email/followups 200 in 43ms
+ GET /api/email/threads 200 in 59ms
+ GET /api/email/threads 200 in 117ms
+ GET /api/email/followups 200 in 42ms
+ GET /api/email/followups 200 in 45ms

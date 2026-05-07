@@ -1,0 +1,208 @@
+[
+  {
+    "id": "7cc00d5b-f364-4161-8ea7-8cfae617489b",
+    "name": "prueba 2",
+    "niche": "automotive france",
+    "goal": "agendar reunión de 10 min para demo de lead generation B2B",
+    "steps_count": 3,
+    "variants_per_step": [
+      2,
+      2,
+      2
+    ],
+    "created_at": "2026-05-02T19:58:09.124Z",
+    "leads_uploaded": 17
+  },
+  {
+    "id": "70510085-88f4-4bbc-b773-12ea3734c8ea",
+    "name": "Aerospace Spain - Lead Gen Q2",
+    "niche": "aerospace spain",
+    "goal": "agendar llamada de 15 min para mostrar pipeline de leads cualificados en aerospace",
+    "steps_count": 4,
+    "variants_per_step": [
+      3,
+      3,
+      3,
+      3
+    ],
+    "conversation_id": "e61498a7-941b-4c34-9eb8-72af9392bd95",
+    "created_at": "2026-05-02T20:18:06.675Z",
+    "leads_uploaded": 2000
+  },
+  {
+    "id": "92b2129f-d164-488b-a469-f3c1da7e3b7b",
+    "name": "ERP Personalizado - Medianas ES v1",
+    "niche": "medianas empresas españa erp",
+    "goal": "agendar demo de 15 min de ERP personalizado",
+    "steps_count": 4,
+    "variants_per_step": [
+      3,
+      3,
+      3,
+      3
+    ],
+    "conversation_id": "e61498a7-941b-4c34-9eb8-72af9392bd95",
+    "created_at": "2026-05-03T09:35:50.100Z",
+    "leads_uploaded": 6852
+  },
+  {
+    "id": "dfab4dd4-f633-4f02-a3ca-1ac12f71942f",
+    "name": "ERP Personalizado - HORECA España",
+    "niche": "horeca distribución alimentación España",
+    "goal": "agendar llamada de 15 min para auditoría de ERP",
+    "steps_count": 4,
+    "variants_per_step": [
+      3,
+      3,
+      3,
+      3
+    ],
+    "conversation_id": "ee05b8f3-d662-4731-b24c-dd228e0b4b11",
+    "created_at": "2026-05-03T17:01:59.774Z",
+    "leads_uploaded": 3499
+  },
+  {
+    "id": "30fb7126-13e0-4346-9778-477fefe1e156",
+    "name": "PRUEBA",
+    "niche": "HORECA España - ERP personalizado",
+    "goal": "agendar llamada de 15 min para auditar ERP actual",
+    "steps_count": 4,
+    "variants_per_step": [
+      3,
+      3,
+      3,
+      3
+    ],
+    "conversation_id": "ee05b8f3-d662-4731-b24c-dd228e0b4b11",
+    "created_at": "2026-05-03T17:11:21.028Z"
+  },
+  {
+    "id": "ed2285c4-171b-4aaf-8d6e-3df30a929882",
+    "name": "TEST HTML structure",
+    "niche": "SaaS B2B Madrid",
+    "goal": "agendar demo de 10 min con directores de SaaS B2B en Madrid",
+    "steps_count": 4,
+    "variants_per_step": [
+      3,
+      3,
+      3,
+      3
+    ],
+    "created_at": "2026-05-03T17:22:34.511Z"
+  },
+  {
+    "id": "c425061c-58ea-49f1-93c3-2c8147d284d7",
+    "name": "TEST HTML structure",
+    "niche": "SaaS B2B Madrid",
+    "goal": "agendar demo de 10 min con directores de SaaS B2B en Madrid",
+    "steps_count": 4,
+    "variants_per_step": [
+      3,
+      3,
+      3,
+      3
+    ],
+    "created_at": "2026-05-03T17:23:39.721Z"
+  },
+  {
+    "id": "05646b26-eeed-4abe-b4a9-2eb8e2cc4aba",
+    "name": "TEST HTML structure",
+    "niche": "SaaS B2B Madrid - directores",
+    "goal": "agendar demo de 10 min",
+    "steps_count": 4,
+    "variants_per_step": [
+      3,
+      3,
+      3,
+      3
+    ],
+    "created_at": "2026-05-03T17:25:06.749Z"
+  },
+  {
+    "id": "dda7dc3c-05dd-4d8a-8038-0ab191a8909a",
+    "name": "BUG-TEST-1",
+    "niche": "agencias de marketing en Madrid",
+    "goal": "agendar demo de 10 min",
+    "steps_count": 4,
+    "variants_per_step": [
+      3,
+      3,
+      3,
+      3
+    ],
+    "created_at": "2026-05-03T17:35:54.270Z"
+  },
+  {
+    "id": "a496562e-08b2-45c9-99bd-1ae37b095f6e",
+    "name": "BUG-TEST-2 — Ecommerce moda Barcelona",
+    "niche": "ecommerce moda barcelona",
+    "goal": "agendar demo de 10 min con founders/CMOs de ecommerce de moda en Barcelona",
+    "steps_count": 4,
+    "variants_per_step": [
+      3,
+      3,
+      3,
+      3
+    ],
+    "created_at": "2026-05-03T17:37:18.108Z"
+  },
+  {
+    "id": "7dc32afa-90ca-4eed-a7c1-e22562493b3c",
+    "name": "BUG-TEST-3",
+    "niche": "clinicas dentales valencia",
+    "goal": "agendar demo de 10 min con director/gerente de clinica dental",
+    "steps_count": 4,
+    "variants_per_step": [
+      3,
+      3,
+      3,
+      3
+    ],
+    "created_at": "2026-05-03T17:38:50.679Z"
+  },
+  {
+    "id": "5b65f631-4ba0-4db5-963b-72acf4ebc9be",
+    "name": "Aerospace Italia - Software Personalizado",
+    "niche": "aerospace italia",
+    "goal": "agendar demo de 10 min para vender software personalizado",
+    "steps_count": 4,
+    "variants_per_step": [
+      3,
+      3,
+      3,
+      3
+    ],
+    "conversation_id": "355cd6de-e2f2-4d0d-92d0-485b66a8498d",
+    "created_at": "2026-05-03T17:43:18.707Z",
+    "leads_uploaded": 1000
+  },
+  {
+    "id": "26d663dd-e799-461f-9e36-af3f93385c39",
+    "name": "SUBJECT-TEST — Laboralistas Sevilla",
+    "niche": "despachos legales laboralistas en Sevilla",
+    "goal": "agendar demo de 10 min con socios/managing partners de despachos laboralistas",
+    "steps_count": 4,
+    "variants_per_step": [
+      3,
+      3,
+      3,
+      3
+    ],
+    "created_at": "2026-05-03T17:49:20.273Z"
+  },
+  {
+    "id": "11cb43e0-d22f-4ac3-9d98-9a7b86e6aa01",
+    "name": "Aerospace Spain - Lead Gen onepulso",
+    "niche": "aerospace spain (Tier-1, OEM suppliers, MRO, aerostructures)",
+    "goal": "agendar demo de 10 min para mostrar sistema outbound aplicado a aerospace",
+    "steps_count": 4,
+    "variants_per_step": [
+      3,
+      3,
+      3,
+      3
+    ],
+    "conversation_id": "788c95f9-c6b7-46eb-ab08-5c3a9556b435",
+    "created_at": "2026-05-04T13:59:46.401Z"
+  }
+]

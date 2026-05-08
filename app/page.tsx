@@ -36,6 +36,23 @@ export default function DashboardHome() {
   const totalLeads = campaigns.reduce((s: number, c: any) => s + (c.leads_uploaded ?? 0), 0);
   const linkedinPosts = linkedinStatus?.posts_count ?? 0;
 
+  // Donut ring helper
+  function Ring({ pct, color }: { pct: number; color: string }) {
+    const r = 28, circ = 2 * Math.PI * r;
+    const offset = circ - (pct / 100) * circ;
+    return (
+      <svg width="68" height="68" className="stat-ring">
+        <circle className="stat-ring-track" cx="34" cy="34" r={r} />
+        <circle
+          className={`stat-ring-fill stat-ring-fill--${color}`}
+          cx="34" cy="34" r={r}
+          strokeDasharray={circ}
+          strokeDashoffset={offset}
+        />
+      </svg>
+    );
+  }
+
   return (
     <div className="dash-shell">
       <DashboardNav />
@@ -50,7 +67,7 @@ export default function DashboardHome() {
             </div>
           </div>
           <div className="dash-page-actions">
-            <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "var(--text-dim)" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 12.5, color: "var(--text-faint)", background: "var(--bg-elev-2)", padding: "6px 14px", borderRadius: 99, border: "1px solid var(--border)" }}>
               <span className={`status-dot ${instantly?.connected ? "status-dot--green" : "status-dot--red"}`} />
               Instantly {instantly?.connected ? "conectado" : "desconectado"}
             </div>
@@ -60,58 +77,66 @@ export default function DashboardHome() {
         {/* Content */}
         <div className="dash-home">
           {/* Greeting */}
-          <div style={{ marginBottom: 28 }}>
+          <div style={{ marginBottom: 24 }}>
             <h1 className="dash-home-title">{greeting} 👋</h1>
             <p className="dash-home-subtitle">Aquí tienes el resumen de tu plataforma.</p>
           </div>
 
           {/* Stats */}
           <div className="stat-grid">
+            {/* Campañas */}
             <div className="stat-card">
-              <div className="stat-card-top">
-                <div className="stat-card-icon stat-card-icon--blue">📧</div>
+              <div className="stat-card-left">
+                <div className="stat-card-icon stat-card-icon--blue">✉️</div>
+                <div className="stat-card-value">{loading ? "—" : campaigns.length}</div>
+                <div className="stat-card-label">Campañas Instantly</div>
                 <span className={`stat-card-change ${instantly?.connected ? "stat-card-change--up" : "stat-card-change--neutral"}`}>
-                  {instantly?.connected ? "activo" : "sin conectar"}
+                  {instantly?.connected ? "● activo" : "● sin conectar"}
                 </span>
               </div>
-              <div>
-                <div className="stat-card-value">{loading ? "—" : campaigns.length}</div>
-                <div className="stat-card-label">Campañas en Instantly</div>
+              <div className="stat-card-ring">
+                <Ring pct={instantly?.connected ? 72 : 0} color="blue" />
               </div>
             </div>
 
+            {/* Memoria */}
             <div className="stat-card">
-              <div className="stat-card-top">
+              <div className="stat-card-left">
                 <div className="stat-card-icon stat-card-icon--green">🧠</div>
-                <span className="stat-card-change stat-card-change--up">memoria</span>
-              </div>
-              <div>
                 <div className="stat-card-value">{loading ? "—" : memory.length}</div>
                 <div className="stat-card-label">Notas en memoria IA</div>
+                <span className="stat-card-change stat-card-change--up">● memoria activa</span>
+              </div>
+              <div className="stat-card-ring">
+                <Ring pct={memory.length > 0 ? Math.min(100, memory.length * 10) : 5} color="green" />
               </div>
             </div>
 
+            {/* Leads */}
             <div className="stat-card">
-              <div className="stat-card-top">
+              <div className="stat-card-left">
                 <div className="stat-card-icon stat-card-icon--amber">👥</div>
-                <span className="stat-card-change stat-card-change--neutral">leads</span>
-              </div>
-              <div>
                 <div className="stat-card-value">{loading ? "—" : totalLeads.toLocaleString()}</div>
                 <div className="stat-card-label">Leads totales subidos</div>
+                <span className="stat-card-change stat-card-change--neutral">● leads</span>
+              </div>
+              <div className="stat-card-ring">
+                <Ring pct={totalLeads > 0 ? 65 : 0} color="amber" />
               </div>
             </div>
 
+            {/* LinkedIn */}
             <div className="stat-card">
-              <div className="stat-card-top">
+              <div className="stat-card-left">
                 <div className="stat-card-icon stat-card-icon--purple">💼</div>
-                <span className={`stat-card-change ${linkedinStatus?.connected ? "stat-card-change--up" : "stat-card-change--neutral"}`}>
-                  {linkedinStatus?.connected ? linkedinStatus.name?.split(" ")[0] ?? "activo" : "sin conectar"}
-                </span>
-              </div>
-              <div>
                 <div className="stat-card-value">{loading ? "—" : linkedinPosts}</div>
                 <div className="stat-card-label">Posts LinkedIn</div>
+                <span className={`stat-card-change ${linkedinStatus?.connected ? "stat-card-change--up" : "stat-card-change--neutral"}`}>
+                  {linkedinStatus?.connected ? `● ${linkedinStatus.name?.split(" ")[0] ?? "activo"}` : "● sin conectar"}
+                </span>
+              </div>
+              <div className="stat-card-ring">
+                <Ring pct={linkedinStatus?.connected ? Math.min(100, linkedinPosts * 5 + 20) : 0} color="purple" />
               </div>
             </div>
           </div>

@@ -923,18 +923,30 @@ export default function SeguimientosPage() {
                   markClosed={markClosed}
                   toggleAutopilot={toggleAutopilot}
                   sequences={sequences}
-                  applySequenceToThread={async (seqId: string) => {
-                    const r = await fetch("/api/email/sequences/apply", {
-                      method: "POST",
-                      headers: { "Content-Type": "application/json" },
-                      body: JSON.stringify({ sequence_id: seqId, thread_id: thread.id }),
-                    }).then((r) => r.json());
-                    if (r.error) setFeedback("⚠️ " + r.error);
-                    else {
-                      setFeedback(`✓ Secuencia aplicada: ${r.scheduled} follow-ups programados`);
-                      loadThread(thread.id);
+                  applySequenceToThread={async (seqId: string): Promise<{ ok: boolean; scheduled?: number; error?: string }> => {
+                    if (!thread) return { ok: false, error: "Hilo no seleccionado" };
+                    if (!seqId)  return { ok: false, error: "Selecciona una secuencia" };
+                    setFeedback("⏳ Aplicando secuencia…");
+                    try {
+                      const r = await fetch("/api/email/sequences/apply", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ sequence_id: seqId, thread_id: thread.id }),
+                      }).then((r) => r.json());
+                      if (r.error) {
+                        setFeedback("⚠️ " + r.error);
+                        setTimeout(() => setFeedback(null), 5000);
+                        return { ok: false, error: r.error };
+                      }
+                      setFeedback(`✓ Secuencia aplicada · ${r.scheduled} follow-ups programados`);
+                      await loadThread(thread.id);
+                      setTimeout(() => setFeedback(null), 5000);
+                      return { ok: true, scheduled: r.scheduled };
+                    } catch (e: any) {
+                      setFeedback("⚠️ " + e.message);
+                      setTimeout(() => setFeedback(null), 5000);
+                      return { ok: false, error: e.message };
                     }
-                    setTimeout(() => setFeedback(null), 5000);
                   }}
                 />
               )}
@@ -1938,6 +1950,124 @@ const wBtnSecondary: React.CSSProperties = {
   fontWeight: 600, cursor: "pointer", fontFamily: "inherit",
 };
 
+// ============== Aplicar secuencia card ==============
+
+function ApplySequenceCard({
+  sequences,
+  apply,
+}: {
+  sequences: Sequence[];
+  apply: (seqId: string) => Promise<{ ok: boolean; scheduled?: number; error?: string }>;
+}) {
+  const [selected, setSelected] = useState<string>("");
+  const [applying, setApplying] = useState(false);
+  const [done, setDone] = useState<{ ok: boolean; msg: string } | null>(null);
+
+  async function handleApply() {
+    if (!selected) {
+      setDone({ ok: false, msg: "Elige una secuencia primero" });
+      return;
+    }
+    setApplying(true);
+    setDone(null);
+    try {
+      const r = await apply(selected);
+      if (r.ok) {
+        setDone({ ok: true, msg: `✓ ${r.scheduled} follow-ups programados` });
+        setSelected("");
+      } else {
+        setDone({ ok: false, msg: "⚠️ " + (r.error || "Error desconocido") });
+      }
+    } catch (e: any) {
+      setDone({ ok: false, msg: "⚠️ " + e.message });
+    } finally {
+      setApplying(false);
+      setTimeout(() => setDone(null), 6000);
+    }
+  }
+
+  return (
+    <div className="seg-action-card" style={{ cursor: "default" }}>
+      <div className="seg-action-icon">🔁</div>
+      <div className="seg-action-title">Aplicar secuencia</div>
+      <div className="seg-action-desc">Plantilla de follow-ups con delays automáticos. Se cancelan solos si el prospect responde.</div>
+
+      {sequences.length === 0 ? (
+        <div style={{
+          fontSize: 11.5, color: "var(--text-faint)", marginTop: 8,
+          padding: "8px 10px", background: "var(--bg-elev-2)",
+          border: "1px solid var(--border)", borderRadius: 8,
+        }}>
+          Aún no hay secuencias creadas. Ve a la pestaña <strong>Secuencias</strong> arriba para crear una.
+        </div>
+      ) : (
+        <>
+          <select
+            value={selected}
+            onChange={(e) => setSelected(e.target.value)}
+            disabled={applying}
+            style={{
+              marginTop: 8,
+              background: "#fff",
+              border: "1px solid var(--border)",
+              borderRadius: 8,
+              color: "var(--text)",
+              padding: "9px 11px",
+              fontSize: 12.5,
+              width: "100%",
+              fontFamily: "inherit",
+              cursor: applying ? "not-allowed" : "pointer",
+            }}
+          >
+            <option value="">— Elige una secuencia —</option>
+            {sequences.map((s: Sequence) => (
+              <option key={s.id} value={s.id}>{s.name} ({s.steps.length} steps)</option>
+            ))}
+          </select>
+
+          <button
+            onClick={handleApply}
+            disabled={!selected || applying}
+            style={{
+              marginTop: 8,
+              padding: "9px 14px",
+              background: selected && !applying ? "var(--accent)" : "var(--bg-elev-3)",
+              color: selected && !applying ? "#fff" : "var(--text-faint)",
+              border: "none",
+              borderRadius: 8,
+              fontSize: 12.5,
+              fontWeight: 700,
+              cursor: selected && !applying ? "pointer" : "not-allowed",
+              width: "100%",
+              fontFamily: "inherit",
+              boxShadow: selected && !applying ? "0 2px 8px rgba(0,113,227,0.25)" : "none",
+              transition: "all 0.15s",
+            }}
+          >
+            {applying ? "⏳ Aplicando…" : "🔁 Aplicar secuencia"}
+          </button>
+
+          {done && (
+            <div style={{
+              marginTop: 8,
+              padding: "7px 11px",
+              background: done.ok ? "rgba(16,185,129,0.1)" : "rgba(239,68,68,0.08)",
+              border: "1px solid",
+              borderColor: done.ok ? "rgba(16,185,129,0.25)" : "rgba(239,68,68,0.25)",
+              color: done.ok ? "#059669" : "#dc2626",
+              borderRadius: 8,
+              fontSize: 11.5,
+              fontWeight: 600,
+            }}>
+              {done.msg}
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
 // ============== Componentes ==============
 
 function ThreadCard({
@@ -2535,39 +2665,7 @@ function ThreadView(p: any) {
           </div>
         </button>
 
-        <div className="seg-action-card" style={{ cursor: "default" }}>
-          <div className="seg-action-icon">🔁</div>
-          <div className="seg-action-title">Aplicar secuencia</div>
-          <div className="seg-action-desc">Aplica una plantilla de follow-ups con delays automáticos.</div>
-          {p.sequences.length === 0 ? (
-            <div style={{ fontSize: 11.5, color: "var(--text-faint)", marginTop: 6 }}>
-              Sin secuencias. Créalas en pestaña "Secuencias".
-            </div>
-          ) : (
-            <select
-              onChange={(e) => {
-                if (e.target.value) p.applySequenceToThread(e.target.value);
-                e.target.value = "";
-              }}
-              style={{
-                marginTop: 8,
-                background: "var(--bg)",
-                border: "1px solid var(--border)",
-                borderRadius: 8,
-                color: "var(--text)",
-                padding: "8px 10px",
-                fontSize: 12,
-                width: "100%",
-              }}
-              defaultValue=""
-            >
-              <option value="">— Elige una secuencia —</option>
-              {p.sequences.map((s: Sequence) => (
-                <option key={s.id} value={s.id}>{s.name} ({s.steps.length} steps)</option>
-              ))}
-            </select>
-          )}
-        </div>
+        <ApplySequenceCard sequences={p.sequences} apply={p.applySequenceToThread} />
 
         <button className="seg-action-card" onClick={p.openSchedule}>
           <div className="seg-action-icon">📅</div>

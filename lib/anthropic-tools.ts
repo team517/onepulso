@@ -361,7 +361,7 @@ export async function executeTool(
             error: "0 leads válidos extraídos del CSV. Verifica que la columna de email exista y contenga emails.",
           });
         }
-        const result = await uploadLeadsBatch(input.campaign_id, leads);
+        const result = await uploadLeadsBatch(input.campaign_id, leads as any);
         await updateCampaignRecord(input.campaign_id, { leads_uploaded: result.ok });
         return JSON.stringify({
           parsed_from_csv: leads.length,

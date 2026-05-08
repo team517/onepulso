@@ -665,7 +665,7 @@ export default function SeguimientosPage() {
                   <div className="list-empty">
                     {tab === "han_respondido" && "Nadie te ha respondido todavía."}
                     {tab === "esperando" && "No tienes mensajes pendientes."}
-                    {tab === "programados" && "Sin follow-ups programados."}
+                    {(tab as string) === "programados" && "Sin follow-ups programados."}
                     {tab === "cerrados" && "Ningún hilo cerrado."}
                     {tab === "todos" && "Sin hilos. Envía tu primer email."}
                   </div>

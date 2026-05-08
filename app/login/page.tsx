@@ -35,58 +35,58 @@ export default function LoginPage() {
 
   const inputBase: React.CSSProperties = {
     width: "100%",
-    padding: "12px 15px",
-    background: "rgba(255,255,255,0.07)",
-    border: "1px solid rgba(255,255,255,0.12)",
-    borderRadius: "12px",
-    color: "#ffffff",
-    fontSize: "14px",
+    padding: "11px 14px",
+    background: "#ffffff",
+    border: "1px solid rgba(15,23,42,0.12)",
+    borderRadius: "10px",
+    color: "#0f172a",
+    fontSize: "14.5px",
     outline: "none",
     boxSizing: "border-box",
-    fontFamily: "'DM Sans', -apple-system, 'SF Pro Text', Arial, sans-serif",
-    transition: "border-color 0.2s ease, box-shadow 0.2s ease, background 0.2s ease",
+    fontFamily: "-apple-system, 'SF Pro Text', 'Helvetica Neue', Arial, sans-serif",
+    transition: "border-color 0.2s ease, box-shadow 0.2s ease",
     WebkitAppearance: "none",
   };
 
   const labelBase: React.CSSProperties = {
     display: "block",
-    color: "rgba(255,255,255,0.5)",
-    fontSize: "11px",
-    fontWeight: 700,
+    color: "#64748b",
+    fontSize: "11.5px",
+    fontWeight: 600,
     marginBottom: "7px",
-    letterSpacing: "0.08em",
+    letterSpacing: "0.05em",
     textTransform: "uppercase" as const,
-    fontFamily: "'DM Sans', -apple-system, 'SF Pro Text', Arial, sans-serif",
+    fontFamily: "-apple-system, 'SF Pro Text', 'Helvetica Neue', Arial, sans-serif",
   };
 
   return (
     <div style={{
       minHeight: "100vh",
-      background: "linear-gradient(135deg, #11047a 0%, #1a237e 40%, #0d1b6e 100%)",
+      background: "linear-gradient(145deg, #e8f0fe 0%, #f0f4f8 50%, #e2eaf8 100%)",
       display: "flex",
       alignItems: "center",
       justifyContent: "center",
-      fontFamily: "'DM Sans', -apple-system, 'SF Pro Text', Arial, sans-serif",
+      fontFamily: "-apple-system, 'SF Pro Text', 'Helvetica Neue', Arial, sans-serif",
       WebkitFontSmoothing: "antialiased",
     }}>
-      {/* Decorative glows */}
+      {/* Decorative background blobs */}
       <div style={{
         position: "fixed",
-        top: "-10%",
-        right: "10%",
-        width: "600px",
-        height: "600px",
-        background: "radial-gradient(ellipse at center, rgba(67,97,238,0.35) 0%, transparent 65%)",
+        top: "10%",
+        left: "15%",
+        width: "500px",
+        height: "500px",
+        background: "radial-gradient(ellipse at center, rgba(0,113,227,0.08) 0%, transparent 70%)",
         pointerEvents: "none",
         zIndex: 0,
       }} />
       <div style={{
         position: "fixed",
-        bottom: "-10%",
-        left: "5%",
-        width: "500px",
-        height: "500px",
-        background: "radial-gradient(ellipse at center, rgba(123,97,255,0.2) 0%, transparent 65%)",
+        bottom: "10%",
+        right: "15%",
+        width: "400px",
+        height: "400px",
+        background: "radial-gradient(ellipse at center, rgba(59,130,246,0.06) 0%, transparent 70%)",
         pointerEvents: "none",
         zIndex: 0,
       }} />
@@ -100,36 +100,37 @@ export default function LoginPage() {
       }}>
 
         {/* Logo mark */}
-        <div style={{ textAlign: "center", marginBottom: "36px" }}>
+        <div style={{ textAlign: "center", marginBottom: "40px" }}>
           <div style={{
             display: "inline-flex",
             alignItems: "center",
             justifyContent: "center",
-            width: "60px",
-            height: "60px",
-            background: "linear-gradient(135deg, #4361ee 0%, #7b61ff 100%)",
-            borderRadius: "18px",
+            width: "56px",
+            height: "56px",
+            background: "linear-gradient(145deg, #0d2244, #1a3a6e)",
+            borderRadius: "16px",
             marginBottom: "20px",
-            boxShadow: "0 8px 28px rgba(67,97,238,0.5)",
+            boxShadow: "0 8px 24px rgba(13,34,68,0.25), 0 2px 6px rgba(13,34,68,0.15)",
           }}>
-            <span style={{ fontSize: "26px", lineHeight: 1 }}>⚡</span>
+            <span style={{ fontSize: "24px", lineHeight: 1 }}>⚡</span>
           </div>
 
           <h1 style={{
-            color: "#ffffff",
-            fontSize: "30px",
+            color: "#0f172a",
+            fontSize: "28px",
             fontWeight: 700,
             margin: "0 0 6px",
-            letterSpacing: "-0.03em",
-            fontFamily: "'DM Sans', -apple-system, 'SF Pro Display', Arial, sans-serif",
+            letterSpacing: "-0.04em",
+            fontFamily: "-apple-system, 'SF Pro Display', 'Helvetica Neue', Arial, sans-serif",
           }}>
             onepulso
           </h1>
 
           <p style={{
-            color: "rgba(255,255,255,0.5)",
+            color: "#64748b",
             fontSize: "14px",
             margin: 0,
+            letterSpacing: "0.01em",
           }}>
             Inicia sesión para continuar
           </p>
@@ -137,13 +138,11 @@ export default function LoginPage() {
 
         {/* Card */}
         <div style={{
-          background: "rgba(255,255,255,0.07)",
-          border: "1px solid rgba(255,255,255,0.1)",
-          borderRadius: "24px",
-          padding: "34px 30px",
-          backdropFilter: "blur(20px)",
-          WebkitBackdropFilter: "blur(20px)",
-          boxShadow: "0 24px 60px rgba(0,0,0,0.3)",
+          background: "#ffffff",
+          border: "1px solid rgba(15,23,42,0.08)",
+          borderRadius: "20px",
+          padding: "32px 28px",
+          boxShadow: "0 4px 24px rgba(15,23,42,0.08), 0 1px 4px rgba(15,23,42,0.04)",
         }}>
           <form onSubmit={handleSubmit}>
 
@@ -158,14 +157,12 @@ export default function LoginPage() {
                 required
                 style={inputBase}
                 onFocus={e => {
-                  e.target.style.borderColor = "rgba(67,97,238,0.8)";
-                  e.target.style.boxShadow   = "0 0 0 3px rgba(67,97,238,0.25)";
-                  e.target.style.background  = "rgba(255,255,255,0.1)";
+                  e.target.style.borderColor = "#0071e3";
+                  e.target.style.boxShadow   = "0 0 0 3px rgba(0,113,227,0.12)";
                 }}
                 onBlur={e => {
-                  e.target.style.borderColor = "rgba(255,255,255,0.12)";
+                  e.target.style.borderColor = "rgba(15,23,42,0.12)";
                   e.target.style.boxShadow   = "none";
-                  e.target.style.background  = "rgba(255,255,255,0.07)";
                 }}
               />
             </div>
@@ -181,14 +178,12 @@ export default function LoginPage() {
                 required
                 style={inputBase}
                 onFocus={e => {
-                  e.target.style.borderColor = "rgba(67,97,238,0.8)";
-                  e.target.style.boxShadow   = "0 0 0 3px rgba(67,97,238,0.25)";
-                  e.target.style.background  = "rgba(255,255,255,0.1)";
+                  e.target.style.borderColor = "#0071e3";
+                  e.target.style.boxShadow   = "0 0 0 3px rgba(0,113,227,0.12)";
                 }}
                 onBlur={e => {
-                  e.target.style.borderColor = "rgba(255,255,255,0.12)";
+                  e.target.style.borderColor = "rgba(15,23,42,0.12)";
                   e.target.style.boxShadow   = "none";
-                  e.target.style.background  = "rgba(255,255,255,0.07)";
                 }}
               />
             </div>
@@ -203,11 +198,10 @@ export default function LoginPage() {
                   ...inputBase,
                   cursor: "pointer",
                   backgroundImage:
-                    "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='rgba(255,255,255,0.5)' d='M6 8L1 3h10z'/%3E%3C/svg%3E\")",
+                    "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%2364748b' d='M6 8L1 3h10z'/%3E%3C/svg%3E\")",
                   backgroundRepeat: "no-repeat",
                   backgroundPosition: "right 14px center",
                   paddingRight: "36px",
-                  colorScheme: "dark",
                 }}
               >
                 <option value="1">1 día</option>
@@ -220,13 +214,14 @@ export default function LoginPage() {
             {/* Error */}
             {error && (
               <div style={{
-                background: "rgba(238,93,80,0.12)",
-                border: "1px solid rgba(238,93,80,0.3)",
-                borderRadius: "12px",
+                background: "rgba(239,68,68,0.06)",
+                border: "1px solid rgba(239,68,68,0.2)",
+                borderRadius: "10px",
                 padding: "10px 14px",
-                color: "#fca5a5",
+                color: "#dc2626",
                 fontSize: "13.5px",
                 marginBottom: "18px",
+                letterSpacing: "0.01em",
               }}>
                 {error}
               </div>
@@ -238,33 +233,33 @@ export default function LoginPage() {
               disabled={loading}
               style={{
                 width: "100%",
-                padding: "13px",
-                background: loading ? "rgba(67,97,238,0.5)" : "linear-gradient(135deg, #4361ee 0%, #7b61ff 100%)",
+                padding: "12px",
+                background: loading ? "rgba(0,113,227,0.5)" : "#0071e3",
                 border: "none",
-                borderRadius: "14px",
+                borderRadius: "12px",
                 color: "#ffffff",
                 fontSize: "15px",
-                fontWeight: 700,
+                fontWeight: 600,
                 cursor: loading ? "not-allowed" : "pointer",
                 letterSpacing: "-0.01em",
-                fontFamily: "'DM Sans', -apple-system, 'SF Pro Text', Arial, sans-serif",
-                transition: "all 0.2s ease",
-                boxShadow: "0 6px 24px rgba(67,97,238,0.5)",
+                fontFamily: "-apple-system, 'SF Pro Text', 'Helvetica Neue', Arial, sans-serif",
+                transition: "background 0.2s ease, box-shadow 0.2s ease",
+                boxShadow: "0 2px 8px rgba(0,113,227,0.3)",
               }}
               onMouseEnter={e => {
                 if (!loading) {
-                  (e.currentTarget as HTMLButtonElement).style.transform = "translateY(-1px)";
-                  (e.currentTarget as HTMLButtonElement).style.boxShadow = "0 10px 30px rgba(67,97,238,0.6)";
+                  (e.currentTarget as HTMLButtonElement).style.background = "#005bb5";
+                  (e.currentTarget as HTMLButtonElement).style.boxShadow = "0 4px 16px rgba(0,113,227,0.4)";
                 }
               }}
               onMouseLeave={e => {
                 if (!loading) {
-                  (e.currentTarget as HTMLButtonElement).style.transform = "translateY(0)";
-                  (e.currentTarget as HTMLButtonElement).style.boxShadow = "0 6px 24px rgba(67,97,238,0.5)";
+                  (e.currentTarget as HTMLButtonElement).style.background = "#0071e3";
+                  (e.currentTarget as HTMLButtonElement).style.boxShadow = "0 2px 8px rgba(0,113,227,0.3)";
                 }
               }}
             >
-              {loading ? "Iniciando sesión…" : "Iniciar sesión →"}
+              {loading ? "Iniciando sesión…" : "Iniciar sesión"}
             </button>
 
           </form>
@@ -273,10 +268,10 @@ export default function LoginPage() {
         {/* Footer */}
         <p style={{
           textAlign: "center",
-          color: "rgba(255,255,255,0.2)",
+          color: "#94a3b8",
           fontSize: "12px",
           marginTop: "28px",
-          letterSpacing: "0.03em",
+          letterSpacing: "0.02em",
         }}>
           onepulso platform © 2026
         </p>

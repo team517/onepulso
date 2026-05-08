@@ -3,10 +3,10 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 
 const NAV = [
-  { href: "/",              label: "Inicio",        icon: "🏠", exact: true },
-  { href: "/campaigns",    label: "Campañas",      icon: "✉️", exact: false },
-  { href: "/seguimientos", label: "Seguimientos",  icon: "💬", exact: false },
-  { href: "/linkedin",     label: "LinkedIn",      icon: "💼", exact: false },
+  { href: "/",              label: "Inicio",        icon: "⊞", exact: true },
+  { href: "/campaigns",    label: "Campañas",      icon: "✦", exact: false },
+  { href: "/seguimientos", label: "Seguimientos",  icon: "◈", exact: false },
+  { href: "/linkedin",     label: "LinkedIn",      icon: "◆", exact: false },
 ];
 
 export default function DashboardNav() {

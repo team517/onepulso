@@ -1,0 +1,3 @@
+{
+  "/api/email/threads/[id]/autopilot/route": "app/api/email/threads/[id]/autopilot/route.js"
+}

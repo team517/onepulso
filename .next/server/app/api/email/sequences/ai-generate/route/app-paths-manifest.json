@@ -1,0 +1,3 @@
+{
+  "/api/email/sequences/ai-generate/route": "app/api/email/sequences/ai-generate/route.js"
+}

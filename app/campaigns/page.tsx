@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import DashboardNav from "../components/DashboardNav";
 
 type ToolEvent = { type: "tool_use" | "tool_result"; data: any };
 type Message = {
@@ -295,17 +296,15 @@ export default function Page() {
   }
 
   return (
-    <div className="app">
-      {/* Sidebar — campañas */}
+    <div className="dash-shell">
+      <DashboardNav />
+      <div className="dash-content campaigns-inner">
+      {/* Sidebar — conversaciones */}
       <aside className="sidebar">
-        <div className="sidebar-header">
-          <Link href="/" className="brand-link">
-            <div className="brand">
-              <span className="brand-wordmark">onepulso</span>
-              <span className="brand-c">©</span>
-            </div>
-            <div className="brand-sub">campañas</div>
-          </Link>
+        <div className="sidebar-inner-header">
+          <div style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: "0.07em", color: "var(--text-faint)", fontWeight: 600, marginBottom: 8 }}>
+            Copiloto IA
+          </div>
         </div>
         <button className="new-btn" onClick={newConversation}>
           + Nueva conversación
@@ -714,6 +713,7 @@ export default function Page() {
           )}
         </div>
       </aside>
+      </div>
     </div>
   );
 }

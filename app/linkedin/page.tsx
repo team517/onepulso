@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import DashboardNav from "../components/DashboardNav";
 
 type LinkedInStatus = {
   connected: boolean;
@@ -527,15 +528,14 @@ export default function LinkedInPage() {
   const monthStartKey = dayKey(calMonth);
 
   return (
-    <div className="li-app">
+    <div className="dash-shell">
+      <DashboardNav />
+      <div className="dash-content li-app">
       <header className="li-header">
-        <Link href="/" className="brand-link">
-          <div className="brand">
-            <span className="brand-wordmark">onepulso</span>
-            <span className="brand-c">©</span>
-          </div>
-          <div className="brand-sub">linkedin</div>
-        </Link>
+        <div>
+          <div className="dash-page-title">LinkedIn</div>
+          {status?.connected && <div className="dash-page-subtitle">{status.name}</div>}
+        </div>
         <div className="li-status">
           <button
             className="btn-ghost"
@@ -1253,6 +1253,7 @@ export default function LinkedInPage() {
           </div>
         </div>
       )}
+      </div>
     </div>
   );
 }

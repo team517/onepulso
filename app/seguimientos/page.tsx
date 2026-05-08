@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import DashboardNav from "../components/DashboardNav";
 
 type EmailStatus = {
   connected: boolean;
@@ -566,15 +567,14 @@ export default function SeguimientosPage() {
   }
 
   return (
-    <div className="seg-app">
+    <div className="dash-shell">
+      <DashboardNav />
+      <div className="dash-content seg-app">
       <header className="seg-header">
-        <Link href="/" className="brand-link">
-          <div className="brand">
-            <span className="brand-wordmark">onepulso</span>
-            <span className="brand-c">©</span>
-          </div>
-          <div className="brand-sub">seguimientos</div>
-        </Link>
+        <div>
+          <div className="dash-page-title">Seguimientos</div>
+          {status?.connected && <div className="dash-page-subtitle">{status.display_name || status.email}</div>}
+        </div>
         <div className="seg-status">
           {status?.connected ? (
             <>
@@ -983,6 +983,7 @@ export default function SeguimientosPage() {
           </div>
         </div>
       )}
+      </div>
     </div>
   );
 }

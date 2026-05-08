@@ -127,7 +127,7 @@ export async function importThread(opts: {
       uids = uids.slice(-200);
       for (const uid of uids) {
         try {
-          const m = await client.fetchOne(uid, { source: true, internalDate: true }, { uid: true });
+          const m = await client.fetchOne(uid, { source: true, internalDate: true }, { uid: true }) as any;
           if (!m?.source) continue;
           const parsed = await simpleParser(m.source);
           if (!opts.gm_thrid && opts.participant_seed) {

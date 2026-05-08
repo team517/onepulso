@@ -1,0 +1,338 @@
+{
+  "version": 3,
+  "pages404": true,
+  "appType": "app",
+  "caseSensitive": false,
+  "basePath": "",
+  "redirects": [
+    {
+      "source": "/:path+/",
+      "destination": "/:path+",
+      "internal": true,
+      "priority": true,
+      "statusCode": 308,
+      "regex": "^(?:/((?:[^/]+?)(?:/(?:[^/]+?))*))/$"
+    }
+  ],
+  "headers": [],
+  "onMatchHeaders": [],
+  "rewrites": {
+    "beforeFiles": [],
+    "afterFiles": [],
+    "fallback": []
+  },
+  "dynamicRoutes": [
+    {
+      "page": "/api/conversations/[id]",
+      "regex": "^/api/conversations/([^/]+?)(?:/)?$",
+      "routeKeys": {
+        "nxtPid": "nxtPid"
+      },
+      "namedRegex": "^/api/conversations/(?<nxtPid>[^/]+?)(?:/)?$"
+    },
+    {
+      "page": "/api/email/followups/[id]",
+      "regex": "^/api/email/followups/([^/]+?)(?:/)?$",
+      "routeKeys": {
+        "nxtPid": "nxtPid"
+      },
+      "namedRegex": "^/api/email/followups/(?<nxtPid>[^/]+?)(?:/)?$"
+    },
+    {
+      "page": "/api/email/sequences/[id]",
+      "regex": "^/api/email/sequences/([^/]+?)(?:/)?$",
+      "routeKeys": {
+        "nxtPid": "nxtPid"
+      },
+      "namedRegex": "^/api/email/sequences/(?<nxtPid>[^/]+?)(?:/)?$"
+    },
+    {
+      "page": "/api/email/threads/[id]",
+      "regex": "^/api/email/threads/([^/]+?)(?:/)?$",
+      "routeKeys": {
+        "nxtPid": "nxtPid"
+      },
+      "namedRegex": "^/api/email/threads/(?<nxtPid>[^/]+?)(?:/)?$"
+    },
+    {
+      "page": "/api/email/threads/[id]/autopilot",
+      "regex": "^/api/email/threads/([^/]+?)/autopilot(?:/)?$",
+      "routeKeys": {
+        "nxtPid": "nxtPid"
+      },
+      "namedRegex": "^/api/email/threads/(?<nxtPid>[^/]+?)/autopilot(?:/)?$"
+    },
+    {
+      "page": "/api/linkedin/posts/[id]",
+      "regex": "^/api/linkedin/posts/([^/]+?)(?:/)?$",
+      "routeKeys": {
+        "nxtPid": "nxtPid"
+      },
+      "namedRegex": "^/api/linkedin/posts/(?<nxtPid>[^/]+?)(?:/)?$"
+    },
+    {
+      "page": "/api/linkedin/posts/[id]/image",
+      "regex": "^/api/linkedin/posts/([^/]+?)/image(?:/)?$",
+      "routeKeys": {
+        "nxtPid": "nxtPid"
+      },
+      "namedRegex": "^/api/linkedin/posts/(?<nxtPid>[^/]+?)/image(?:/)?$"
+    },
+    {
+      "page": "/api/skills/[name]",
+      "regex": "^/api/skills/([^/]+?)(?:/)?$",
+      "routeKeys": {
+        "nxtPname": "nxtPname"
+      },
+      "namedRegex": "^/api/skills/(?<nxtPname>[^/]+?)(?:/)?$"
+    }
+  ],
+  "staticRoutes": [
+    {
+      "page": "/",
+      "regex": "^/(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/(?:/)?$"
+    },
+    {
+      "page": "/_global-error",
+      "regex": "^/_global\\-error(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/_global\\-error(?:/)?$"
+    },
+    {
+      "page": "/_not-found",
+      "regex": "^/_not\\-found(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/_not\\-found(?:/)?$"
+    },
+    {
+      "page": "/api/campaigns",
+      "regex": "^/api/campaigns(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/api/campaigns(?:/)?$"
+    },
+    {
+      "page": "/api/chat",
+      "regex": "^/api/chat(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/api/chat(?:/)?$"
+    },
+    {
+      "page": "/api/chat/attach",
+      "regex": "^/api/chat/attach(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/api/chat/attach(?:/)?$"
+    },
+    {
+      "page": "/api/conversations",
+      "regex": "^/api/conversations(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/api/conversations(?:/)?$"
+    },
+    {
+      "page": "/api/credentials",
+      "regex": "^/api/credentials(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/api/credentials(?:/)?$"
+    },
+    {
+      "page": "/api/email/ai/extract-date",
+      "regex": "^/api/email/ai/extract\\-date(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/api/email/ai/extract\\-date(?:/)?$"
+    },
+    {
+      "page": "/api/email/ai/reply",
+      "regex": "^/api/email/ai/reply(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/api/email/ai/reply(?:/)?$"
+    },
+    {
+      "page": "/api/email/config",
+      "regex": "^/api/email/config(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/api/email/config(?:/)?$"
+    },
+    {
+      "page": "/api/email/debug-sent",
+      "regex": "^/api/email/debug\\-sent(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/api/email/debug\\-sent(?:/)?$"
+    },
+    {
+      "page": "/api/email/folders",
+      "regex": "^/api/email/folders(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/api/email/folders(?:/)?$"
+    },
+    {
+      "page": "/api/email/followups",
+      "regex": "^/api/email/followups(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/api/email/followups(?:/)?$"
+    },
+    {
+      "page": "/api/email/import",
+      "regex": "^/api/email/import(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/api/email/import(?:/)?$"
+    },
+    {
+      "page": "/api/email/search",
+      "regex": "^/api/email/search(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/api/email/search(?:/)?$"
+    },
+    {
+      "page": "/api/email/send",
+      "regex": "^/api/email/send(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/api/email/send(?:/)?$"
+    },
+    {
+      "page": "/api/email/sequences",
+      "regex": "^/api/email/sequences(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/api/email/sequences(?:/)?$"
+    },
+    {
+      "page": "/api/email/sequences/ai-generate",
+      "regex": "^/api/email/sequences/ai\\-generate(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/api/email/sequences/ai\\-generate(?:/)?$"
+    },
+    {
+      "page": "/api/email/sequences/apply",
+      "regex": "^/api/email/sequences/apply(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/api/email/sequences/apply(?:/)?$"
+    },
+    {
+      "page": "/api/email/sync",
+      "regex": "^/api/email/sync(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/api/email/sync(?:/)?$"
+    },
+    {
+      "page": "/api/email/threads",
+      "regex": "^/api/email/threads(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/api/email/threads(?:/)?$"
+    },
+    {
+      "page": "/api/instantly/status",
+      "regex": "^/api/instantly/status(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/api/instantly/status(?:/)?$"
+    },
+    {
+      "page": "/api/linkedin/auth",
+      "regex": "^/api/linkedin/auth(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/api/linkedin/auth(?:/)?$"
+    },
+    {
+      "page": "/api/linkedin/callback",
+      "regex": "^/api/linkedin/callback(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/api/linkedin/callback(?:/)?$"
+    },
+    {
+      "page": "/api/linkedin/draft",
+      "regex": "^/api/linkedin/draft(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/api/linkedin/draft(?:/)?$"
+    },
+    {
+      "page": "/api/linkedin/generate-image",
+      "regex": "^/api/linkedin/generate\\-image(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/api/linkedin/generate\\-image(?:/)?$"
+    },
+    {
+      "page": "/api/linkedin/plan",
+      "regex": "^/api/linkedin/plan(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/api/linkedin/plan(?:/)?$"
+    },
+    {
+      "page": "/api/linkedin/posts",
+      "regex": "^/api/linkedin/posts(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/api/linkedin/posts(?:/)?$"
+    },
+    {
+      "page": "/api/linkedin/publish",
+      "regex": "^/api/linkedin/publish(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/api/linkedin/publish(?:/)?$"
+    },
+    {
+      "page": "/api/linkedin/scheduler/tick",
+      "regex": "^/api/linkedin/scheduler/tick(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/api/linkedin/scheduler/tick(?:/)?$"
+    },
+    {
+      "page": "/api/linkedin/status",
+      "regex": "^/api/linkedin/status(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/api/linkedin/status(?:/)?$"
+    },
+    {
+      "page": "/api/memory",
+      "regex": "^/api/memory(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/api/memory(?:/)?$"
+    },
+    {
+      "page": "/api/memory/upload",
+      "regex": "^/api/memory/upload(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/api/memory/upload(?:/)?$"
+    },
+    {
+      "page": "/api/skills",
+      "regex": "^/api/skills(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/api/skills(?:/)?$"
+    },
+    {
+      "page": "/campaigns",
+      "regex": "^/campaigns(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/campaigns(?:/)?$"
+    },
+    {
+      "page": "/linkedin",
+      "regex": "^/linkedin(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/linkedin(?:/)?$"
+    },
+    {
+      "page": "/seguimientos",
+      "regex": "^/seguimientos(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/seguimientos(?:/)?$"
+    }
+  ],
+  "dataRoutes": [],
+  "rsc": {
+    "header": "rsc",
+    "varyHeader": "rsc, next-router-state-tree, next-router-prefetch, next-router-segment-prefetch",
+    "prefetchHeader": "next-router-prefetch",
+    "didPostponeHeader": "x-nextjs-postponed",
+    "contentTypeHeader": "text/x-component",
+    "suffix": ".rsc",
+    "prefetchSegmentHeader": "next-router-segment-prefetch",
+    "prefetchSegmentSuffix": ".segment.rsc",
+    "prefetchSegmentDirSuffix": ".segments",
+    "clientParamParsing": false,
+    "dynamicRSCPrerender": false
+  },
+  "rewriteHeaders": {
+    "pathHeader": "x-nextjs-rewritten-path",
+    "queryHeader": "x-nextjs-rewritten-query"
+  }
+}

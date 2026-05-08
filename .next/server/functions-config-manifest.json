@@ -1,0 +1,89 @@
+{
+  "version": 1,
+  "functions": {
+    "/api/campaigns": {},
+    "/api/chat": {
+      "maxDuration": 300
+    },
+    "/api/chat/attach": {
+      "maxDuration": 60
+    },
+    "/api/conversations": {},
+    "/api/conversations/[id]": {},
+    "/api/credentials": {},
+    "/api/email/ai/extract-date": {
+      "maxDuration": 60
+    },
+    "/api/email/ai/reply": {
+      "maxDuration": 90
+    },
+    "/api/email/config": {
+      "maxDuration": 60
+    },
+    "/api/email/debug-sent": {
+      "maxDuration": 60
+    },
+    "/api/email/folders": {},
+    "/api/email/followups": {},
+    "/api/email/followups/[id]": {},
+    "/api/email/import": {
+      "maxDuration": 180
+    },
+    "/api/email/search": {
+      "maxDuration": 120
+    },
+    "/api/email/send": {
+      "maxDuration": 120
+    },
+    "/api/email/sequences": {},
+    "/api/email/sequences/[id]": {},
+    "/api/email/sequences/ai-generate": {
+      "maxDuration": 90
+    },
+    "/api/email/sequences/apply": {
+      "maxDuration": 30
+    },
+    "/api/email/sync": {
+      "maxDuration": 180
+    },
+    "/api/email/threads": {},
+    "/api/email/threads/[id]": {},
+    "/api/email/threads/[id]/autopilot": {
+      "maxDuration": 180
+    },
+    "/api/instantly/status": {},
+    "/api/linkedin/auth": {},
+    "/api/linkedin/callback": {},
+    "/api/linkedin/draft": {
+      "maxDuration": 90
+    },
+    "/api/linkedin/generate-image": {
+      "maxDuration": 180
+    },
+    "/api/linkedin/plan": {
+      "maxDuration": 600
+    },
+    "/api/linkedin/posts": {
+      "maxDuration": 60
+    },
+    "/api/linkedin/posts/[id]": {
+      "maxDuration": 60
+    },
+    "/api/linkedin/posts/[id]/image": {},
+    "/api/linkedin/publish": {
+      "maxDuration": 120
+    },
+    "/api/linkedin/scheduler/tick": {
+      "maxDuration": 120
+    },
+    "/api/linkedin/status": {},
+    "/api/memory": {},
+    "/api/memory/upload": {
+      "maxDuration": 60
+    },
+    "/api/skills": {
+      "maxDuration": 240
+    },
+    "/api/skills/[name]": {}
+  }
+}

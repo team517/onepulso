@@ -63,6 +63,25 @@ type Thread = {
   followups: Followup[];
   notes?: string;
   auto_pilot?: boolean;
+  contact_name?: string;
+  contact_context?: string;
+  tone?: string;
+  objective?: string;
+  custom_prompt?: string;
+  contract_alert?: {
+    detected_at: string;
+    excerpt: string;
+    acknowledged?: boolean;
+  };
+};
+
+type ContractAlert = {
+  thread_id: string;
+  subject: string;
+  contact_email: string;
+  contact_name: string;
+  excerpt: string;
+  detected_at: string;
 };
 
 type ScheduledFollowup = Followup & { thread: { id: string; subject: string; participants: string[] } };
@@ -100,6 +119,9 @@ export default function SeguimientosPage() {
   const [view, setView] = useState<"list" | "thread" | "compose" | "connect">("list");
   const [tab, setTab] = useState<Tab>("han_respondido");
   const [feedback, setFeedback] = useState<string | null>(null);
+  const [autopilotWizardOpen, setAutopilotWizardOpen] = useState(false);
+  const [contractAlerts, setContractAlerts] = useState<ContractAlert[]>([]);
+  const [memoryOpen, setMemoryOpen] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [search, setSearch] = useState("");
 
@@ -144,6 +166,7 @@ export default function SeguimientosPage() {
   const [aiSeqDesc, setAiSeqDesc] = useState("");
   const [aiSeqGenerating, setAiSeqGenerating] = useState(false);
   const [composeSequenceId, setComposeSequenceId] = useState<string>("");
+  const [composeAutopilotAfter, setComposeAutopilotAfter] = useState(false);
 
   // Schedule followup
   const [fuOpen, setFuOpen] = useState(false);
@@ -157,8 +180,10 @@ export default function SeguimientosPage() {
     refreshStatus();
     refreshThreads();
     refreshSequences();
+    loadContractAlerts();
     const t = setInterval(() => {
       refreshThreads();
+      loadContractAlerts();
       if (thread) loadThread(thread.id);
     }, 30000);
     return () => clearInterval(t);
@@ -279,20 +304,114 @@ export default function SeguimientosPage() {
 
   async function toggleAutopilot() {
     if (!thread) return;
-    const newVal = !thread.auto_pilot;
-    setFeedback(newVal ? "Activando auto-pilot…" : "Desactivando…");
+    // Si está OFF → abrir wizard para configurar antes de activar
+    if (!thread.auto_pilot) {
+      setAutopilotWizardOpen(true);
+      return;
+    }
+    // Si está ON → desactivar directamente
+    setFeedback("Desactivando…");
     const r = await fetch(`/api/email/threads/${thread.id}/autopilot`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ enabled: newVal }),
+      body: JSON.stringify({ enabled: false }),
     }).then((r) => r.json());
     if (r.error) {
       setFeedback("⚠️ " + r.error);
     } else {
-      setFeedback(newVal ? "✓ Auto-pilot activado. La IA gestionará nuevas respuestas." : "✓ Auto-pilot desactivado.");
+      setFeedback("✓ Auto-pilot desactivado.");
       loadThread(thread.id);
     }
     setTimeout(() => setFeedback(null), 5000);
+  }
+
+  async function activateAutopilotWithConfig(cfg: {
+    contact_name: string;
+    contact_context: string;
+    tone: string;
+    objective: string;
+    custom_prompt: string;
+    plan_now?: boolean;
+    num_steps?: number;
+    strategy?: string;
+    send_first_immediately?: boolean;
+    custom_days?: number[];
+    default_hour?: number;
+  }) {
+    if (!thread) return;
+    setFeedback("Activando auto-pilot…");
+    const r = await fetch(`/api/email/threads/${thread.id}/autopilot`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        enabled: true,
+        contact_name: cfg.contact_name,
+        contact_context: cfg.contact_context,
+        tone: cfg.tone,
+        objective: cfg.objective,
+        custom_prompt: cfg.custom_prompt,
+      }),
+    }).then((r) => r.json());
+
+    if (r.error) {
+      setFeedback("⚠️ " + r.error);
+      setTimeout(() => setFeedback(null), 5000);
+      return;
+    }
+
+    // Si se pidió planificar la secuencia, llamar al planificador
+    if (cfg.plan_now) {
+      setFeedback(
+        cfg.send_first_immediately
+          ? `🚀 Enviando el primero AHORA y programando ${(cfg.num_steps ?? 5) - 1} más…`
+          : `🤖 Diseñando secuencia de ${cfg.num_steps ?? 5} follow-ups…`
+      );
+      try {
+        const planRes = await fetch(`/api/email/threads/${thread.id}/plan-sequence`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            num_steps: cfg.num_steps ?? 5,
+            strategy: cfg.strategy ?? "Equilibrada",
+            custom_days: cfg.custom_days,
+            send_first_immediately: cfg.send_first_immediately === true,
+            default_hour: cfg.default_hour ?? 10,
+          }),
+        }).then(r => r.json());
+
+        if (planRes.error) {
+          setFeedback("⚠️ Auto-pilot ON pero error planificando: " + planRes.error);
+        } else {
+          const sentMsg = planRes.sent_now > 0 ? `${planRes.sent_now} enviados ya · ` : "";
+          setFeedback(`✓ Auto-pilot activado · ${sentMsg}${planRes.scheduled} programados en el calendario`);
+        }
+      } catch (e: any) {
+        setFeedback("⚠️ Error: " + e.message);
+      }
+    } else {
+      setFeedback("✓ Auto-pilot activado. La IA gestionará nuevas respuestas.");
+    }
+
+    setAutopilotWizardOpen(false);
+    loadThread(thread.id);
+    setTimeout(() => setFeedback(null), 8000);
+  }
+
+  async function acknowledgeContract(threadId: string) {
+    await fetch(`/api/email/threads/${threadId}/autopilot`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ acknowledge_contract: true }),
+    });
+    loadContractAlerts();
+    if (thread?.id === threadId) loadThread(threadId);
+  }
+
+  async function loadContractAlerts() {
+    try {
+      const j = await fetch("/api/email/contract-alerts").then(r => r.json());
+      setContractAlerts(j.alerts ?? []);
+    } catch {}
   }
   async function loadThread(id: string) {
     const r = await fetch(`/api/email/threads/${id}`).then((r) => r.json());
@@ -415,7 +534,7 @@ export default function SeguimientosPage() {
           }).catch(() => null);
           setFeedback("✓ Enviado + secuencia programada");
         } else {
-          setFeedback("✓ Enviado");
+          setFeedback("✓ Hilo creado · escuchando respuestas en bandeja");
         }
         setTo("");
         setSubject("");
@@ -424,11 +543,38 @@ export default function SeguimientosPage() {
         setComposeSequenceId("");
         if (fileRef.current) fileRef.current.value = "";
         await refreshThreads();
-        loadThread(d.thread_id);
+        await loadThread(d.thread_id);
+        // Si quería autopilot, abrir wizard tras crear hilo
+        if (composeAutopilotAfter) {
+          setTimeout(() => setAutopilotWizardOpen(true), 400);
+        }
       }
     } finally {
       setSending(false);
-      setTimeout(() => setFeedback(null), 5000);
+      setTimeout(() => setFeedback(null), 6000);
+    }
+  }
+
+  async function aiComposeFirst(opts: {
+    contact_name?: string;
+    objective?: string;
+    topic?: string;
+    tone?: string;
+  }): Promise<{ subject?: string; body_html?: string; error?: string }> {
+    if (!to.trim()) return { error: "Pon primero el email destinatario" };
+    try {
+      const r = await fetch("/api/email/ai/compose", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          to: to.trim(),
+          include_subject: true,
+          ...opts,
+        }),
+      }).then(r => r.json());
+      return r;
+    } catch (e: any) {
+      return { error: e.message };
     }
   }
 
@@ -538,6 +684,24 @@ export default function SeguimientosPage() {
     refreshThreads();
   }
 
+  async function sendNowFollowup(id: string) {
+    if (!confirm("¿Enviar AHORA este follow-up?\n\nSe enviará inmediatamente, sin esperar a la fecha programada.")) return;
+    setFeedback("🚀 Enviando…");
+    try {
+      const r = await fetch(`/api/email/followups/${id}/send-now`, { method: "POST" }).then(r => r.json());
+      if (r.error) {
+        setFeedback("⚠️ " + r.error);
+      } else {
+        setFeedback(`✓ Enviado a ${r.sent_to}`);
+        if (thread) loadThread(thread.id);
+        refreshThreads();
+      }
+    } catch (e: any) {
+      setFeedback("⚠️ " + e.message);
+    }
+    setTimeout(() => setFeedback(null), 5000);
+  }
+
   async function markClosed() {
     if (!thread) return;
     await fetch(`/api/email/threads/${thread.id}`, {
@@ -582,6 +746,12 @@ export default function SeguimientosPage() {
                 <div style={{ fontSize: 13, fontWeight: 500 }}>{status.display_name || status.email}</div>
                 <div style={{ fontSize: 11.5, color: "var(--text-dim)" }}>{status.email}</div>
               </div>
+              <a className="btn-ghost" href="/seguimientos/calendario" title="Ver calendario de seguimientos programados" style={{ textDecoration: "none" }}>
+                📅 Calendario
+              </a>
+              <button className="btn-ghost" onClick={() => setMemoryOpen(true)} title="Memoria que el autopilot usa al redactar">
+                🧠 Memoria
+              </button>
               <button className="btn-ghost" onClick={() => setSearchOpen(true)} title="Buscar en Gmail (inbox + enviados)">
                 🔎 Buscar
               </button>
@@ -701,6 +871,9 @@ export default function SeguimientosPage() {
                   sequences={sequences}
                   composeSequenceId={composeSequenceId}
                   setComposeSequenceId={setComposeSequenceId}
+                  autopilotAfter={composeAutopilotAfter}
+                  setAutopilotAfter={setComposeAutopilotAfter}
+                  aiCompose={aiComposeFirst}
                 />
               )}
 
@@ -746,6 +919,7 @@ export default function SeguimientosPage() {
                   sending={sending}
                   openSchedule={openSchedule}
                   cancelFollowup={cancelFollowup}
+                  sendNowFollowup={sendNowFollowup}
                   markClosed={markClosed}
                   toggleAutopilot={toggleAutopilot}
                   sequences={sequences}
@@ -984,9 +1158,785 @@ export default function SeguimientosPage() {
         </div>
       )}
       </div>
+
+      {/* Contract alerts banner (flotante arriba a la derecha) */}
+      {contractAlerts.length > 0 && (
+        <div style={{
+          position: "fixed", top: 20, right: 20,
+          zIndex: 50, display: "flex", flexDirection: "column", gap: 10,
+          maxWidth: 380,
+        }}>
+          {contractAlerts.map(a => (
+            <div key={a.thread_id} style={{
+              background: "#fff",
+              border: "1.5px solid rgba(245,158,11,0.4)",
+              borderLeft: "4px solid #f59e0b",
+              borderRadius: 12,
+              padding: "12px 14px",
+              boxShadow: "0 8px 24px rgba(15,23,42,0.12)",
+            }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                <span style={{ fontSize: 18 }}>📝</span>
+                <div style={{ fontWeight: 700, fontSize: 13, color: "#92400e" }}>
+                  Petición de contrato
+                </div>
+                <button
+                  onClick={() => acknowledgeContract(a.thread_id)}
+                  style={{
+                    marginLeft: "auto", background: "transparent", border: "none",
+                    color: "var(--text-faint)", cursor: "pointer", fontSize: 16,
+                  }}
+                  title="Marcar como visto"
+                >×</button>
+              </div>
+              <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text)", marginBottom: 3 }}>
+                {a.contact_name}
+              </div>
+              <div style={{ fontSize: 11.5, color: "var(--text-dim)", marginBottom: 6 }}>
+                {a.subject}
+              </div>
+              <div style={{
+                fontSize: 12, color: "var(--text-dim)",
+                background: "var(--bg-elev-3)", padding: "7px 10px",
+                borderRadius: 8, fontStyle: "italic",
+                lineHeight: 1.5,
+                maxHeight: 80, overflow: "hidden",
+              }}>
+                "{a.excerpt.slice(0, 180)}{a.excerpt.length > 180 ? "..." : ""}"
+              </div>
+              <button
+                onClick={() => { loadThread(a.thread_id); }}
+                style={{
+                  marginTop: 8, padding: "6px 12px",
+                  background: "#f59e0b", color: "#fff",
+                  border: "none", borderRadius: 8,
+                  fontSize: 12, fontWeight: 600, cursor: "pointer",
+                  width: "100%",
+                }}
+              >
+                Abrir hilo y responder →
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Autopilot Setup Wizard */}
+      {autopilotWizardOpen && thread && (
+        <AutopilotWizard
+          thread={thread}
+          onClose={() => setAutopilotWizardOpen(false)}
+          onActivate={activateAutopilotWithConfig}
+        />
+      )}
+
+      {/* Memoria Seguimientos */}
+      {memoryOpen && (
+        <SeguimientosMemoryModal onClose={() => setMemoryOpen(false)} />
+      )}
     </div>
   );
 }
+
+// ============== Autopilot Setup Wizard ==============
+
+function AutopilotWizard({
+  thread,
+  onClose,
+  onActivate,
+}: {
+  thread: Thread;
+  onClose: () => void;
+  onActivate: (cfg: {
+    contact_name: string;
+    contact_context: string;
+    tone: string;
+    objective: string;
+    custom_prompt: string;
+    plan_now: boolean;
+    num_steps: number;
+    strategy: string;
+    send_first_immediately: boolean;
+    custom_days: number[];
+    default_hour: number;
+  }) => void;
+}) {
+  const initialName =
+    thread.contact_name ||
+    (() => {
+      const prospect = thread.participants.find(p => !/onepulso\.online$/i.test(p))
+        || thread.participants[0] || "";
+      const local = prospect.split("@")[0] || "";
+      return local
+        .replace(/[._-]+/g, " ")
+        .split(" ").filter(Boolean)
+        .map(w => w[0].toUpperCase() + w.slice(1))
+        .join(" ");
+    })();
+
+  const [contactName, setContactName] = useState(initialName);
+  const [contactContext, setContactContext] = useState(thread.contact_context || "");
+  const [tone, setTone] = useState(thread.tone || "Directo, personal, sin floritura. Castellano España.");
+  const [objective, setObjective] = useState(thread.objective || "Cerrar reunión de 10-15 min para enseñar el producto.");
+  const [customPrompt, setCustomPrompt] = useState(thread.custom_prompt || "");
+  const [activating, setActivating] = useState(false);
+
+  // Sequence planning
+  const [planNow, setPlanNow] = useState(true);
+  const [numSteps, setNumSteps] = useState(5);
+  const [strategy, setStrategy] = useState("Equilibrada: recordatorio suave → caso/valor → pregunta → último intento");
+  const [sendFirstNow, setSendFirstNow] = useState(false);
+  const [customDaysMode, setCustomDaysMode] = useState<"preset" | "custom">("preset");
+  const [customDays, setCustomDays] = useState("0, 3, 7, 14, 21");
+  const [defaultHour, setDefaultHour] = useState(10);
+
+  // Presets de espaciado según numSteps
+  const PRESET_DAYS: Record<number, number[]> = {
+    3:  [0, 4, 10],
+    5:  [0, 3, 7, 14, 21],
+    7:  [0, 2, 5, 9, 14, 21, 30],
+    10: [0, 2, 4, 7, 11, 16, 22, 30, 45, 60],
+  };
+
+  // Cuando cambia numSteps en modo preset, sincronizar customDays
+  useEffect(() => {
+    if (customDaysMode === "preset") {
+      setCustomDays((PRESET_DAYS[numSteps] || []).join(", "));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [numSteps, customDaysMode]);
+
+  const TONE_PRESETS = [
+    { label: "Directo y técnico", value: "Directo y técnico. Datos concretos. Sin emojis. Castellano España." },
+    { label: "Cercano y amigable", value: "Cercano, amigable, conversacional. Tuteamos. Castellano España." },
+    { label: "Formal corporate", value: "Formal pero natural. Castellano España. Sin coloquialismos." },
+    { label: "Breve y al grano", value: "Frases muy cortas. Una idea por mensaje. Sin rodeos. Castellano España." },
+  ];
+
+  const OBJECTIVE_PRESETS = [
+    "Cerrar reunión de 10-15 min para enseñar el producto.",
+    "Conseguir trial gratuito de 14 días.",
+    "Enviar propuesta económica formal.",
+    "Avanzar a llamada con decision-maker.",
+    "Cerrar venta del plan Pro.",
+  ];
+
+  function activate() {
+    setActivating(true);
+    const parsedDays = customDays
+      .split(",")
+      .map(s => parseInt(s.trim()))
+      .filter(n => !isNaN(n) && n >= 0 && n <= 365);
+
+    onActivate({
+      contact_name: contactName.trim(),
+      contact_context: contactContext.trim(),
+      tone: tone.trim(),
+      objective: objective.trim(),
+      custom_prompt: customPrompt.trim(),
+      plan_now: planNow,
+      num_steps: numSteps,
+      strategy: strategy.trim(),
+      send_first_immediately: sendFirstNow,
+      custom_days: parsedDays,
+      default_hour: defaultHour,
+    });
+  }
+
+  const STRATEGIES = [
+    { id: "Equilibrada: recordatorio suave → caso/valor → pregunta → último intento", label: "⚖️ Equilibrada", desc: "Mezcla recordatorio + valor + pregunta" },
+    { id: "Agresiva: persistente, mucho CTA, último intento contundente", label: "🔥 Agresiva", desc: "Más insistente, CTAs fuertes" },
+    { id: "Suave: aporta valor sin pedir nada hasta el final", label: "🌱 Suave", desc: "Aporta valor antes de pedir" },
+    { id: "Educativa: cada follow-up enseña algo (caso, dato, insight)", label: "📚 Educativa", desc: "Casos, datos, insights" },
+  ];
+
+  return (
+    <div
+      onClick={onClose}
+      style={{
+        position: "fixed", inset: 0,
+        background: "rgba(15,23,42,0.45)",
+        display: "grid", placeItems: "center",
+        zIndex: 100, backdropFilter: "blur(4px)",
+      }}
+    >
+      <div
+        onClick={e => e.stopPropagation()}
+        style={{
+          background: "#fff", borderRadius: 18,
+          width: "92%", maxWidth: 600, maxHeight: "92vh", overflowY: "auto",
+          padding: 28,
+          boxShadow: "0 24px 60px rgba(15,23,42,0.25)",
+        }}
+      >
+        {/* Header */}
+        <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 6 }}>
+          <div>
+            <div style={{
+              fontFamily: "var(--font-display)", fontSize: 20, fontWeight: 700,
+              letterSpacing: "-0.02em", color: "var(--text)",
+            }}>
+              🤖 Configurar Autopilot
+            </div>
+            <div style={{ fontSize: 13, color: "var(--text-dim)", marginTop: 4 }}>
+              Define cómo quieres que la IA gestione las respuestas con <strong>{thread.participants.find(p => !/onepulso\.online$/i.test(p))}</strong>
+            </div>
+          </div>
+          <button
+            onClick={onClose}
+            style={{
+              background: "transparent", border: "none",
+              fontSize: 22, color: "var(--text-faint)", cursor: "pointer",
+            }}
+          >×</button>
+        </div>
+
+        {/* Cómo funciona */}
+        <div style={{
+          marginTop: 14, marginBottom: 16,
+          background: "rgba(0,113,227,0.06)",
+          border: "1px solid rgba(0,113,227,0.18)",
+          borderRadius: 12, padding: "11px 14px",
+          fontSize: 12.5, color: "var(--text-dim)", lineHeight: 1.6,
+        }}>
+          <strong style={{ color: "var(--accent)" }}>Cómo funciona:</strong> cuando el contacto te responda, la IA leerá el mensaje, extraerá fechas
+          (ej. "finales de la semana que viene" → viernes 17:00), redactará la respuesta usando este contexto y la programará
+          en el calendario. Si te <strong>pide contrato/propuesta</strong>, se pausa y te avisa.
+        </div>
+
+        {/* Nombre del contacto */}
+        <label style={wLabel}>Nombre del contacto</label>
+        <input
+          value={contactName}
+          onChange={e => setContactName(e.target.value)}
+          placeholder="Ej: Ahmed Smith"
+          style={wInput}
+        />
+
+        {/* Contexto */}
+        <label style={{ ...wLabel, marginTop: 14 }}>
+          Contexto del contacto <span style={{ fontWeight: 400, textTransform: "none", letterSpacing: 0, color: "var(--text-faint)" }}>— qué sabes de él/ella</span>
+        </label>
+        <textarea
+          value={contactContext}
+          onChange={e => setContactContext(e.target.value)}
+          rows={4}
+          placeholder={`Ej:
+- CTO de SaaS B2B de 30 personas
+- Hablamos del trial del módulo de IA
+- Le interesa la integración con HubSpot
+- Objeción anterior: precio comparado con Lemlist`}
+          style={{ ...wInput, resize: "vertical", fontFamily: "inherit", lineHeight: 1.55 }}
+        />
+
+        {/* Tono */}
+        <label style={{ ...wLabel, marginTop: 14 }}>Tono de las respuestas</label>
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 8 }}>
+          {TONE_PRESETS.map(p => (
+            <button
+              key={p.label}
+              type="button"
+              onClick={() => setTone(p.value)}
+              style={{
+                padding: "5px 12px", borderRadius: 99,
+                border: "1px solid",
+                borderColor: tone === p.value ? "var(--accent)" : "var(--border)",
+                background: tone === p.value ? "var(--accent-soft)" : "#fff",
+                color: tone === p.value ? "var(--accent)" : "var(--text-dim)",
+                fontSize: 11.5, fontWeight: 600, cursor: "pointer",
+              }}
+            >{p.label}</button>
+          ))}
+        </div>
+        <textarea
+          value={tone}
+          onChange={e => setTone(e.target.value)}
+          rows={2}
+          style={{ ...wInput, resize: "vertical", fontFamily: "inherit", fontSize: 13 }}
+        />
+
+        {/* Objetivo */}
+        <label style={{ ...wLabel, marginTop: 14 }}>Objetivo del seguimiento</label>
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 8 }}>
+          {OBJECTIVE_PRESETS.map(o => (
+            <button
+              key={o}
+              type="button"
+              onClick={() => setObjective(o)}
+              style={{
+                padding: "5px 12px", borderRadius: 99,
+                border: "1px solid",
+                borderColor: objective === o ? "var(--accent)" : "var(--border)",
+                background: objective === o ? "var(--accent-soft)" : "#fff",
+                color: objective === o ? "var(--accent)" : "var(--text-dim)",
+                fontSize: 11.5, fontWeight: 600, cursor: "pointer",
+              }}
+            >{o.length > 36 ? o.slice(0, 36) + "..." : o}</button>
+          ))}
+        </div>
+        <input
+          value={objective}
+          onChange={e => setObjective(e.target.value)}
+          placeholder="Ej: Cerrar reunión de 30 min con el CTO"
+          style={wInput}
+        />
+
+        {/* Prompt extra */}
+        <label style={{ ...wLabel, marginTop: 14 }}>
+          Instrucciones extra <span style={{ fontWeight: 400, textTransform: "none", letterSpacing: 0, color: "var(--text-faint)" }}>(opcional)</span>
+        </label>
+        <textarea
+          value={customPrompt}
+          onChange={e => setCustomPrompt(e.target.value)}
+          rows={3}
+          placeholder={`Ej:
+- Nunca menciones precios sin que él los pregunte
+- Si propone reunión, ofrécele Calendly: cal.com/onepulso
+- Hablamos en español aunque escriba en inglés`}
+          style={{ ...wInput, resize: "vertical", fontFamily: "inherit" }}
+        />
+
+        {/* PLANIFICACIÓN DE SECUENCIA */}
+        <div style={{
+          marginTop: 18, padding: 16,
+          background: "linear-gradient(135deg, rgba(0,113,227,0.05), rgba(99,102,241,0.04))",
+          border: "1.5px solid rgba(0,113,227,0.2)",
+          borderRadius: 14,
+        }}>
+          <div style={{
+            display: "flex", alignItems: "center", gap: 10,
+            marginBottom: 10, justifyContent: "space-between",
+          }}>
+            <div>
+              <div style={{ fontSize: 13.5, fontWeight: 700, color: "var(--accent)" }}>
+                🚀 Planificar secuencia ahora
+              </div>
+              <div style={{ fontSize: 11.5, color: "var(--text-dim)", marginTop: 2 }}>
+                La IA generará {numSteps} follow-ups y los meterá en el calendario al instante
+              </div>
+            </div>
+            {/* Toggle */}
+            <div
+              onClick={() => setPlanNow(!planNow)}
+              style={{
+                width: 44, height: 24, borderRadius: 999, flexShrink: 0,
+                background: planNow ? "var(--accent)" : "var(--bg-elev-3)",
+                position: "relative", cursor: "pointer", transition: "background 0.18s",
+              }}
+            >
+              <div style={{
+                position: "absolute", top: 2, left: planNow ? 22 : 2,
+                width: 20, height: 20, borderRadius: 999, background: "#fff",
+                boxShadow: "0 1px 3px rgba(0,0,0,0.2)", transition: "left 0.18s",
+              }} />
+            </div>
+          </div>
+
+          {planNow && (
+            <>
+              {/* Number of steps */}
+              <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12 }}>
+                <label style={{ ...wLabel, marginBottom: 0, flexShrink: 0 }}>Cuántos follow-ups</label>
+                <div style={{ display: "flex", gap: 4 }}>
+                  {[3, 5, 7, 10].map(n => (
+                    <button
+                      key={n}
+                      type="button"
+                      onClick={() => setNumSteps(n)}
+                      style={{
+                        width: 36, height: 32, borderRadius: 8,
+                        border: "1px solid",
+                        borderColor: numSteps === n ? "var(--accent)" : "var(--border)",
+                        background: numSteps === n ? "var(--accent)" : "#fff",
+                        color: numSteps === n ? "#fff" : "var(--text-dim)",
+                        fontSize: 13, fontWeight: 700, cursor: "pointer",
+                      }}
+                    >{n}</button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Strategy */}
+              <label style={wLabel}>Estrategia</label>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
+                {STRATEGIES.map(s => (
+                  <button
+                    key={s.id}
+                    type="button"
+                    onClick={() => setStrategy(s.id)}
+                    style={{
+                      textAlign: "left", padding: "8px 10px",
+                      borderRadius: 9,
+                      border: "1px solid",
+                      borderColor: strategy === s.id ? "var(--accent)" : "var(--border)",
+                      background: strategy === s.id ? "var(--accent-soft)" : "#fff",
+                      cursor: "pointer", fontFamily: "inherit",
+                    }}
+                  >
+                    <div style={{
+                      fontSize: 12.5, fontWeight: 700,
+                      color: strategy === s.id ? "var(--accent)" : "var(--text)",
+                      marginBottom: 2,
+                    }}>{s.label}</div>
+                    <div style={{ fontSize: 10.5, color: "var(--text-dim)", lineHeight: 1.4 }}>
+                      {s.desc}
+                    </div>
+                  </button>
+                ))}
+              </div>
+
+              {/* Días entre follow-ups (preset / custom) */}
+              <label style={{ ...wLabel, marginTop: 14 }}>Días entre cada follow-up</label>
+              <div style={{ display: "flex", gap: 4, marginBottom: 8 }}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCustomDaysMode("preset");
+                    setCustomDays((PRESET_DAYS[numSteps] || []).join(", "));
+                  }}
+                  style={{
+                    padding: "5px 12px", borderRadius: 8,
+                    border: "1px solid",
+                    borderColor: customDaysMode === "preset" ? "var(--accent)" : "var(--border)",
+                    background: customDaysMode === "preset" ? "var(--accent-soft)" : "#fff",
+                    color: customDaysMode === "preset" ? "var(--accent)" : "var(--text-dim)",
+                    fontSize: 11.5, fontWeight: 600, cursor: "pointer",
+                  }}
+                >Preset</button>
+                <button
+                  type="button"
+                  onClick={() => setCustomDaysMode("custom")}
+                  style={{
+                    padding: "5px 12px", borderRadius: 8,
+                    border: "1px solid",
+                    borderColor: customDaysMode === "custom" ? "var(--accent)" : "var(--border)",
+                    background: customDaysMode === "custom" ? "var(--accent-soft)" : "#fff",
+                    color: customDaysMode === "custom" ? "var(--accent)" : "var(--text-dim)",
+                    fontSize: 11.5, fontWeight: 600, cursor: "pointer",
+                  }}
+                >Personalizado</button>
+              </div>
+              <input
+                value={customDays}
+                onChange={e => {
+                  setCustomDays(e.target.value);
+                  setCustomDaysMode("custom");
+                }}
+                placeholder="0, 3, 7, 14, 21"
+                style={{ ...wInput, fontFamily: "var(--font-mono)", fontSize: 13 }}
+              />
+              <div style={{ fontSize: 10.5, color: "var(--text-faint)", marginTop: 4 }}>
+                Ej: <code>0, 2, 5, 10</code> = primer follow-up hoy, luego día 2, día 5, día 10
+              </div>
+
+              {/* Hora del envío */}
+              <div style={{ display: "flex", alignItems: "center", gap: 12, marginTop: 14 }}>
+                <label style={{ ...wLabel, marginBottom: 0 }}>Hora de envío</label>
+                <select
+                  value={defaultHour}
+                  onChange={e => setDefaultHour(parseInt(e.target.value))}
+                  style={{ ...wInput, width: 110, fontFamily: "inherit" }}
+                >
+                  {[8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18].map(h => (
+                    <option key={h} value={h}>{String(h).padStart(2, "0")}:00</option>
+                  ))}
+                </select>
+                <span style={{ fontSize: 11, color: "var(--text-faint)" }}>
+                  (hora local española)
+                </span>
+              </div>
+
+              {/* Send first immediately */}
+              <div style={{
+                display: "flex", alignItems: "flex-start", gap: 10,
+                marginTop: 14, padding: 12,
+                background: sendFirstNow ? "rgba(245,158,11,0.08)" : "var(--bg-elev-2)",
+                border: "1px solid",
+                borderColor: sendFirstNow ? "rgba(245,158,11,0.3)" : "var(--border)",
+                borderRadius: 12,
+                cursor: "pointer",
+              }}
+                onClick={() => setSendFirstNow(!sendFirstNow)}
+              >
+                <div style={{
+                  width: 36, height: 20, borderRadius: 99, flexShrink: 0,
+                  background: sendFirstNow ? "#f59e0b" : "var(--bg-elev-3)",
+                  position: "relative", marginTop: 2,
+                  transition: "background 0.18s",
+                }}>
+                  <div style={{
+                    position: "absolute", top: 2, left: sendFirstNow ? 18 : 2,
+                    width: 16, height: 16, borderRadius: 99, background: "#fff",
+                    boxShadow: "0 1px 3px rgba(0,0,0,0.2)", transition: "left 0.18s",
+                  }} />
+                </div>
+                <div>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: sendFirstNow ? "#92400e" : "var(--text)" }}>
+                    🚀 Enviar el primer follow-up AHORA
+                  </div>
+                  <div style={{ fontSize: 11.5, color: "var(--text-dim)", marginTop: 2, lineHeight: 1.5 }}>
+                    Envía inmediatamente el step 1 por email. Los siguientes se quedan programados en el calendario.
+                  </div>
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+
+        {/* Botones */}
+        <div style={{ display: "flex", gap: 8, marginTop: 18 }}>
+          <button onClick={onClose} style={wBtnSecondary}>Cancelar</button>
+          <button
+            onClick={activate}
+            disabled={activating || !contactName.trim() || !objective.trim()}
+            style={{
+              ...wBtnPrimary, flex: 1,
+              opacity: (activating || !contactName.trim() || !objective.trim()) ? 0.5 : 1,
+            }}
+          >
+            {activating
+              ? (planNow ? `🤖 Generando ${numSteps} follow-ups...` : "Activando...")
+              : (planNow ? `🚀 Activar y planificar ${numSteps} follow-ups` : "🤖 Activar Autopilot")}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ============== Memoria de Seguimientos ==============
+
+function SeguimientosMemoryModal({ onClose }: { onClose: () => void }) {
+  const [entries, setEntries] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [editing, setEditing] = useState<{ slug?: string; title: string; content: string } | null>(null);
+
+  useEffect(() => { load(); }, []);
+
+  async function load() {
+    setLoading(true);
+    try {
+      const r = await fetch("/api/memory").then(r => r.json());
+      // Mostrar solo las de seguimientos + las generales (que el autopilot usa todas)
+      setEntries(r.entries ?? []);
+    } finally { setLoading(false); }
+  }
+
+  async function save() {
+    if (!editing || !editing.title.trim() || !editing.content.trim()) return;
+    setSaving(true);
+    try {
+      await fetch("/api/memory", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          slug: editing.slug,
+          title: editing.title.trim(),
+          category: "seguimientos",
+          content: editing.content.trim(),
+        }),
+      });
+      setEditing(null);
+      await load();
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function remove(slug: string) {
+    if (!confirm("¿Eliminar esta entrada de memoria?")) return;
+    await fetch("/api/memory", {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ slug }),
+    });
+    await load();
+  }
+
+  const seguimientosEntries = entries.filter(e => e.category === "seguimientos");
+  const otherEntries = entries.filter(e => e.category !== "seguimientos");
+
+  return (
+    <div onClick={onClose} style={{
+      position: "fixed", inset: 0, background: "rgba(15,23,42,0.45)",
+      display: "grid", placeItems: "center", zIndex: 100, backdropFilter: "blur(4px)",
+    }}>
+      <div onClick={e => e.stopPropagation()} style={{
+        background: "#fff", borderRadius: 18,
+        width: "92%", maxWidth: 640, maxHeight: "92vh", overflowY: "auto",
+        padding: 26,
+        boxShadow: "0 24px 60px rgba(15,23,42,0.25)",
+      }}>
+        <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 14 }}>
+          <div>
+            <div style={{
+              fontFamily: "var(--font-display)", fontSize: 19, fontWeight: 700,
+              letterSpacing: "-0.02em", color: "var(--text)",
+            }}>
+              🧠 Memoria de Seguimientos
+            </div>
+            <div style={{ fontSize: 12.5, color: "var(--text-dim)", marginTop: 4, lineHeight: 1.5 }}>
+              Conocimiento que la IA usará al redactar en autopilot. Ej: tu tono, propuesta de valor, casos de éxito, objeciones típicas.
+            </div>
+          </div>
+          <button onClick={onClose} style={{
+            background: "transparent", border: "none",
+            fontSize: 22, color: "var(--text-faint)", cursor: "pointer",
+          }}>×</button>
+        </div>
+
+        {/* Editor */}
+        {editing ? (
+          <div style={{
+            background: "var(--bg-elev-2)", border: "1px solid var(--border)",
+            borderRadius: 14, padding: 16, marginBottom: 14,
+          }}>
+            <label style={wLabel}>Título</label>
+            <input
+              value={editing.title}
+              onChange={e => setEditing({ ...editing, title: e.target.value })}
+              placeholder="Ej: Mi propuesta de valor"
+              style={wInput}
+            />
+            <label style={{ ...wLabel, marginTop: 10 }}>Contenido</label>
+            <textarea
+              value={editing.content}
+              onChange={e => setEditing({ ...editing, content: e.target.value })}
+              rows={6}
+              placeholder={`Ej:
+- Vendemos plataforma SaaS de outreach con IA
+- Pricing: 99€/mes (Pro) y 299€/mes (Team)
+- Caso de éxito: HubSpot Partners cerró 12 deals en 30 días`}
+              style={{ ...wInput, resize: "vertical", fontFamily: "inherit", lineHeight: 1.55 }}
+            />
+            <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
+              <button onClick={() => setEditing(null)} style={wBtnSecondary}>Cancelar</button>
+              <button
+                onClick={save}
+                disabled={saving || !editing.title.trim() || !editing.content.trim()}
+                style={{
+                  ...wBtnPrimary, flex: 1,
+                  opacity: (saving || !editing.title.trim() || !editing.content.trim()) ? 0.5 : 1,
+                }}
+              >
+                {saving ? "Guardando..." : "💾 Guardar"}
+              </button>
+            </div>
+          </div>
+        ) : (
+          <button
+            onClick={() => setEditing({ title: "", content: "" })}
+            style={{
+              ...wBtnPrimary, width: "100%", marginBottom: 14,
+              padding: "11px 16px", fontSize: 13.5,
+            }}
+          >
+            + Añadir nueva entrada
+          </button>
+        )}
+
+        {/* Lista */}
+        {loading ? (
+          <div style={{ textAlign: "center", padding: 20, color: "var(--text-faint)", fontSize: 12 }}>
+            Cargando…
+          </div>
+        ) : (
+          <>
+            <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--text-faint)", marginBottom: 8 }}>
+              Para seguimientos ({seguimientosEntries.length})
+            </div>
+            {seguimientosEntries.length === 0 ? (
+              <div style={{ padding: 14, textAlign: "center", color: "var(--text-faint)", fontSize: 12.5, background: "var(--bg-elev-2)", borderRadius: 10 }}>
+                Aún no hay memoria específica de seguimientos
+              </div>
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                {seguimientosEntries.map(e => (
+                  <MemoryCard key={e.slug} entry={e} onEdit={() => setEditing(e)} onDelete={() => remove(e.slug)} />
+                ))}
+              </div>
+            )}
+
+            {otherEntries.length > 0 && (
+              <>
+                <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--text-faint)", marginTop: 16, marginBottom: 8 }}>
+                  Memoria global compartida ({otherEntries.length}) — la IA también la usa
+                </div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                  {otherEntries.map(e => (
+                    <MemoryCard key={e.slug} entry={e} onEdit={() => setEditing(e)} onDelete={() => remove(e.slug)} muted />
+                  ))}
+                </div>
+              </>
+            )}
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function MemoryCard({ entry, onEdit, onDelete, muted }: { entry: any; onEdit: () => void; onDelete: () => void; muted?: boolean }) {
+  return (
+    <div style={{
+      background: muted ? "var(--bg-elev-2)" : "#fff",
+      border: "1px solid var(--border)",
+      borderRadius: 12, padding: "11px 14px",
+      transition: "all 0.15s",
+    }}>
+      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 8, marginBottom: 4 }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: "var(--text)" }}>
+            {entry.title}
+          </div>
+          <div style={{ fontSize: 10, fontWeight: 600, color: "var(--text-faint)", textTransform: "uppercase", letterSpacing: "0.06em", marginTop: 2 }}>
+            {entry.category}
+          </div>
+        </div>
+        <div style={{ display: "flex", gap: 4, flexShrink: 0 }}>
+          <button onClick={onEdit} style={{
+            padding: "4px 9px", fontSize: 11, fontWeight: 600,
+            border: "1px solid var(--border)", borderRadius: 7,
+            background: "#fff", color: "var(--text-dim)", cursor: "pointer",
+          }}>Editar</button>
+          <button onClick={onDelete} style={{
+            padding: "4px 9px", fontSize: 11, fontWeight: 600,
+            border: "1px solid rgba(239,68,68,0.2)", borderRadius: 7,
+            background: "rgba(239,68,68,0.06)", color: "#dc2626", cursor: "pointer",
+          }}>×</button>
+        </div>
+      </div>
+      <div style={{
+        fontSize: 12, color: "var(--text-dim)",
+        whiteSpace: "pre-wrap", lineHeight: 1.55,
+        maxHeight: 100, overflowY: "auto",
+      }}>
+        {entry.content}
+      </div>
+    </div>
+  );
+}
+
+const wLabel: React.CSSProperties = {
+  display: "block", fontSize: 11, fontWeight: 700, letterSpacing: "0.06em",
+  textTransform: "uppercase", color: "var(--text-dim)", marginBottom: 6,
+};
+const wInput: React.CSSProperties = {
+  width: "100%", padding: "10px 13px", background: "var(--bg-elev-2)",
+  border: "1.5px solid var(--border)", borderRadius: 10,
+  fontSize: 13.5, color: "var(--text)", outline: "none", boxSizing: "border-box",
+};
+const wBtnPrimary: React.CSSProperties = {
+  padding: "10px 16px", background: "var(--accent)", color: "#fff",
+  border: "none", borderRadius: 10, fontSize: 13.5, fontWeight: 700,
+  cursor: "pointer", boxShadow: "0 2px 8px rgba(0,113,227,0.25)", fontFamily: "inherit",
+};
+const wBtnSecondary: React.CSSProperties = {
+  padding: "10px 16px", background: "#fff", color: "var(--text-dim)",
+  border: "1px solid var(--border)", borderRadius: 10, fontSize: 13.5,
+  fontWeight: 600, cursor: "pointer", fontFamily: "inherit",
+};
 
 // ============== Componentes ==============
 
@@ -1075,13 +2025,132 @@ function ConnectView(p: any) {
 }
 
 function ComposeView(p: any) {
+  const [aiOpen, setAiOpen] = useState(false);
+  const [aiName, setAiName] = useState("");
+  const [aiTopic, setAiTopic] = useState("");
+  const [aiObjective, setAiObjective] = useState("Cerrar reunión de 15 min para enseñarle el producto.");
+  const [aiTone, setAiTone] = useState("");
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiError, setAiError] = useState<string | null>(null);
+
+  async function generate() {
+    if (!p.to.trim()) {
+      setAiError("Pon primero el email destinatario");
+      return;
+    }
+    setAiLoading(true);
+    setAiError(null);
+    try {
+      const r = await p.aiCompose({
+        contact_name: aiName.trim(),
+        objective: aiObjective.trim(),
+        topic: aiTopic.trim(),
+        tone: aiTone.trim(),
+      });
+      if (r.error) {
+        setAiError(r.error);
+      } else {
+        if (r.subject) p.setSubject(r.subject);
+        if (r.body_html) p.setBodyHtml(r.body_html);
+        setAiOpen(false);
+      }
+    } finally {
+      setAiLoading(false);
+    }
+  }
+
   return (
     <section className="seg-card">
-      <h2 className="li-h2">Nuevo email</h2>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+        <h2 className="li-h2" style={{ margin: 0 }}>Nuevo email</h2>
+        <div style={{ fontSize: 11.5, color: "var(--text-faint)" }}>
+          ✉️ Crea un hilo · respuestas se cargan automáticamente
+        </div>
+      </div>
+
       <div className="li-row">
         <label className="li-label">Para</label>
         <input className="li-input" value={p.to} onChange={(e: any) => p.setTo(e.target.value)} placeholder="email@destinatario.com" />
       </div>
+
+      {/* AI assistant */}
+      <div style={{
+        margin: "10px 0", padding: 12,
+        background: "linear-gradient(135deg, rgba(0,113,227,0.05), rgba(99,102,241,0.04))",
+        border: "1px solid rgba(0,113,227,0.18)",
+        borderRadius: 12,
+      }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 700, color: "var(--accent)" }}>
+              ✨ Redactar primer email con IA
+            </div>
+            <div style={{ fontSize: 11.5, color: "var(--text-dim)", marginTop: 2 }}>
+              La IA usará tu memoria + objetivo para escribir asunto y cuerpo
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => setAiOpen(!aiOpen)}
+            style={{
+              padding: "7px 14px", border: "1px solid var(--accent)",
+              background: aiOpen ? "var(--accent)" : "#fff",
+              color: aiOpen ? "#fff" : "var(--accent)",
+              borderRadius: 9, fontSize: 12, fontWeight: 700, cursor: "pointer",
+              fontFamily: "inherit",
+            }}
+          >
+            {aiOpen ? "Cerrar" : "Abrir IA"}
+          </button>
+        </div>
+
+        {aiOpen && (
+          <div style={{ marginTop: 10, display: "grid", gap: 8 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+              <input
+                value={aiName}
+                onChange={e => setAiName(e.target.value)}
+                placeholder="Nombre del contacto (opcional)"
+                style={{ padding: "8px 11px", border: "1px solid var(--border)", borderRadius: 8, fontSize: 12.5, background: "#fff" }}
+              />
+              <input
+                value={aiTone}
+                onChange={e => setAiTone(e.target.value)}
+                placeholder="Tono (ej: directo, técnico)"
+                style={{ padding: "8px 11px", border: "1px solid var(--border)", borderRadius: 8, fontSize: 12.5, background: "#fff" }}
+              />
+            </div>
+            <textarea
+              value={aiTopic}
+              onChange={e => setAiTopic(e.target.value)}
+              rows={2}
+              placeholder="Sobre qué quieres hablarle. Ej: Vimos que abristeis oficina en Madrid, ofrecemos plataforma SaaS para outreach..."
+              style={{ padding: "8px 11px", border: "1px solid var(--border)", borderRadius: 8, fontSize: 12.5, fontFamily: "inherit", resize: "vertical", background: "#fff" }}
+            />
+            <input
+              value={aiObjective}
+              onChange={e => setAiObjective(e.target.value)}
+              placeholder="Objetivo del email (qué quieres conseguir)"
+              style={{ padding: "8px 11px", border: "1px solid var(--border)", borderRadius: 8, fontSize: 12.5, background: "#fff" }}
+            />
+            {aiError && <div style={{ fontSize: 11.5, color: "var(--error)" }}>⚠️ {aiError}</div>}
+            <button
+              type="button"
+              onClick={generate}
+              disabled={aiLoading}
+              style={{
+                padding: "9px 14px", background: "var(--accent)", color: "#fff",
+                border: "none", borderRadius: 9, fontSize: 13, fontWeight: 700,
+                cursor: "pointer", boxShadow: "0 2px 8px rgba(0,113,227,0.25)",
+                opacity: aiLoading ? 0.6 : 1,
+              }}
+            >
+              {aiLoading ? "🪄 Redactando…" : "✨ Generar asunto + cuerpo"}
+            </button>
+          </div>
+        )}
+      </div>
+
       <div className="li-row">
         <label className="li-label">Asunto</label>
         <input className="li-input" value={p.subject} onChange={(e: any) => p.setSubject(e.target.value)} placeholder="Asunto del email" />
@@ -1091,34 +2160,74 @@ function ComposeView(p: any) {
         <textarea className="li-textarea" rows={14} value={p.bodyHtml} onChange={(e: any) => p.setBodyHtml(e.target.value)} />
       </div>
       <div className="li-row">
-        <label className="li-label">Adjuntos</label>
+        <label className="li-label">📎 Adjuntos</label>
         <input ref={p.fileRef} type="file" multiple onChange={(e: any) => p.setFiles(Array.from(e.target.files ?? []))} />
         {p.files.length > 0 && (
-          <div style={{ fontSize: 12, color: "var(--text-dim)" }}>📎 {p.files.map((f: File) => f.name).join(", ")}</div>
+          <div style={{ fontSize: 12, color: "var(--text-dim)", marginTop: 4 }}>📎 {p.files.map((f: File) => f.name).join(", ")}</div>
         )}
       </div>
-      <div className="li-row">
-        <label className="li-label">Aplicar secuencia tras enviar (opcional)</label>
-        <select
-          value={p.composeSequenceId}
-          onChange={(e) => p.setComposeSequenceId(e.target.value)}
-          style={{ background: "var(--bg)", border: "1px solid var(--border)", borderRadius: 8, color: "var(--text)", padding: "8px 10px", fontSize: 13 }}
-        >
-          <option value="">— Sin secuencia automática —</option>
-          {p.sequences.map((s: Sequence) => (
-            <option key={s.id} value={s.id}>
-              {s.name} ({s.steps.length} steps)
-            </option>
-          ))}
-        </select>
-        {p.composeSequenceId && (
-          <div style={{ fontSize: 11.5, color: "var(--text-faint)", marginTop: 4 }}>
-            Tras enviar, se programarán automáticamente los follow-ups de la secuencia. Se cancelan solos si el prospect responde.
+
+      {/* OPCIONES TRAS ENVIAR */}
+      <div style={{
+        marginTop: 14, padding: 14,
+        background: "var(--bg-elev-2)",
+        border: "1px solid var(--border)",
+        borderRadius: 12,
+      }}>
+        <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: "var(--text-dim)", marginBottom: 10 }}>
+          Tras enviar este email
+        </div>
+
+        {/* Toggle autopilot */}
+        <label style={{ display: "flex", alignItems: "flex-start", gap: 10, cursor: "pointer", marginBottom: 10 }}>
+          <div
+            onClick={() => p.setAutopilotAfter(!p.autopilotAfter)}
+            style={{
+              width: 36, height: 20, borderRadius: 999, flexShrink: 0,
+              background: p.autopilotAfter ? "var(--accent)" : "var(--bg-elev-3)",
+              position: "relative", marginTop: 2, transition: "background 0.18s",
+            }}
+          >
+            <div style={{
+              position: "absolute", top: 2, left: p.autopilotAfter ? 18 : 2,
+              width: 16, height: 16, borderRadius: 999, background: "#fff",
+              boxShadow: "0 1px 3px rgba(0,0,0,0.2)", transition: "left 0.18s",
+            }} />
           </div>
-        )}
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text)" }}>
+              🤖 Activar autopilot y planificar follow-ups
+            </div>
+            <div style={{ fontSize: 11.5, color: "var(--text-faint)", marginTop: 1 }}>
+              Tras enviar abrirá el wizard del autopilot para que configures contexto, tono, objetivo y secuencia
+            </div>
+          </div>
+        </label>
+
+        <div className="li-row" style={{ margin: 0 }}>
+          <label className="li-label" style={{ fontSize: 11 }}>O aplicar secuencia ya guardada (alternativo)</label>
+          <select
+            value={p.composeSequenceId}
+            onChange={(e) => p.setComposeSequenceId(e.target.value)}
+            style={{ background: "#fff", border: "1px solid var(--border)", borderRadius: 8, color: "var(--text)", padding: "8px 10px", fontSize: 13, width: "100%" }}
+          >
+            <option value="">— Sin secuencia automática —</option>
+            {p.sequences.map((s: Sequence) => (
+              <option key={s.id} value={s.id}>
+                {s.name} ({s.steps.length} steps)
+              </option>
+            ))}
+          </select>
+        </div>
       </div>
-      <button className="btn-primary" onClick={p.send} disabled={p.sending || !p.to || !p.subject}>
-        {p.sending ? "Enviando…" : "Enviar"}
+
+      <button
+        className="btn-primary"
+        onClick={p.send}
+        disabled={p.sending || !p.to || !p.subject}
+        style={{ marginTop: 14, width: "100%" }}
+      >
+        {p.sending ? "Enviando…" : `📧 Enviar y crear hilo${p.autopilotAfter ? " · luego configurar autopilot" : ""}`}
       </button>
     </section>
   );
@@ -1497,8 +2606,23 @@ function ThreadView(p: any) {
                 <div className="li-post-text" dangerouslySetInnerHTML={{ __html: f.body_html.slice(0, 400) }} />
                 {f.error && <div className="li-post-err">{f.error}</div>}
                 {f.status === "scheduled" && (
-                  <div className="li-post-actions">
-                    <button className="btn-ghost-sm" onClick={() => p.cancelFollowup(f.id)}>Cancelar</button>
+                  <div className="li-post-actions" style={{ display: "flex", gap: 6, marginTop: 8 }}>
+                    <button
+                      onClick={() => p.sendNowFollowup(f.id)}
+                      style={{
+                        padding: "6px 14px",
+                        background: "linear-gradient(135deg, #f59e0b, #d97706)",
+                        color: "#fff", border: "none", borderRadius: 9,
+                        fontSize: 12, fontWeight: 700, cursor: "pointer",
+                        boxShadow: "0 2px 8px rgba(245,158,11,0.3)",
+                        fontFamily: "inherit",
+                      }}
+                    >
+                      🚀 Enviar AHORA
+                    </button>
+                    <button className="btn-ghost-sm" onClick={() => p.cancelFollowup(f.id)}>
+                      Cancelar
+                    </button>
                   </div>
                 )}
               </div>

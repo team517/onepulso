@@ -86,21 +86,33 @@ export async function sendDueFollowups(): Promise<{ sent: number; failed: number
       if (!cfg) throw new Error("Email no conectado");
       const thread = await getThread(f.thread_id);
       if (!thread) throw new Error("Thread no encontrado");
-      const lastInbound = [...thread.messages].reverse().find((m) => m.direction === "inbound");
-      const lastOutbound = [...thread.messages].reverse().find((m) => m.direction === "outbound");
-      const refMsg = lastInbound || lastOutbound;
+      // Reply al ÚLTIMO mensaje del hilo (cualquier dirección)
+      const lastMsg = thread.messages[thread.messages.length - 1];
+      const refMsg = lastMsg;
       const recipient =
         thread.participants.find((p) => p.toLowerCase() !== cfg.email.toLowerCase()) ??
         thread.participants[0];
 
-      const subject = thread.subject.startsWith("Re:") ? thread.subject : `Re: ${thread.subject}`;
+      const baseSubject = thread.subject.replace(/^(re:\s*)+/i, "").trim();
+      const subject = `Re: ${baseSubject}`;
       const cleanBody = stripConditionMarkers(f.body_html);
+
+      // Cadena de References completa
+      const refsChain: string[] = [];
+      if (refMsg?.references) refsChain.push(...refMsg.references);
+      if (refMsg?.in_reply_to && !refsChain.includes(refMsg.in_reply_to)) {
+        refsChain.push(refMsg.in_reply_to);
+      }
+      if (refMsg?.message_id && !refsChain.includes(refMsg.message_id)) {
+        refsChain.push(refMsg.message_id);
+      }
+
       const info = await sendEmail({
         to: recipient,
         subject,
         body_html: cleanBody,
         in_reply_to: refMsg?.message_id,
-        references: refMsg ? [...(refMsg.references ?? []), refMsg.message_id ?? ""].filter(Boolean) : undefined,
+        references: refsChain.length > 0 ? refsChain : undefined,
       });
       await appendMessage(f.thread_id, {
         direction: "outbound",
@@ -110,7 +122,7 @@ export async function sendDueFollowups(): Promise<{ sent: number; failed: number
         body_html: cleanBody,
         message_id: info.messageId,
         in_reply_to: refMsg?.message_id,
-        references: refMsg ? [...(refMsg.references ?? []), refMsg.message_id ?? ""].filter(Boolean) : undefined,
+        references: refsChain.length > 0 ? refsChain : undefined,
         date: new Date().toISOString(),
       });
       await updateFollowup(f.thread_id, f.id, {

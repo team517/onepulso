@@ -29,7 +29,18 @@ export type Thread = {
   status: "active" | "closed" | "stale";
   followups: Followup[];
   notes?: string;
-  auto_pilot?: boolean; // Si true, la IA procesa cada nueva inbound: extrae fecha + redacta + programa
+  contact_name?: string;     // Nombre legible del contacto (auto-detectado o manual)
+  contact_context?: string;  // Contexto del contacto que el autopilot usa al redactar
+  tone?: string;             // Tono específico para este contacto (ej. "directo y técnico")
+  objective?: string;        // Objetivo del seguimiento (ej. "cerrar reunión 30 min")
+  custom_prompt?: string;    // Instrucciones extra que se inyectan en el prompt
+  contract_alert?: {         // Alerta de "el cliente pide contrato/propuesta"
+    detected_at: string;
+    message_id?: string;
+    excerpt: string;
+    acknowledged?: boolean;
+  };
+  auto_pilot?: boolean;      // Si true, la IA procesa cada nueva inbound: extrae fecha + redacta + programa
   auto_pilot_processed_msg_ids?: string[]; // mensajes inbound ya procesados por auto-pilot
   created_at: string;
   updated_at: string;

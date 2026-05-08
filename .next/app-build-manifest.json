@@ -1,331 +1,110 @@
 {
   "pages": {
-    "/_not-found/page": [
-      "static/chunks/webpack-6bb3c1cb3f330c04.js",
-      "static/chunks/4bd1b696-d911b5d1187259d6.js",
-      "static/chunks/1517-627f5b04cf1700dc.js",
-      "static/chunks/main-app-06d9bc08eecd3d14.js",
-      "static/chunks/app/_not-found/page-60452e6b90d7d4b0.js"
-    ],
     "/layout": [
-      "static/chunks/webpack-6bb3c1cb3f330c04.js",
-      "static/chunks/4bd1b696-d911b5d1187259d6.js",
-      "static/chunks/1517-627f5b04cf1700dc.js",
-      "static/chunks/main-app-06d9bc08eecd3d14.js",
-      "static/css/78ae177c34a4e0b6.css",
-      "static/chunks/app/layout-913f9a44f168f656.js"
-    ],
-    "/api/campaigns/route": [
-      "static/chunks/webpack-6bb3c1cb3f330c04.js",
-      "static/chunks/4bd1b696-d911b5d1187259d6.js",
-      "static/chunks/1517-627f5b04cf1700dc.js",
-      "static/chunks/main-app-06d9bc08eecd3d14.js",
-      "static/chunks/app/api/campaigns/route-a640dfa61c8aa063.js"
-    ],
-    "/api/conversations/route": [
-      "static/chunks/webpack-6bb3c1cb3f330c04.js",
-      "static/chunks/4bd1b696-d911b5d1187259d6.js",
-      "static/chunks/1517-627f5b04cf1700dc.js",
-      "static/chunks/main-app-06d9bc08eecd3d14.js",
-      "static/chunks/app/api/conversations/route-f4a2abbae0c12007.js"
-    ],
-    "/api/chat/attach/route": [
-      "static/chunks/webpack-6bb3c1cb3f330c04.js",
-      "static/chunks/4bd1b696-d911b5d1187259d6.js",
-      "static/chunks/1517-627f5b04cf1700dc.js",
-      "static/chunks/main-app-06d9bc08eecd3d14.js",
-      "static/chunks/app/api/chat/attach/route-bc48d5e9e2802b99.js"
-    ],
-    "/api/conversations/[id]/route": [
-      "static/chunks/webpack-6bb3c1cb3f330c04.js",
-      "static/chunks/4bd1b696-d911b5d1187259d6.js",
-      "static/chunks/1517-627f5b04cf1700dc.js",
-      "static/chunks/main-app-06d9bc08eecd3d14.js",
-      "static/chunks/app/api/conversations/[id]/route-e632ce515732b034.js"
-    ],
-    "/api/credentials/route": [
-      "static/chunks/webpack-6bb3c1cb3f330c04.js",
-      "static/chunks/4bd1b696-d911b5d1187259d6.js",
-      "static/chunks/1517-627f5b04cf1700dc.js",
-      "static/chunks/main-app-06d9bc08eecd3d14.js",
-      "static/chunks/app/api/credentials/route-b3c634bd8ec8107c.js"
-    ],
-    "/api/chat/route": [
-      "static/chunks/webpack-6bb3c1cb3f330c04.js",
-      "static/chunks/4bd1b696-d911b5d1187259d6.js",
-      "static/chunks/1517-627f5b04cf1700dc.js",
-      "static/chunks/main-app-06d9bc08eecd3d14.js",
-      "static/chunks/app/api/chat/route-8315114dbf278307.js"
-    ],
-    "/api/email/config/route": [
-      "static/chunks/webpack-6bb3c1cb3f330c04.js",
-      "static/chunks/4bd1b696-d911b5d1187259d6.js",
-      "static/chunks/1517-627f5b04cf1700dc.js",
-      "static/chunks/main-app-06d9bc08eecd3d14.js",
-      "static/chunks/app/api/email/config/route-83476c917067d71c.js"
-    ],
-    "/api/email/folders/route": [
-      "static/chunks/webpack-6bb3c1cb3f330c04.js",
-      "static/chunks/4bd1b696-d911b5d1187259d6.js",
-      "static/chunks/1517-627f5b04cf1700dc.js",
-      "static/chunks/main-app-06d9bc08eecd3d14.js",
-      "static/chunks/app/api/email/folders/route-2773fc42923f9c93.js"
-    ],
-    "/api/email/ai/extract-date/route": [
-      "static/chunks/webpack-6bb3c1cb3f330c04.js",
-      "static/chunks/4bd1b696-d911b5d1187259d6.js",
-      "static/chunks/1517-627f5b04cf1700dc.js",
-      "static/chunks/main-app-06d9bc08eecd3d14.js",
-      "static/chunks/app/api/email/ai/extract-date/route-876c1a11fc4504c6.js"
-    ],
-    "/api/email/ai/reply/route": [
-      "static/chunks/webpack-6bb3c1cb3f330c04.js",
-      "static/chunks/4bd1b696-d911b5d1187259d6.js",
-      "static/chunks/1517-627f5b04cf1700dc.js",
-      "static/chunks/main-app-06d9bc08eecd3d14.js",
-      "static/chunks/app/api/email/ai/reply/route-5094b6adc8f08515.js"
-    ],
-    "/api/email/followups/[id]/route": [
-      "static/chunks/webpack-6bb3c1cb3f330c04.js",
-      "static/chunks/4bd1b696-d911b5d1187259d6.js",
-      "static/chunks/1517-627f5b04cf1700dc.js",
-      "static/chunks/main-app-06d9bc08eecd3d14.js",
-      "static/chunks/app/api/email/followups/[id]/route-cc125d9980b91fae.js"
-    ],
-    "/api/email/followups/route": [
-      "static/chunks/webpack-6bb3c1cb3f330c04.js",
-      "static/chunks/4bd1b696-d911b5d1187259d6.js",
-      "static/chunks/1517-627f5b04cf1700dc.js",
-      "static/chunks/main-app-06d9bc08eecd3d14.js",
-      "static/chunks/app/api/email/followups/route-b8db8b90112e8119.js"
-    ],
-    "/api/email/search/route": [
-      "static/chunks/webpack-6bb3c1cb3f330c04.js",
-      "static/chunks/4bd1b696-d911b5d1187259d6.js",
-      "static/chunks/1517-627f5b04cf1700dc.js",
-      "static/chunks/main-app-06d9bc08eecd3d14.js",
-      "static/chunks/app/api/email/search/route-ad8de050a1e87d99.js"
-    ],
-    "/api/email/import/route": [
-      "static/chunks/webpack-6bb3c1cb3f330c04.js",
-      "static/chunks/4bd1b696-d911b5d1187259d6.js",
-      "static/chunks/1517-627f5b04cf1700dc.js",
-      "static/chunks/main-app-06d9bc08eecd3d14.js",
-      "static/chunks/app/api/email/import/route-394f87746ebe29f8.js"
-    ],
-    "/api/email/sequences/[id]/route": [
-      "static/chunks/webpack-6bb3c1cb3f330c04.js",
-      "static/chunks/4bd1b696-d911b5d1187259d6.js",
-      "static/chunks/1517-627f5b04cf1700dc.js",
-      "static/chunks/main-app-06d9bc08eecd3d14.js",
-      "static/chunks/app/api/email/sequences/[id]/route-00ccb0b44de313fb.js"
-    ],
-    "/api/email/sequences/apply/route": [
-      "static/chunks/webpack-6bb3c1cb3f330c04.js",
-      "static/chunks/4bd1b696-d911b5d1187259d6.js",
-      "static/chunks/1517-627f5b04cf1700dc.js",
-      "static/chunks/main-app-06d9bc08eecd3d14.js",
-      "static/chunks/app/api/email/sequences/apply/route-938ecca076b3b4e4.js"
-    ],
-    "/api/email/debug-sent/route": [
-      "static/chunks/webpack-6bb3c1cb3f330c04.js",
-      "static/chunks/4bd1b696-d911b5d1187259d6.js",
-      "static/chunks/1517-627f5b04cf1700dc.js",
-      "static/chunks/main-app-06d9bc08eecd3d14.js",
-      "static/chunks/app/api/email/debug-sent/route-b4bcbb76c62eda58.js"
-    ],
-    "/api/email/sequences/route": [
-      "static/chunks/webpack-6bb3c1cb3f330c04.js",
-      "static/chunks/4bd1b696-d911b5d1187259d6.js",
-      "static/chunks/1517-627f5b04cf1700dc.js",
-      "static/chunks/main-app-06d9bc08eecd3d14.js",
-      "static/chunks/app/api/email/sequences/route-20155777ee3b8186.js"
-    ],
-    "/api/email/sequences/ai-generate/route": [
-      "static/chunks/webpack-6bb3c1cb3f330c04.js",
-      "static/chunks/4bd1b696-d911b5d1187259d6.js",
-      "static/chunks/1517-627f5b04cf1700dc.js",
-      "static/chunks/main-app-06d9bc08eecd3d14.js",
-      "static/chunks/app/api/email/sequences/ai-generate/route-2d25ab70da66039f.js"
-    ],
-    "/api/email/sync/route": [
-      "static/chunks/webpack-6bb3c1cb3f330c04.js",
-      "static/chunks/4bd1b696-d911b5d1187259d6.js",
-      "static/chunks/1517-627f5b04cf1700dc.js",
-      "static/chunks/main-app-06d9bc08eecd3d14.js",
-      "static/chunks/app/api/email/sync/route-4d7ba2f74fd6411f.js"
-    ],
-    "/api/email/threads/[id]/route": [
-      "static/chunks/webpack-6bb3c1cb3f330c04.js",
-      "static/chunks/4bd1b696-d911b5d1187259d6.js",
-      "static/chunks/1517-627f5b04cf1700dc.js",
-      "static/chunks/main-app-06d9bc08eecd3d14.js",
-      "static/chunks/app/api/email/threads/[id]/route-785fda830c61a392.js"
-    ],
-    "/api/email/send/route": [
-      "static/chunks/webpack-6bb3c1cb3f330c04.js",
-      "static/chunks/4bd1b696-d911b5d1187259d6.js",
-      "static/chunks/1517-627f5b04cf1700dc.js",
-      "static/chunks/main-app-06d9bc08eecd3d14.js",
-      "static/chunks/app/api/email/send/route-d37bff89ffd76cfb.js"
-    ],
-    "/api/linkedin/callback/route": [
-      "static/chunks/webpack-6bb3c1cb3f330c04.js",
-      "static/chunks/4bd1b696-d911b5d1187259d6.js",
-      "static/chunks/1517-627f5b04cf1700dc.js",
-      "static/chunks/main-app-06d9bc08eecd3d14.js",
-      "static/chunks/app/api/linkedin/callback/route-94c329d37491ad5f.js"
-    ],
-    "/api/linkedin/auth/route": [
-      "static/chunks/webpack-6bb3c1cb3f330c04.js",
-      "static/chunks/4bd1b696-d911b5d1187259d6.js",
-      "static/chunks/1517-627f5b04cf1700dc.js",
-      "static/chunks/main-app-06d9bc08eecd3d14.js",
-      "static/chunks/app/api/linkedin/auth/route-89f773d63739fc49.js"
-    ],
-    "/api/instantly/status/route": [
-      "static/chunks/webpack-6bb3c1cb3f330c04.js",
-      "static/chunks/4bd1b696-d911b5d1187259d6.js",
-      "static/chunks/1517-627f5b04cf1700dc.js",
-      "static/chunks/main-app-06d9bc08eecd3d14.js",
-      "static/chunks/app/api/instantly/status/route-c5e34f0ec673f00c.js"
-    ],
-    "/api/email/threads/[id]/autopilot/route": [
-      "static/chunks/webpack-6bb3c1cb3f330c04.js",
-      "static/chunks/4bd1b696-d911b5d1187259d6.js",
-      "static/chunks/1517-627f5b04cf1700dc.js",
-      "static/chunks/main-app-06d9bc08eecd3d14.js",
-      "static/chunks/app/api/email/threads/[id]/autopilot/route-186925042329a750.js"
-    ],
-    "/api/linkedin/draft/route": [
-      "static/chunks/webpack-6bb3c1cb3f330c04.js",
-      "static/chunks/4bd1b696-d911b5d1187259d6.js",
-      "static/chunks/1517-627f5b04cf1700dc.js",
-      "static/chunks/main-app-06d9bc08eecd3d14.js",
-      "static/chunks/app/api/linkedin/draft/route-0ec4e0a5e07f8f2f.js"
-    ],
-    "/api/email/threads/route": [
-      "static/chunks/webpack-6bb3c1cb3f330c04.js",
-      "static/chunks/4bd1b696-d911b5d1187259d6.js",
-      "static/chunks/1517-627f5b04cf1700dc.js",
-      "static/chunks/main-app-06d9bc08eecd3d14.js",
-      "static/chunks/app/api/email/threads/route-0b98f82291dde755.js"
-    ],
-    "/api/linkedin/generate-image/route": [
-      "static/chunks/webpack-6bb3c1cb3f330c04.js",
-      "static/chunks/4bd1b696-d911b5d1187259d6.js",
-      "static/chunks/1517-627f5b04cf1700dc.js",
-      "static/chunks/main-app-06d9bc08eecd3d14.js",
-      "static/chunks/app/api/linkedin/generate-image/route-63cf9b608efe3404.js"
-    ],
-    "/api/linkedin/posts/route": [
-      "static/chunks/webpack-6bb3c1cb3f330c04.js",
-      "static/chunks/4bd1b696-d911b5d1187259d6.js",
-      "static/chunks/1517-627f5b04cf1700dc.js",
-      "static/chunks/main-app-06d9bc08eecd3d14.js",
-      "static/chunks/app/api/linkedin/posts/route-a6a5892ddb9c1d00.js"
-    ],
-    "/api/linkedin/posts/[id]/image/route": [
-      "static/chunks/webpack-6bb3c1cb3f330c04.js",
-      "static/chunks/4bd1b696-d911b5d1187259d6.js",
-      "static/chunks/1517-627f5b04cf1700dc.js",
-      "static/chunks/main-app-06d9bc08eecd3d14.js",
-      "static/chunks/app/api/linkedin/posts/[id]/image/route-e3557b3dced2317f.js"
-    ],
-    "/api/linkedin/posts/[id]/route": [
-      "static/chunks/webpack-6bb3c1cb3f330c04.js",
-      "static/chunks/4bd1b696-d911b5d1187259d6.js",
-      "static/chunks/1517-627f5b04cf1700dc.js",
-      "static/chunks/main-app-06d9bc08eecd3d14.js",
-      "static/chunks/app/api/linkedin/posts/[id]/route-7cdad0e6cfde7c97.js"
-    ],
-    "/api/linkedin/publish/route": [
-      "static/chunks/webpack-6bb3c1cb3f330c04.js",
-      "static/chunks/4bd1b696-d911b5d1187259d6.js",
-      "static/chunks/1517-627f5b04cf1700dc.js",
-      "static/chunks/main-app-06d9bc08eecd3d14.js",
-      "static/chunks/app/api/linkedin/publish/route-2699883dda3a8a2e.js"
-    ],
-    "/api/linkedin/scheduler/tick/route": [
-      "static/chunks/webpack-6bb3c1cb3f330c04.js",
-      "static/chunks/4bd1b696-d911b5d1187259d6.js",
-      "static/chunks/1517-627f5b04cf1700dc.js",
-      "static/chunks/main-app-06d9bc08eecd3d14.js",
-      "static/chunks/app/api/linkedin/scheduler/tick/route-1855ee92b5f2af5f.js"
-    ],
-    "/api/linkedin/plan/route": [
-      "static/chunks/webpack-6bb3c1cb3f330c04.js",
-      "static/chunks/4bd1b696-d911b5d1187259d6.js",
-      "static/chunks/1517-627f5b04cf1700dc.js",
-      "static/chunks/main-app-06d9bc08eecd3d14.js",
-      "static/chunks/app/api/linkedin/plan/route-d48a8c5406e51a3a.js"
-    ],
-    "/api/memory/route": [
-      "static/chunks/webpack-6bb3c1cb3f330c04.js",
-      "static/chunks/4bd1b696-d911b5d1187259d6.js",
-      "static/chunks/1517-627f5b04cf1700dc.js",
-      "static/chunks/main-app-06d9bc08eecd3d14.js",
-      "static/chunks/app/api/memory/route-2af7695f14ef7d05.js"
-    ],
-    "/api/linkedin/status/route": [
-      "static/chunks/webpack-6bb3c1cb3f330c04.js",
-      "static/chunks/4bd1b696-d911b5d1187259d6.js",
-      "static/chunks/1517-627f5b04cf1700dc.js",
-      "static/chunks/main-app-06d9bc08eecd3d14.js",
-      "static/chunks/app/api/linkedin/status/route-a7be6670149fb05e.js"
-    ],
-    "/api/memory/upload/route": [
-      "static/chunks/webpack-6bb3c1cb3f330c04.js",
-      "static/chunks/4bd1b696-d911b5d1187259d6.js",
-      "static/chunks/1517-627f5b04cf1700dc.js",
-      "static/chunks/main-app-06d9bc08eecd3d14.js",
-      "static/chunks/app/api/memory/upload/route-6dbce2ff4fa2bf66.js"
-    ],
-    "/api/skills/[name]/route": [
-      "static/chunks/webpack-6bb3c1cb3f330c04.js",
-      "static/chunks/4bd1b696-d911b5d1187259d6.js",
-      "static/chunks/1517-627f5b04cf1700dc.js",
-      "static/chunks/main-app-06d9bc08eecd3d14.js",
-      "static/chunks/app/api/skills/[name]/route-bd32bd1a0dca2358.js"
-    ],
-    "/api/skills/route": [
-      "static/chunks/webpack-6bb3c1cb3f330c04.js",
-      "static/chunks/4bd1b696-d911b5d1187259d6.js",
-      "static/chunks/1517-627f5b04cf1700dc.js",
-      "static/chunks/main-app-06d9bc08eecd3d14.js",
-      "static/chunks/app/api/skills/route-129ba26b226ac9c9.js"
-    ],
-    "/campaigns/page": [
-      "static/chunks/webpack-6bb3c1cb3f330c04.js",
-      "static/chunks/4bd1b696-d911b5d1187259d6.js",
-      "static/chunks/1517-627f5b04cf1700dc.js",
-      "static/chunks/main-app-06d9bc08eecd3d14.js",
-      "static/chunks/8173-dbece6ab9253e67e.js",
-      "static/chunks/app/campaigns/page-e55774b5953fc112.js"
-    ],
-    "/linkedin/page": [
-      "static/chunks/webpack-6bb3c1cb3f330c04.js",
-      "static/chunks/4bd1b696-d911b5d1187259d6.js",
-      "static/chunks/1517-627f5b04cf1700dc.js",
-      "static/chunks/main-app-06d9bc08eecd3d14.js",
-      "static/chunks/8173-dbece6ab9253e67e.js",
-      "static/chunks/app/linkedin/page-eef217f6c63e2982.js"
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/css/app/layout.css",
+      "static/chunks/app/layout.js"
     ],
     "/page": [
-      "static/chunks/webpack-6bb3c1cb3f330c04.js",
-      "static/chunks/4bd1b696-d911b5d1187259d6.js",
-      "static/chunks/1517-627f5b04cf1700dc.js",
-      "static/chunks/main-app-06d9bc08eecd3d14.js",
-      "static/chunks/8173-dbece6ab9253e67e.js",
-      "static/chunks/app/page-e95b321317aa9779.js"
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/chunks/app/page.js"
+    ],
+    "/campaigns/page": [
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/chunks/app/campaigns/page.js"
+    ],
+    "/api/conversations/route": [
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/chunks/app/api/conversations/route.js"
+    ],
+    "/api/campaigns/route": [
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/chunks/app/api/campaigns/route.js"
+    ],
+    "/api/skills/route": [
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/chunks/app/api/skills/route.js"
+    ],
+    "/api/instantly/status/route": [
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/chunks/app/api/instantly/status/route.js"
+    ],
+    "/api/memory/route": [
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/chunks/app/api/memory/route.js"
+    ],
+    "/linkedin/page": [
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/chunks/app/linkedin/page.js"
+    ],
+    "/api/linkedin/status/route": [
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/chunks/app/api/linkedin/status/route.js"
+    ],
+    "/api/linkedin/posts/route": [
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/chunks/app/api/linkedin/posts/route.js"
+    ],
+    "/api/linkedin/scheduler/tick/route": [
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/chunks/app/api/linkedin/scheduler/tick/route.js"
+    ],
+    "/api/linkedin/posts/[id]/image/route": [
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/chunks/app/api/linkedin/posts/[id]/image/route.js"
+    ],
+    "/api/linkedin/posts/[id]/route": [
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/chunks/app/api/linkedin/posts/[id]/route.js"
+    ],
+    "/api/linkedin/publish/route": [
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/chunks/app/api/linkedin/publish/route.js"
     ],
     "/seguimientos/page": [
-      "static/chunks/webpack-6bb3c1cb3f330c04.js",
-      "static/chunks/4bd1b696-d911b5d1187259d6.js",
-      "static/chunks/1517-627f5b04cf1700dc.js",
-      "static/chunks/main-app-06d9bc08eecd3d14.js",
-      "static/chunks/8173-dbece6ab9253e67e.js",
-      "static/chunks/app/seguimientos/page-4273ec59739d3b6e.js"
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/chunks/app/seguimientos/page.js"
+    ],
+    "/api/email/config/route": [
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/chunks/app/api/email/config/route.js"
+    ],
+    "/api/email/sequences/route": [
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/chunks/app/api/email/sequences/route.js"
+    ],
+    "/api/email/threads/route": [
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/chunks/app/api/email/threads/route.js"
+    ],
+    "/api/email/followups/route": [
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/chunks/app/api/email/followups/route.js"
+    ],
+    "/api/email/threads/[id]/route": [
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/chunks/app/api/email/threads/[id]/route.js"
     ]
   }
 }

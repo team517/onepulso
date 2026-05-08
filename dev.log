@@ -209,3 +209,101 @@
  GET /api/email/followups 200 in 28ms
  GET /api/email/threads 200 in 48ms
  GET /api/email/followups 200 in 47ms
+ GET / 200 in 80ms
+ ○ Compiling /_not-found ...
+ ✓ Compiled /_not-found in 910ms (596 modules)
+ GET /_next/static/css/app/layout.css?v=1778191779737 404 in 1263ms
+ GET /_next/static/chunks/webpack.js?v=1778191779737 404 in 1273ms
+ GET /_next/static/chunks/app-pages-internals.js 404 in 1237ms
+ GET /_next/static/chunks/main-app.js?v=1778191779737 404 in 1240ms
+ GET /_next/static/chunks/app/page.js 404 in 1237ms
+ ○ Compiling /campaigns ...
+ ✓ Compiled /campaigns in 520ms (603 modules)
+ GET /campaigns 200 in 726ms
+ GET /_next/static/css/app/layout.css?v=1778191785124 404 in 46ms
+ GET /_next/static/chunks/main-app.js?v=1778191785124 404 in 78ms
+ GET /_next/static/chunks/app-pages-internals.js 404 in 77ms
+ ⨯ Error: Cannot find module './638.js'
+Require stack:
+- C:\Users\USUARIO\Nueva carpeta\platform\.next\server\webpack-runtime.js
+- C:\Users\USUARIO\Nueva carpeta\platform\.next\server\app\campaigns\page.js
+- C:\Users\USUARIO\Nueva carpeta\platform\node_modules\next\dist\server\require.js
+- C:\Users\USUARIO\Nueva carpeta\platform\node_modules\next\dist\server\load-components.js
+- C:\Users\USUARIO\Nueva carpeta\platform\node_modules\next\dist\build\utils.js
+- C:\Users\USUARIO\Nueva carpeta\platform\node_modules\next\dist\build\swc\options.js
+- C:\Users\USUARIO\Nueva carpeta\platform\node_modules\next\dist\build\swc\index.js
+- C:\Users\USUARIO\Nueva carpeta\platform\node_modules\next\dist\build\analysis\parse-module.js
+- C:\Users\USUARIO\Nueva carpeta\platform\node_modules\next\dist\build\analysis\get-page-static-info.js
+- C:\Users\USUARIO\Nueva carpeta\platform\node_modules\next\dist\server\lib\router-utils\setup-dev-bundler.js
+- C:\Users\USUARIO\Nueva carpeta\platform\node_modules\next\dist\server\lib\router-server.js
+- C:\Users\USUARIO\Nueva carpeta\platform\node_modules\next\dist\server\lib\start-server.js
+    at __webpack_require__.f.require (C:\Users\USUARIO\Nueva carpeta\platform\.next\server\webpack-runtime.js:198:28)
+    at <unknown> (C:\Users\USUARIO\Nueva carpeta\platform\.next\server\webpack-runtime.js:111:40)
+    at Array.reduce (<anonymous>)
+    at __webpack_require__.e (C:\Users\USUARIO\Nueva carpeta\platform\.next\server\webpack-runtime.js:110:67)
+    at Array.map (<anonymous>)
+    at __webpack_require__.X (C:\Users\USUARIO\Nueva carpeta\platform\.next\server\webpack-runtime.js:162:22)
+    at <unknown> (C:\Users\USUARIO\Nueva carpeta\platform\.next\server\app\page.js:1:5163)
+    at Object.<anonymous> (C:\Users\USUARIO\Nueva carpeta\platform\.next\server\app\page.js:1:5215) {
+  code: 'MODULE_NOT_FOUND',
+  requireStack: [Array],
+  page: '/'
+}
+ ○ Compiling /_error ...
+ ✓ Compiled /_error in 1052ms (845 modules)
+ GET / 500 in 2113ms
+ ⨯ Error: Cannot find module './638.js'
+Require stack:
+- C:\Users\USUARIO\Nueva carpeta\platform\.next\server\webpack-runtime.js
+- C:\Users\USUARIO\Nueva carpeta\platform\.next\server\pages\_document.js
+- C:\Users\USUARIO\Nueva carpeta\platform\node_modules\next\dist\server\require.js
+- C:\Users\USUARIO\Nueva carpeta\platform\node_modules\next\dist\server\load-components.js
+- C:\Users\USUARIO\Nueva carpeta\platform\node_modules\next\dist\build\utils.js
+- C:\Users\USUARIO\Nueva carpeta\platform\node_modules\next\dist\build\swc\options.js
+- C:\Users\USUARIO\Nueva carpeta\platform\node_modules\next\dist\build\swc\index.js
+- C:\Users\USUARIO\Nueva carpeta\platform\node_modules\next\dist\build\analysis\parse-module.js
+- C:\Users\USUARIO\Nueva carpeta\platform\node_modules\next\dist\build\analysis\get-page-static-info.js
+- C:\Users\USUARIO\Nueva carpeta\platform\node_modules\next\dist\server\lib\router-utils\setup-dev-bundler.js
+- C:\Users\USUARIO\Nueva carpeta\platform\node_modules\next\dist\server\lib\router-server.js
+- C:\Users\USUARIO\Nueva carpeta\platform\node_modules\next\dist\server\lib\start-server.js
+    at __webpack_require__.f.require (C:\Users\USUARIO\Nueva carpeta\platform\.next\server\webpack-runtime.js:198:28)
+    at <unknown> (C:\Users\USUARIO\Nueva carpeta\platform\.next\server\webpack-runtime.js:111:40)
+    at Array.reduce (<anonymous>)
+    at __webpack_require__.e (C:\Users\USUARIO\Nueva carpeta\platform\.next\server\webpack-runtime.js:110:67)
+    at Array.map (<anonymous>)
+    at __webpack_require__.X (C:\Users\USUARIO\Nueva carpeta\platform\.next\server\webpack-runtime.js:162:22)
+    at <unknown> (C:\Users\USUARIO\Nueva carpeta\platform\.next\server\app\page.js:1:5163)
+    at Object.<anonymous> (C:\Users\USUARIO\Nueva carpeta\platform\.next\server\app\page.js:1:5215) {
+  code: 'MODULE_NOT_FOUND',
+  requireStack: [Array],
+  page: '/'
+}
+ GET / 500 in 384ms
+ ⨯ Error: Cannot find module './638.js'
+Require stack:
+- C:\Users\USUARIO\Nueva carpeta\platform\.next\server\webpack-runtime.js
+- C:\Users\USUARIO\Nueva carpeta\platform\.next\server\pages\_document.js
+- C:\Users\USUARIO\Nueva carpeta\platform\node_modules\next\dist\server\require.js
+- C:\Users\USUARIO\Nueva carpeta\platform\node_modules\next\dist\server\load-components.js
+- C:\Users\USUARIO\Nueva carpeta\platform\node_modules\next\dist\build\utils.js
+- C:\Users\USUARIO\Nueva carpeta\platform\node_modules\next\dist\build\swc\options.js
+- C:\Users\USUARIO\Nueva carpeta\platform\node_modules\next\dist\build\swc\index.js
+- C:\Users\USUARIO\Nueva carpeta\platform\node_modules\next\dist\build\analysis\parse-module.js
+- C:\Users\USUARIO\Nueva carpeta\platform\node_modules\next\dist\build\analysis\get-page-static-info.js
+- C:\Users\USUARIO\Nueva carpeta\platform\node_modules\next\dist\server\lib\router-utils\setup-dev-bundler.js
+- C:\Users\USUARIO\Nueva carpeta\platform\node_modules\next\dist\server\lib\router-server.js
+- C:\Users\USUARIO\Nueva carpeta\platform\node_modules\next\dist\server\lib\start-server.js
+    at __webpack_require__.f.require (C:\Users\USUARIO\Nueva carpeta\platform\.next\server\webpack-runtime.js:198:28)
+    at <unknown> (C:\Users\USUARIO\Nueva carpeta\platform\.next\server\webpack-runtime.js:111:40)
+    at Array.reduce (<anonymous>)
+    at __webpack_require__.e (C:\Users\USUARIO\Nueva carpeta\platform\.next\server\webpack-runtime.js:110:67)
+    at Array.map (<anonymous>)
+    at __webpack_require__.X (C:\Users\USUARIO\Nueva carpeta\platform\.next\server\webpack-runtime.js:162:22)
+    at <unknown> (C:\Users\USUARIO\Nueva carpeta\platform\.next\server\app\page.js:1:5163)
+    at Object.<anonymous> (C:\Users\USUARIO\Nueva carpeta\platform\.next\server\app\page.js:1:5215) {
+  code: 'MODULE_NOT_FOUND',
+  requireStack: [Array],
+  page: '/'
+}
+ GET / 500 in 286ms
+[?25h

@@ -26,11 +26,13 @@
     "id": "adb9ebb6-fc2d-449c-8366-91f6b11d0cf4",
     "text": "El 80% de los emails outbound que recibo usan mal las variables.\r\n\r\n\"Hola {{firstName}}, vi que en {{companyName}} estáis en el sector de {{industry}}...\"\r\n\r\nEso no es personalización. Es mail merge disfrazado.\r\n\r\nLa personalización real empieza cuando la primera frase no podría enviarse a otra empresa sin sonar absurda. Si cambias el nombre y el email sigue funcionando, no has personalizado: has rellenado huecos.\r\n\r\nLo que sí funciona en el primer email:\r\n\r\n- Una observación específica sobre algo que han publicado, lanzado o cambiado en los últimos 60 días.\r\n- Un dato del sector que conecte con su realidad concreta (no genérico).\r\n- Una hipótesis sobre un problema que probablemente tengan, basada en señales reales.\r\n\r\nLas variables clásicas ({{firstName}}, {{companyName}}, {{city}}) son el suelo, no el techo. Sirven para escalar la base, pero la diferencia entre un 1% y un 10% de respuesta está en la línea que NO se puede automatizar del todo.\r\n\r\nLa pregunta correcta no es \"¿cuántas variables uso?\". Es \"¿este email podría haberlo enviado a otra empresa tal cual?\". Si la respuesta es sí, vuelve a empezar.",
     "visibility": "PUBLIC",
-    "status": "scheduled",
+    "status": "published",
     "scheduled_at": "2026-05-07T08:00:00.000Z",
     "created_at": "2026-05-02T21:46:42.687Z",
-    "updated_at": "2026-05-04T08:22:42.206Z",
-    "image_path": "C:\\Users\\USUARIO\\Nueva carpeta\\platform\\data\\linkedin-images\\7a0c4fa4-f1f3-4345-901d-29cce3067a97.png"
+    "updated_at": "2026-05-07T22:15:14.197Z",
+    "image_path": "C:\\Users\\USUARIO\\Nueva carpeta\\platform\\data\\linkedin-images\\7a0c4fa4-f1f3-4345-901d-29cce3067a97.png",
+    "published_at": "2026-05-07T22:15:14.195Z",
+    "linkedin_post_urn": "urn:li:share:7458278292408713216"
   },
   {
     "id": "a69e0e31-b086-4137-8600-6723fda72c0f",

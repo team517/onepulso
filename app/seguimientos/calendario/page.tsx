@@ -354,6 +354,161 @@ export default function CalendarPage() {
   );
 }
 
+function EditableBody({
+  event,
+  onReload,
+  onClose,
+}: {
+  event: Event;
+  onReload: () => void;
+  onClose: () => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [body, setBody] = useState(event.body_html || "");
+  const [busy, setBusy] = useState(false);
+
+  const isPending = event.status === "pending_approval";
+  const isScheduled = event.status === "scheduled";
+  const editable = isPending || isScheduled;
+
+  async function approve(sendNow: boolean) {
+    setBusy(true);
+    try {
+      await fetch(`/api/email/followups/${event.id}/approve`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          body_html: body,
+          send_now: sendNow,
+          ...(sendNow ? {} : { scheduled_at: event.scheduled_at }),
+        }),
+      });
+      onReload();
+      onClose();
+    } finally { setBusy(false); }
+  }
+
+  async function cancel() {
+    if (!confirm("¿Descartar este borrador?")) return;
+    await fetch(`/api/email/followups/${event.id}/approve`, { method: "DELETE" });
+    onReload();
+    onClose();
+  }
+
+  async function saveEdit() {
+    setBusy(true);
+    try {
+      // Guardar sin enviar: status sigue siendo el mismo, solo actualizamos body
+      await fetch(`/api/email/followups/${event.id}/approve`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          body_html: body,
+          send_now: false,
+          scheduled_at: event.scheduled_at,
+        }),
+      });
+      setEditing(false);
+      onReload();
+    } finally { setBusy(false); }
+  }
+
+  return (
+    <div style={{ marginTop: 18 }}>
+      <div style={{ ...labelStyle, marginBottom: 8, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+        <span>{isPending ? "✨ Borrador del autopilot" : isScheduled ? "📧 Email programado" : "Preview"}</span>
+        {editable && !editing && (
+          <button onClick={() => setEditing(true)} style={{ background: "transparent", border: "1px solid var(--border)", color: "var(--text-dim)", padding: "3px 9px", borderRadius: 7, fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>
+            ✏️ Editar
+          </button>
+        )}
+      </div>
+
+      {editing ? (
+        <textarea
+          value={body}
+          onChange={e => setBody(e.target.value)}
+          rows={10}
+          style={{
+            width: "100%", padding: "11px 13px",
+            background: "#fff", border: "1.5px solid var(--accent)",
+            borderRadius: 10, fontSize: 13, lineHeight: 1.6,
+            color: "var(--text)", outline: "none",
+            fontFamily: "inherit", resize: "vertical",
+            boxSizing: "border-box",
+          }}
+        />
+      ) : (
+        <div
+          style={{
+            background: "var(--bg-elev-2)",
+            border: "1px solid var(--border)",
+            borderRadius: 10,
+            padding: "12px 14px",
+            fontSize: 13,
+            lineHeight: 1.65,
+            color: "var(--text)",
+            maxHeight: 240,
+            overflowY: "auto",
+          }}
+          dangerouslySetInnerHTML={{ __html: body }}
+        />
+      )}
+
+      {editable && (
+        <div style={{ display: "flex", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
+          {editing ? (
+            <>
+              <button onClick={saveEdit} disabled={busy} style={{
+                padding: "9px 14px", background: "var(--accent)", color: "#fff",
+                border: "none", borderRadius: 9, fontSize: 12.5, fontWeight: 700, cursor: "pointer",
+                fontFamily: "inherit",
+              }}>
+                {busy ? "Guardando…" : "💾 Guardar cambios"}
+              </button>
+              <button onClick={() => { setEditing(false); setBody(event.body_html); }} style={{
+                padding: "9px 14px", background: "transparent", color: "var(--text-dim)",
+                border: "1px solid var(--border)", borderRadius: 9, fontSize: 12.5, fontWeight: 600, cursor: "pointer",
+                fontFamily: "inherit",
+              }}>
+                Cancelar edición
+              </button>
+            </>
+          ) : (
+            <>
+              <button onClick={() => approve(true)} disabled={busy} style={{
+                padding: "9px 14px",
+                background: "linear-gradient(135deg, #f59e0b, #d97706)",
+                color: "#fff", border: "none", borderRadius: 9,
+                fontSize: 12.5, fontWeight: 700, cursor: "pointer",
+                fontFamily: "inherit",
+              }}>
+                {busy ? "Enviando..." : "🚀 Enviar AHORA"}
+              </button>
+              {isPending && (
+                <button onClick={() => approve(false)} disabled={busy} style={{
+                  padding: "9px 14px", background: "var(--accent)", color: "#fff",
+                  border: "none", borderRadius: 9, fontSize: 12.5, fontWeight: 700, cursor: "pointer",
+                  fontFamily: "inherit",
+                }}>
+                  ⏰ Aprobar (saldrá {new Date(event.scheduled_at).toLocaleDateString("es-ES", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })})
+                </button>
+              )}
+              <button onClick={cancel} style={{
+                padding: "9px 14px", background: "transparent", color: "var(--error)",
+                border: "1px solid rgba(239,68,68,0.25)", borderRadius: 9, fontSize: 12.5, fontWeight: 600, cursor: "pointer",
+                fontFamily: "inherit",
+              }}>
+                Descartar
+              </button>
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function Legend({ color, label }: { color: string; label: string }) {
   return (
     <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
@@ -543,25 +698,9 @@ function EventModal({
           </button>
         )}
 
-        {/* Preview message body */}
+        {/* Body — editable si pending_approval o scheduled, preview si sent */}
         {event.body_html && (
-          <div style={{ marginTop: 18 }}>
-            <div style={{ ...labelStyle, marginBottom: 8 }}>Preview del email programado</div>
-            <div
-              style={{
-                background: "var(--bg-elev-2)",
-                border: "1px solid var(--border)",
-                borderRadius: 10,
-                padding: "12px 14px",
-                fontSize: 13,
-                lineHeight: 1.65,
-                color: "var(--text)",
-                maxHeight: 240,
-                overflowY: "auto",
-              }}
-              dangerouslySetInnerHTML={{ __html: event.body_html }}
-            />
-          </div>
+          <EditableBody event={event} onReload={onReload} onClose={onClose} />
         )}
 
         <div style={{ marginTop: 18, display: "flex", gap: 8 }}>

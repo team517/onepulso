@@ -29,8 +29,12 @@ export async function GET() {
   const cfg = await readEmailConfig();
   const myEmail = (cfg?.email ?? "").toLowerCase();
 
-  // Solo threads donde YO he enviado al menos un mensaje (outbound)
-  const filtered = all.filter((t) => t.messages.some((m) => m.direction === "outbound"));
+  // Solo threads donde el usuario ha interactuado:
+  //  - Enviado al menos un mensaje (outbound), O
+  //  - Marcado como "watched" (importado vía búsqueda, abierto manualmente, etc.)
+  const filtered = all.filter((t) =>
+    (t as any).watched === true || t.messages.some((m) => m.direction === "outbound")
+  );
 
   return NextResponse.json({
     threads: filtered.map((t) => {

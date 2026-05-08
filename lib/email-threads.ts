@@ -29,6 +29,7 @@ export type Thread = {
   status: "active" | "closed" | "stale";
   followups: Followup[];
   notes?: string;
+  watched?: boolean;         // true = el usuario ha interactuado (envió, abrió, importó). Filtra ruido.
   contact_name?: string;     // Nombre legible del contacto (auto-detectado o manual)
   contact_context?: string;  // Contexto del contacto que el autopilot usa al redactar
   tone?: string;             // Tono específico para este contacto (ej. "directo y técnico")
@@ -51,7 +52,7 @@ export type Followup = {
   thread_id: string;
   body_html: string;
   scheduled_at: string;
-  status: "scheduled" | "sending" | "sent" | "failed" | "cancelled";
+  status: "scheduled" | "sending" | "sent" | "failed" | "cancelled" | "pending_approval";
   origin: "manual" | "ai_auto" | "ai_assisted";
   error?: string;
   sent_at?: string;
@@ -131,8 +132,18 @@ export async function appendMessage(threadId: string, msg: Omit<EmailMessage, "i
   const all = await readThreads();
   const t = all.find((x) => x.id === threadId);
   if (!t) return null;
+
+  // Dedup: si ya hay un mensaje con el mismo message_id, no lo añadas
+  if (msg.message_id) {
+    const exists = t.messages.some((x) => x.message_id === msg.message_id);
+    if (exists) return t;
+  }
+
   const m: EmailMessage = { id: randomUUID(), ...msg };
   t.messages.push(m);
+  // Mantener orden cronológico
+  t.messages.sort((a, b) => (a.date || "").localeCompare(b.date || ""));
+
   if (m.direction === "inbound") t.last_inbound_at = m.date;
   else t.last_outbound_at = m.date;
   t.updated_at = new Date().toISOString();
@@ -161,6 +172,7 @@ export async function scheduleFollowup(input: {
   body_html: string;
   scheduled_at: string;
   origin: Followup["origin"];
+  status?: Followup["status"]; // por defecto "scheduled"
 }): Promise<Followup | null> {
   const all = await readThreads();
   const t = all.find((x) => x.id === input.thread_id);
@@ -170,7 +182,7 @@ export async function scheduleFollowup(input: {
     thread_id: input.thread_id,
     body_html: input.body_html,
     scheduled_at: input.scheduled_at,
-    status: "scheduled",
+    status: input.status ?? "scheduled",
     origin: input.origin,
   };
   t.followups.push(f);

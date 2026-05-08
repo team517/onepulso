@@ -8,22 +8,33 @@ import {
 import { sendEmail } from "./email-send";
 import { readEmailConfig } from "./email-config";
 
-const REPLY_SYSTEM = `Eres Xavi (onepulso). Estás respondiendo a un hilo de email real con un prospect en MODO AUTO-PILOT.
+const REPLY_SYSTEM = `Eres Xavi (onepulso). Estás escribiendo un email a un prospect en MODO AUTO-PILOT.
 
-OBJETIVO POR DEFECTO: avanzar el hilo hacia una reunión / cierre, manteniendo tono natural.
-(Si abajo se especifica un OBJETIVO ESPECÍFICO, prevalece sobre este.)
+OBJETIVO POR DEFECTO: avanzar hacia una reunión / cierre.
 
-REGLAS:
-- Castellano España.
-- Tono directo, personal, sin floritura. Sin emojis. Sin "estimado".
-  (Si abajo se especifica TONO, sobreescribe este.)
-- Lee TODO el hilo. Responde ESPECÍFICAMENTE a lo último que dijo el prospect.
-- Si propone fecha ("el jueves", "la semana que viene", "después de vacaciones") → reconócela y propón concretarla con día y hora.
+DOS MODOS DE OPERACIÓN — el usuario te dirá cuál usar:
+
+============== MODO A: RESPUESTA INMEDIATA ==============
+(El prospect hizo pregunta o pidió info o puso objeción.)
+- Lee TODO el hilo.
+- Responde ESPECÍFICAMENTE a lo último que dijo.
 - Si pide info → dásela + propón 10 min de call.
 - Si pone objeción → trátala con un dato/caso.
 - Si dice que no es momento → respeta + propón retomar más adelante.
-- Frases cortas, <p> entre bloques, <strong> en 1-2 puntos clave.
-- Cierra con CTA claro alineado con el OBJETIVO.
+
+============== MODO B: REMINDER PROGRAMADO ==============
+(El prospect propuso una fecha futura para hacer algo. Tu mensaje SE ENVIARÁ ESE DÍA, no ahora.)
+- Es un recordatorio amable que llega el día acordado, no una confirmación inmediata.
+- Empieza haciendo referencia a lo que se acordó: "Hola X, como hablamos, te paso el [link / info / propuesta]..."
+- Si pidió un link/material concreto, INCLÚYELO en el cuerpo.
+- Cierra con CTA o pregunta concreta para mover la conversación.
+- NO digas "ayer/la semana pasada hablamos" porque la IA no sabe la fecha exacta del envío. Usa "como hablamos".
+- Tono: natural, como si lo escribieras tú esa mañana.
+
+REGLAS COMUNES:
+- Castellano España.
+- Tono directo, personal, sin floritura. Sin emojis. Sin "estimado". (Si abajo se da TONO, prevalece.)
+- Frases cortas. <p> entre bloques. <strong> en 1-2 puntos clave.
 - Firma: <p>Un saludo,<br>Xavi</p>
 
 OUTPUT: solo el body HTML, sin meta-comentarios.`;
@@ -127,7 +138,11 @@ async function aiDetectContractIntent(text: string, anthropicKey: string): Promi
   }
 }
 
-async function aiGenerateReply(thread: Thread, anthropicKey: string): Promise<string> {
+async function aiGenerateReply(
+  thread: Thread,
+  anthropicKey: string,
+  opts: { mode: "immediate" | "reminder"; deliveryDate?: string; dateContext?: string } = { mode: "immediate" },
+): Promise<string> {
   const client = new Anthropic({ apiKey: anthropicKey, maxRetries: 2, timeout: 120_000 });
   const memory = await memoryAsContext();
   const transcript = thread.messages
@@ -159,6 +174,17 @@ async function aiGenerateReply(thread: Thread, anthropicKey: string): Promise<st
     ? `\n${personalization.join("\n\n")}\n`
     : "";
 
+  // Bloque de modo (immediate vs reminder)
+  let modeBlock = "";
+  if (opts.mode === "reminder") {
+    const dateLabel = opts.deliveryDate
+      ? new Date(opts.deliveryDate).toLocaleDateString("es-ES", { weekday: "long", day: "numeric", month: "long" })
+      : "el día acordado";
+    modeBlock = `\nMODO: B (REMINDER PROGRAMADO)\nFECHA DE ENVÍO: ${dateLabel} (este email se enviará ese día por la mañana, NO ahora).\n${opts.dateContext ? `Contexto temporal del prospect: "${opts.dateContext}"\n` : ""}\nEl email debe leerse como un recordatorio natural enviado ese día, no como respuesta inmediata.\n`;
+  } else {
+    modeBlock = `\nMODO: A (RESPUESTA INMEDIATA)\nEsta respuesta se envía ahora.\n`;
+  }
+
   const r = await client.messages.create({
     model: "claude-opus-4-7",
     max_tokens: 2000,
@@ -166,7 +192,7 @@ async function aiGenerateReply(thread: Thread, anthropicKey: string): Promise<st
     messages: [
       {
         role: "user",
-        content: `MEMORIA:\n${memory}\n${personalizationBlock}\nHILO COMPLETO:\n${transcript}\n\nRedacta SOLO el body HTML de la siguiente respuesta de Xavi.`,
+        content: `MEMORIA:\n${memory}\n${personalizationBlock}${modeBlock}\nHILO COMPLETO:\n${transcript}\n\nRedacta SOLO el body HTML del email.`,
       },
     ],
   });
@@ -443,6 +469,13 @@ export async function runAutopilot(): Promise<{ processed: number; scheduled: nu
     const last = t.messages[t.messages.length - 1];
     if (last.id !== lastInbound.id) continue;
 
+    // Esperar 3 minutos antes de procesar (deja tiempo al humano de leer/intervenir)
+    const ageMs = Date.now() - new Date(lastInbound.date).getTime();
+    if (ageMs < 3 * 60 * 1000) {
+      console.log(`[autopilot] thread ${t.id} inbound demasiado reciente (${Math.round(ageMs/1000)}s) — esperando 3 min`);
+      continue;
+    }
+
     // Si hay follow-ups programados y el prospect ha respondido,
     // CANCELAMOS los pendientes (la conversación cambió de rumbo)
     // y generamos una respuesta contextual nueva con date-aware scheduling.
@@ -482,24 +515,56 @@ export async function runAutopilot(): Promise<{ processed: number; scheduled: nu
         continue;
       }
 
-      // 2) Generar reply
-      const reply = await aiGenerateReply(t, apiKey);
+      // 2) Decidir flujo según si hay fecha futura
+      const hasFutureDate = dateInfo.has_date && dateInfo.date_iso &&
+                            new Date(dateInfo.date_iso).getTime() > Date.now() + 30 * 60 * 1000;
 
-      // 3) Decidir cuándo programar
-      let scheduledAt: string;
-      if (dateInfo.has_date && dateInfo.date_iso) {
-        scheduledAt = new Date(dateInfo.date_iso).toISOString();
-      } else {
-        scheduledAt = new Date(Date.now() + 30 * 60 * 1000).toISOString();
-      }
-
+      // SIEMPRE generar la respuesta INMEDIATA de confirmación
+      const immediateAt = new Date(Date.now() + 30 * 60 * 1000).toISOString();
+      const immediateReply = await aiGenerateReply(t, apiKey, {
+        mode: "immediate",
+        dateContext: dateInfo.date_text || undefined,
+      });
       await scheduleFollowup({
         thread_id: t.id,
-        body_html: reply,
-        scheduled_at: scheduledAt,
+        body_html: immediateReply,
+        scheduled_at: immediateAt,
         origin: "ai_auto",
+        status: "pending_approval",
       });
       scheduled++;
+
+      // SI hay fecha futura → ADEMÁS programar un REMINDER para ese día
+      if (hasFutureDate) {
+        const target = new Date(dateInfo.date_iso!);
+        const explicitTime = /\b\d{1,2}:\d{2}\b/.test(dateInfo.date_text || "");
+
+        if (explicitTime) {
+          // Hora explícita → enviar 1h antes
+          target.setTime(target.getTime() - 60 * 60 * 1000);
+        } else {
+          // Sin hora explícita → 9:00 del día
+          target.setHours(9, 0, 0, 0);
+        }
+        if (target.getTime() <= Date.now() + 60 * 60 * 1000) {
+          target.setTime(Date.now() + 24 * 60 * 60 * 1000); // mín. mañana
+        }
+
+        const reminderAt = target.toISOString();
+        const reminderBody = await aiGenerateReply(t, apiKey, {
+          mode: "reminder",
+          deliveryDate: reminderAt,
+          dateContext: dateInfo.date_text || undefined,
+        });
+        await scheduleFollowup({
+          thread_id: t.id,
+          body_html: reminderBody,
+          scheduled_at: reminderAt,
+          origin: "ai_auto",
+          status: "pending_approval",
+        });
+        scheduled++;
+      }
 
       const ids = [...(t.auto_pilot_processed_msg_ids ?? [])];
       if (lastInbound.message_id) ids.push(lastInbound.message_id);

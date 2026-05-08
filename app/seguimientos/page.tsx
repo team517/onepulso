@@ -122,6 +122,7 @@ export default function SeguimientosPage() {
   const [autopilotWizardOpen, setAutopilotWizardOpen] = useState(false);
   const [contractAlerts, setContractAlerts] = useState<ContractAlert[]>([]);
   const [memoryOpen, setMemoryOpen] = useState(false);
+  const [pendingApprovals, setPendingApprovals] = useState<any[]>([]);
   const [syncing, setSyncing] = useState(false);
   const [search, setSearch] = useState("");
 
@@ -181,14 +182,22 @@ export default function SeguimientosPage() {
     refreshThreads();
     refreshSequences();
     loadContractAlerts();
+    loadPendingApprovals();
+    const intervalMs = thread ? 12000 : 30000;
+    let syncCounter = 0;
     const t = setInterval(() => {
       refreshThreads();
       loadContractAlerts();
+      loadPendingApprovals();
       if (thread) loadThread(thread.id);
-    }, 30000);
+      syncCounter++;
+      if (syncCounter % 2 === 0) {
+        fetch("/api/email/sync", { method: "POST" }).catch(() => {});
+      }
+    }, intervalMs);
     return () => clearInterval(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [thread?.id]);
 
   async function searchGmail() {
     if (!gmailQuery.trim()) return;
@@ -412,6 +421,50 @@ export default function SeguimientosPage() {
       const j = await fetch("/api/email/contract-alerts").then(r => r.json());
       setContractAlerts(j.alerts ?? []);
     } catch {}
+  }
+
+  async function loadPendingApprovals() {
+    try {
+      const j = await fetch("/api/email/followups/pending").then(r => r.json());
+      setPendingApprovals(j.pending ?? []);
+    } catch {}
+  }
+
+  async function approvePending(id: string, sendNow: boolean) {
+    setFeedback(sendNow ? "📧 Enviando…" : "✓ Programado");
+    try {
+      const r = await fetch(`/api/email/followups/${id}/approve`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ send_now: sendNow }),
+      }).then(r => r.json());
+      if (r.error) setFeedback("⚠️ " + r.error);
+      else {
+        setFeedback(sendNow ? "✓ Enviado" : "✓ Programado");
+        await loadPendingApprovals();
+        if (thread) loadThread(thread.id);
+      }
+    } catch (e: any) {
+      setFeedback("⚠️ " + e.message);
+    }
+    setTimeout(() => setFeedback(null), 4000);
+  }
+
+  async function cancelPending(id: string) {
+    if (!confirm("¿Cancelar este borrador del autopilot?")) return;
+    await fetch(`/api/email/followups/${id}/approve`, { method: "DELETE" });
+    await loadPendingApprovals();
+    if (thread) loadThread(thread.id);
+  }
+
+  async function editPendingBody(id: string, newBody: string) {
+    await fetch(`/api/email/followups/${id}/approve`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ body_html: newBody, send_now: true }),
+    });
+    await loadPendingApprovals();
+    if (thread) loadThread(thread.id);
   }
   async function loadThread(id: string) {
     const r = await fetch(`/api/email/threads/${id}`).then((r) => r.json());
@@ -920,6 +973,7 @@ export default function SeguimientosPage() {
                   openSchedule={openSchedule}
                   cancelFollowup={cancelFollowup}
                   sendNowFollowup={sendNowFollowup}
+                  reloadThread={() => loadThread(thread.id)}
                   markClosed={markClosed}
                   toggleAutopilot={toggleAutopilot}
                   sequences={sequences}
@@ -1229,6 +1283,25 @@ export default function SeguimientosPage() {
                 Abrir hilo y responder →
               </button>
             </div>
+          ))}
+        </div>
+      )}
+
+      {/* Banner de aprobaciones pendientes (Autopilot generó respuesta, pide confirmación) */}
+      {pendingApprovals.length > 0 && (
+        <div style={{
+          position: "fixed", top: 20, left: "50%", transform: "translateX(-50%)",
+          zIndex: 60, display: "flex", flexDirection: "column", gap: 10,
+          width: "92%", maxWidth: 640,
+        }}>
+          {pendingApprovals.map(pa => (
+            <PendingApprovalCard
+              key={pa.id}
+              item={pa}
+              onApprove={(sendNow) => approvePending(pa.id, sendNow)}
+              onCancel={() => cancelPending(pa.id)}
+              onEditAndSend={(body) => editPendingBody(pa.id, body)}
+            />
           ))}
         </div>
       )}
@@ -1950,6 +2023,166 @@ const wBtnSecondary: React.CSSProperties = {
   fontWeight: 600, cursor: "pointer", fontFamily: "inherit",
 };
 
+// ============== Pending Approval Card (Autopilot espera tu OK) ==============
+
+function PendingApprovalCard({
+  item,
+  onApprove,
+  onCancel,
+  onEditAndSend,
+}: {
+  item: any;
+  onApprove: (sendNow: boolean) => void;
+  onCancel: () => void;
+  onEditAndSend: (body: string) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [body, setBody] = useState<string>(item.body_html || "");
+  const [busy, setBusy] = useState(false);
+
+  const scheduledDate = new Date(item.scheduled_at);
+  const now = new Date();
+  const isFuture = scheduledDate > now;
+
+  function fmtDate(d: Date) {
+    return d.toLocaleString("es-ES", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+  }
+
+  return (
+    <div style={{
+      background: "#ffffff",
+      border: "1.5px solid rgba(67,97,238,0.4)",
+      borderLeft: "5px solid #4361ee",
+      borderRadius: 14,
+      padding: "14px 16px",
+      boxShadow: "0 12px 32px rgba(15,23,42,0.18)",
+      animation: "msgIn 0.3s ease-out",
+    }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
+        <span style={{ fontSize: 22 }}>🤖</span>
+        <div style={{ flex: 1 }}>
+          <div style={{ fontSize: 13.5, fontWeight: 700, color: "var(--accent)" }}>
+            Autopilot quiere enviar a {item.contact_name}
+          </div>
+          <div style={{ fontSize: 11.5, color: "var(--text-faint)", marginTop: 2 }}>
+            {item.contact_email} · {isFuture ? `Programado para ${fmtDate(scheduledDate)}` : "Listo para enviar"}
+          </div>
+        </div>
+        <button
+          onClick={onCancel}
+          title="Cancelar borrador"
+          style={{ background: "transparent", border: "none", fontSize: 18, color: "var(--text-faint)", cursor: "pointer" }}
+        >×</button>
+      </div>
+
+      {item.last_inbound_excerpt && (
+        <div style={{
+          fontSize: 11.5, color: "var(--text-dim)",
+          background: "var(--bg-elev-2)",
+          padding: "7px 10px", borderRadius: 8,
+          marginBottom: 10, fontStyle: "italic",
+        }}>
+          📨 Te dijo: <span style={{ color: "var(--text)" }}>"{item.last_inbound_excerpt.slice(0, 140)}{item.last_inbound_excerpt.length > 140 ? "..." : ""}"</span>
+        </div>
+      )}
+
+      {editing ? (
+        <textarea
+          value={body}
+          onChange={e => setBody(e.target.value)}
+          rows={6}
+          style={{
+            width: "100%", padding: "9px 11px",
+            border: "1px solid var(--border)", borderRadius: 9,
+            fontSize: 12.5, fontFamily: "inherit", resize: "vertical",
+            color: "var(--text)", outline: "none",
+            boxSizing: "border-box", marginBottom: 10,
+          }}
+        />
+      ) : (
+        <div
+          style={{
+            background: "var(--bg-elev-2)",
+            border: "1px solid var(--border)",
+            borderRadius: 9,
+            padding: "9px 12px",
+            fontSize: 12.5, color: "var(--text)",
+            lineHeight: 1.55, marginBottom: 10,
+            maxHeight: 180, overflowY: "auto",
+          }}
+          dangerouslySetInnerHTML={{ __html: item.body_html }}
+        />
+      )}
+
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+        {editing ? (
+          <>
+            <button
+              onClick={() => { setBusy(true); onEditAndSend(body); }}
+              disabled={busy}
+              style={btnConfirm}
+            >
+              {busy ? "Enviando…" : "📧 Enviar editado"}
+            </button>
+            <button
+              onClick={() => { setEditing(false); setBody(item.body_html); }}
+              style={btnGhost}
+            >
+              Volver
+            </button>
+          </>
+        ) : (
+          <>
+            <button
+              onClick={() => { setBusy(true); onApprove(true); }}
+              disabled={busy}
+              style={btnConfirm}
+            >
+              {busy ? "Enviando…" : "✓ Confirmar y enviar"}
+            </button>
+            {isFuture && (
+              <button
+                onClick={() => onApprove(false)}
+                style={btnSecondaryStyle}
+              >
+                ⏰ Programar para {fmtDate(scheduledDate)}
+              </button>
+            )}
+            <button onClick={() => setEditing(true)} style={btnGhost}>
+              ✏️ Editar
+            </button>
+            <button onClick={onCancel} style={btnDanger}>
+              Descartar
+            </button>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+const btnConfirm: React.CSSProperties = {
+  padding: "9px 16px", background: "var(--accent)", color: "#fff",
+  border: "none", borderRadius: 9, fontSize: 13, fontWeight: 700,
+  cursor: "pointer", boxShadow: "0 2px 8px rgba(67,97,238,0.3)",
+  fontFamily: "inherit",
+};
+const btnSecondaryStyle: React.CSSProperties = {
+  padding: "9px 14px", background: "#fff", color: "var(--text-dim)",
+  border: "1px solid var(--border)", borderRadius: 9, fontSize: 12.5,
+  fontWeight: 600, cursor: "pointer", fontFamily: "inherit",
+};
+const btnGhost: React.CSSProperties = {
+  padding: "9px 14px", background: "transparent", color: "var(--text-dim)",
+  border: "1px solid var(--border)", borderRadius: 9, fontSize: 12.5,
+  fontWeight: 600, cursor: "pointer", fontFamily: "inherit",
+};
+const btnDanger: React.CSSProperties = {
+  padding: "9px 14px", background: "transparent", color: "var(--error)",
+  border: "1px solid rgba(239,68,68,0.25)", borderRadius: 9, fontSize: 12.5,
+  fontWeight: 600, cursor: "pointer", fontFamily: "inherit",
+};
+
 // ============== Aplicar secuencia card ==============
 
 function ApplySequenceCard({
@@ -2064,6 +2297,56 @@ function ApplySequenceCard({
           )}
         </>
       )}
+    </div>
+  );
+}
+
+// ============== Bubble de mensaje (chat) ==============
+
+function MsgBubble({
+  direction, initials, from, date, bodyHtml, fullHtml, hasQuoted,
+}: {
+  direction: "inbound" | "outbound";
+  initials: string;
+  from: string;
+  date: string;
+  bodyHtml: string;
+  fullHtml: string;
+  hasQuoted: boolean;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  return (
+    <div className={`seg-msg seg-msg-${direction}`}>
+      <div className="seg-msg-avatar">{initials}</div>
+      <div className="seg-msg-bubble">
+        <div className="seg-msg-head">
+          <span className="seg-msg-from">{from}</span>
+          <span className="seg-msg-date">{date}</span>
+        </div>
+        <div
+          className="seg-msg-body"
+          dangerouslySetInnerHTML={{ __html: expanded ? fullHtml : bodyHtml }}
+        />
+        {hasQuoted && (
+          <button
+            onClick={() => setExpanded(!expanded)}
+            style={{
+              marginTop: 8,
+              padding: "4px 10px",
+              background: "transparent",
+              border: "1px solid var(--border)",
+              borderRadius: 7,
+              color: "var(--text-faint)",
+              fontSize: 11,
+              fontWeight: 600,
+              cursor: "pointer",
+              fontFamily: "inherit",
+            }}
+          >
+            {expanded ? "▴ Ocultar historial" : "▾ Mostrar historial citado"}
+          </button>
+        )}
+      </div>
     </div>
   );
 }
@@ -2630,16 +2913,101 @@ function CalendarView(p: {
 function ThreadView(p: any) {
   const t: Thread = p.thread;
   const [seqMenuOpen, setSeqMenuOpen] = useState(false);
+  const [syncing, setSyncing] = useState(false);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const lastMsgIdRef = useRef<string>("");
+
+  // Auto-scroll cuando llega un mensaje nuevo
+  useEffect(() => {
+    const lastId = t.messages[t.messages.length - 1]?.id;
+    if (lastId && lastId !== lastMsgIdRef.current) {
+      lastMsgIdRef.current = lastId;
+      setTimeout(() => {
+        messagesEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+      }, 80);
+    }
+  }, [t.messages]);
+
+  async function syncNow() {
+    setSyncing(true);
+    try {
+      await fetch("/api/email/sync", { method: "POST" });
+      await p.reloadThread?.();
+    } finally {
+      setSyncing(false);
+    }
+  }
+
+  // Mezclar mensajes + follow-ups programados como timeline única
+  const timeline: any[] = [
+    ...t.messages.map(m => ({ kind: "msg", date: m.date, item: m })),
+    ...(t.followups || [])
+      .filter((f: any) => f.status === "scheduled")
+      .map((f: any) => ({ kind: "ghost", date: f.scheduled_at, item: f })),
+  ].sort((a, b) => a.date.localeCompare(b.date));
+
+  function getInitials(email: string): string {
+    const local = email.split("@")[0];
+    const parts = local.split(/[._-]+/).filter(Boolean);
+    if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase();
+    return (local.slice(0, 2)).toUpperCase();
+  }
+
+  /** Quita la historia citada de un email (lo que estaba antes del "On X, Y wrote:" / "El X, Y escribió:" / blockquotes) */
+  function stripQuoted(html: string): { clean: string; hasQuoted: boolean } {
+    if (!html) return { clean: "", hasQuoted: false };
+    let s = html;
+
+    // Cortar en patrones típicos de cita
+    const cutMarkers = [
+      /<div[^>]*class=["'][^"']*gmail_quote[^"']*["'][^>]*>/i,
+      /<blockquote[^>]*type=["']cite["']/i,
+      /<blockquote/i,
+      /<div[^>]*>\s*-----\s*Original Message\s*-----/i,
+      /\bEl\s+\w+[,]\s*\d+\s+\w+\s+\d+\s+a\s+las\s+\d+:\d+/i,                     // "El jue, 19 mar 2026 a las 12:20"
+      /\bEl\s+[\d/]+,\s*[^\n<]+escribió:/i,
+      /\bOn\s+\w+,\s+\w+\s+\d+,\s+\d+\s+at\s+\d+:\d+[^<]*wrote:/i,
+      /\bDe:\s*[^\n<]+\n*\s*<br\s*\/?>\s*Enviado:/i,
+      /<div[^>]*>\s*De:\s*[^<]+/i,
+    ];
+    for (const re of cutMarkers) {
+      const m = s.match(re);
+      if (m && m.index !== undefined && m.index > 50) {
+        s = s.slice(0, m.index);
+        return { clean: s.trim(), hasQuoted: true };
+      }
+    }
+    return { clean: s, hasQuoted: false };
+  }
+
   return (
     <>
       <section className="seg-card seg-thread-head">
         <div style={{ flex: 1 }}>
           <h2 className="li-h2" style={{ marginBottom: 4 }}>{t.subject}</h2>
-          <div style={{ fontSize: 12, color: "var(--text-dim)" }}>
+          <div style={{ fontSize: 12, color: "var(--text-dim)", display: "flex", alignItems: "center", gap: 10 }}>
             Con {t.participants.filter((x: string) => x !== p.myEmail).join(", ")}
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 5, color: "var(--success)" }}>
+              <span className="seg-sync-dot" /> escuchando respuestas
+            </span>
           </div>
         </div>
         <div style={{ display: "flex", gap: 8 }}>
+          <button
+            onClick={syncNow}
+            disabled={syncing}
+            title="Sincronizar ahora con Gmail"
+            style={{
+              padding: "7px 13px",
+              background: syncing ? "var(--bg-elev-3)" : "#fff",
+              border: "1px solid var(--border)",
+              borderRadius: 9, fontSize: 12, fontWeight: 600,
+              color: "var(--text-dim)", cursor: syncing ? "wait" : "pointer",
+              fontFamily: "inherit",
+            }}
+          >
+            {syncing ? "⏳ Sincronizando…" : "↻ Sincronizar"}
+          </button>
           {t.status !== "closed" && (
             <button className="btn-ghost-sm" onClick={p.markClosed} title="Marcar como cerrado">
               Cerrar hilo
@@ -2677,15 +3045,67 @@ function ThreadView(p: any) {
       </section>
 
       <section className="seg-messages">
-        {t.messages.map((m: Message) => (
-          <div key={m.id} className={`seg-msg seg-msg-${m.direction}`}>
-            <div className="seg-msg-head">
-              <span className="seg-msg-from">{m.direction === "outbound" ? "Tú" : m.from}</span>
-              <span className="seg-msg-date">{p.fmt(m.date)}</span>
+        {timeline.map((entry, idx) => {
+          if (entry.kind === "msg") {
+            const m: Message = entry.item;
+            const isOut = m.direction === "outbound";
+            const initials = isOut ? "TÚ" : getInitials(m.from || "??");
+            const rawHtml = m.body_html || `<p>${(m.body_text ?? "").replace(/\n/g, "<br>")}</p>`;
+            const { clean, hasQuoted } = stripQuoted(rawHtml);
+            return (
+              <MsgBubble
+                key={`m-${m.id}`}
+                direction={m.direction}
+                initials={initials}
+                from={isOut ? "Tú" : m.from}
+                date={p.fmt(m.date)}
+                bodyHtml={clean}
+                fullHtml={rawHtml}
+                hasQuoted={hasQuoted}
+              />
+            );
+          }
+          // Ghost: follow-up programado
+          const f = entry.item;
+          return (
+            <div key={`f-${f.id}`} className="seg-msg seg-msg-outbound seg-msg-ghost">
+              <div className="seg-msg-avatar">🤖</div>
+              <div className="seg-msg-bubble">
+                <div className="seg-msg-ghost-label">
+                  📅 Programado · se enviará {p.fmt(f.scheduled_at)} · {f.origin}
+                </div>
+                <div className="seg-msg-body" dangerouslySetInnerHTML={{ __html: f.body_html.slice(0, 600) }} />
+                <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
+                  <button
+                    onClick={() => p.sendNowFollowup(f.id)}
+                    style={{
+                      padding: "5px 11px",
+                      background: "linear-gradient(135deg, #f59e0b, #d97706)",
+                      color: "#fff", border: "none", borderRadius: 8,
+                      fontSize: 11, fontWeight: 700, cursor: "pointer",
+                      fontFamily: "inherit",
+                    }}
+                  >
+                    🚀 Enviar ahora
+                  </button>
+                  <button
+                    onClick={() => p.cancelFollowup(f.id)}
+                    style={{
+                      padding: "5px 11px",
+                      background: "transparent",
+                      color: "#92400e", border: "1px solid rgba(245,158,11,0.4)",
+                      borderRadius: 8, fontSize: 11, fontWeight: 600,
+                      cursor: "pointer", fontFamily: "inherit",
+                    }}
+                  >
+                    Cancelar
+                  </button>
+                </div>
+              </div>
             </div>
-            <div className="seg-msg-body" dangerouslySetInnerHTML={{ __html: m.body_html || `<p>${(m.body_text ?? "").replace(/\n/g, "<br>")}</p>` }} />
-          </div>
-        ))}
+          );
+        })}
+        <div ref={messagesEndRef} />
       </section>
 
       {t.followups.length > 0 && (

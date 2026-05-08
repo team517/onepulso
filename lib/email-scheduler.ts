@@ -10,17 +10,17 @@ declare global {
   var __emailScheduler: NodeJS.Timeout | undefined;
 }
 
-const TICK_MS = 60_000; // 60s
+const TICK_MS = 30_000; // 30s — más reactivo
 
 export function startEmailScheduler() {
   if (globalThis.__emailScheduler) return;
-  console.log("[email-scheduler] starting (60s tick: followups + inbox sync)");
+  console.log("[email-scheduler] starting (30s tick: followups + inbox sync)");
   globalThis.__emailScheduler = setInterval(tick, TICK_MS);
   tick().catch((e) => console.error("[email-scheduler] initial error", e));
 }
 
 let lastInboxSync = 0;
-const INBOX_SYNC_MS = 5 * 60_000; // sync inbox cada 5 min
+const INBOX_SYNC_MS = 60_000; // sync inbox cada 60s para detectar respuestas casi en tiempo real
 
 export async function tick() {
   // 1. Enviar follow-ups vencidos
@@ -30,7 +30,7 @@ export async function tick() {
   if (Date.now() - lastInboxSync > INBOX_SYNC_MS) {
     lastInboxSync = Date.now();
     try {
-      const r = await syncInbox({ days: 3, max: 30 });
+      const r = await syncInbox({ days: 7, max: 100 });
       if (r.new_messages > 0) {
         console.log(`[email-scheduler] inbox sync: ${r.new_messages} new in ${r.threads_touched.length} threads`);
         // Después de sync, correr autopilot por si hay nuevas inbounds

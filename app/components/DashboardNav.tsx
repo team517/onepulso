@@ -7,6 +7,7 @@ const NAV = [
   { href: "/campaigns",    label: "Campañas",      icon: "✦", exact: false },
   { href: "/seguimientos", label: "Seguimientos",  icon: "◈", exact: false },
   { href: "/linkedin",     label: "LinkedIn",      icon: "◆", exact: false },
+  { href: "/facturacion",  label: "Facturación",   icon: "◇", exact: false },
 ];
 
 export default function DashboardNav() {

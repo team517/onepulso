@@ -1,6 +1,8 @@
 {
   "/_global-error/page": "/_global-error",
   "/_not-found/page": "/_not-found",
+  "/api/auth/login/route": "/api/auth/login",
+  "/api/auth/logout/route": "/api/auth/logout",
   "/api/campaigns/route": "/api/campaigns",
   "/api/chat/attach/route": "/api/chat/attach",
   "/api/chat/route": "/api/chat",
@@ -43,6 +45,7 @@
   "/api/skills/route": "/api/skills",
   "/campaigns/page": "/campaigns",
   "/linkedin/page": "/linkedin",
+  "/login/page": "/login",
   "/page": "/",
   "/seguimientos/page": "/seguimientos"
 }

@@ -24,7 +24,7 @@ export default function LoginPage() {
       if (res.ok) {
         router.push("/");
       } else {
-        setError(data.error || "Credenciales incorrectas");
+        setError(data.hint ? `${data.error} — ${data.hint}` : (data.error || "Credenciales incorrectas"));
       }
     } catch {
       setError("Error de conexión");

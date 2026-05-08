@@ -1,3 +1,5 @@
 node_modules/
 data/credentials.json
 .env.local
+.next/dev/
+.next/cache/

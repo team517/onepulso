@@ -35,12 +35,12 @@ export default function LoginPage() {
 
   const inputBase: React.CSSProperties = {
     width: "100%",
-    padding: "12px 14px",
-    background: "rgba(255,255,255,0.05)",
-    border: "1px solid rgba(255,255,255,0.1)",
+    padding: "11px 14px",
+    background: "#ffffff",
+    border: "1px solid rgba(15,23,42,0.12)",
     borderRadius: "10px",
-    color: "#f5f5f7",
-    fontSize: "15px",
+    color: "#0f172a",
+    fontSize: "14.5px",
     outline: "none",
     boxSizing: "border-box",
     fontFamily: "-apple-system, 'SF Pro Text', 'Helvetica Neue', Arial, sans-serif",
@@ -50,11 +50,11 @@ export default function LoginPage() {
 
   const labelBase: React.CSSProperties = {
     display: "block",
-    color: "#98989d",
-    fontSize: "12px",
-    fontWeight: 500,
+    color: "#64748b",
+    fontSize: "11.5px",
+    fontWeight: 600,
     marginBottom: "7px",
-    letterSpacing: "0.04em",
+    letterSpacing: "0.05em",
     textTransform: "uppercase" as const,
     fontFamily: "-apple-system, 'SF Pro Text', 'Helvetica Neue', Arial, sans-serif",
   };
@@ -62,22 +62,31 @@ export default function LoginPage() {
   return (
     <div style={{
       minHeight: "100vh",
-      background: "#000000",
+      background: "linear-gradient(145deg, #e8f0fe 0%, #f0f4f8 50%, #e2eaf8 100%)",
       display: "flex",
       alignItems: "center",
       justifyContent: "center",
       fontFamily: "-apple-system, 'SF Pro Text', 'Helvetica Neue', Arial, sans-serif",
       WebkitFontSmoothing: "antialiased",
     }}>
-      {/* Subtle glow */}
+      {/* Decorative background blobs */}
       <div style={{
         position: "fixed",
-        top: "20%",
-        left: "50%",
-        transform: "translateX(-50%)",
-        width: "700px",
+        top: "10%",
+        left: "15%",
+        width: "500px",
         height: "500px",
-        background: "radial-gradient(ellipse at center, rgba(0,113,227,0.06) 0%, transparent 70%)",
+        background: "radial-gradient(ellipse at center, rgba(0,113,227,0.08) 0%, transparent 70%)",
+        pointerEvents: "none",
+        zIndex: 0,
+      }} />
+      <div style={{
+        position: "fixed",
+        bottom: "10%",
+        right: "15%",
+        width: "400px",
+        height: "400px",
+        background: "radial-gradient(ellipse at center, rgba(59,130,246,0.06) 0%, transparent 70%)",
         pointerEvents: "none",
         zIndex: 0,
       }} />
@@ -91,24 +100,23 @@ export default function LoginPage() {
       }}>
 
         {/* Logo mark */}
-        <div style={{ textAlign: "center", marginBottom: "44px" }}>
+        <div style={{ textAlign: "center", marginBottom: "40px" }}>
           <div style={{
             display: "inline-flex",
             alignItems: "center",
             justifyContent: "center",
-            width: "52px",
-            height: "52px",
-            background: "linear-gradient(145deg, #1a1a1a, #0d0d0d)",
-            border: "1px solid rgba(255,255,255,0.12)",
-            borderRadius: "14px",
+            width: "56px",
+            height: "56px",
+            background: "linear-gradient(145deg, #0d2244, #1a3a6e)",
+            borderRadius: "16px",
             marginBottom: "20px",
-            boxShadow: "0 8px 24px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.06)",
+            boxShadow: "0 8px 24px rgba(13,34,68,0.25), 0 2px 6px rgba(13,34,68,0.15)",
           }}>
-            <span style={{ fontSize: "22px", lineHeight: 1 }}>⚡</span>
+            <span style={{ fontSize: "24px", lineHeight: 1 }}>⚡</span>
           </div>
 
           <h1 style={{
-            color: "#f5f5f7",
+            color: "#0f172a",
             fontSize: "28px",
             fontWeight: 700,
             margin: "0 0 6px",
@@ -119,7 +127,7 @@ export default function LoginPage() {
           </h1>
 
           <p style={{
-            color: "#636366",
+            color: "#64748b",
             fontSize: "14px",
             margin: 0,
             letterSpacing: "0.01em",
@@ -130,18 +138,16 @@ export default function LoginPage() {
 
         {/* Card */}
         <div style={{
-          background: "rgba(255,255,255,0.03)",
-          border: "1px solid rgba(255,255,255,0.08)",
+          background: "#ffffff",
+          border: "1px solid rgba(15,23,42,0.08)",
           borderRadius: "20px",
           padding: "32px 28px",
-          backdropFilter: "blur(20px)",
-          WebkitBackdropFilter: "blur(20px)",
-          boxShadow: "0 24px 60px rgba(0,0,0,0.5)",
+          boxShadow: "0 4px 24px rgba(15,23,42,0.08), 0 1px 4px rgba(15,23,42,0.04)",
         }}>
           <form onSubmit={handleSubmit}>
 
             {/* Email */}
-            <div style={{ marginBottom: "20px" }}>
+            <div style={{ marginBottom: "18px" }}>
               <label style={labelBase}>Email</label>
               <input
                 type="email"
@@ -151,18 +157,18 @@ export default function LoginPage() {
                 required
                 style={inputBase}
                 onFocus={e => {
-                  e.target.style.borderColor = "rgba(0,113,227,0.6)";
-                  e.target.style.boxShadow   = "0 0 0 3px rgba(0,113,227,0.1)";
+                  e.target.style.borderColor = "#0071e3";
+                  e.target.style.boxShadow   = "0 0 0 3px rgba(0,113,227,0.12)";
                 }}
                 onBlur={e => {
-                  e.target.style.borderColor = "rgba(255,255,255,0.1)";
+                  e.target.style.borderColor = "rgba(15,23,42,0.12)";
                   e.target.style.boxShadow   = "none";
                 }}
               />
             </div>
 
             {/* Password */}
-            <div style={{ marginBottom: "20px" }}>
+            <div style={{ marginBottom: "18px" }}>
               <label style={labelBase}>Contraseña</label>
               <input
                 type="password"
@@ -172,18 +178,18 @@ export default function LoginPage() {
                 required
                 style={inputBase}
                 onFocus={e => {
-                  e.target.style.borderColor = "rgba(0,113,227,0.6)";
-                  e.target.style.boxShadow   = "0 0 0 3px rgba(0,113,227,0.1)";
+                  e.target.style.borderColor = "#0071e3";
+                  e.target.style.boxShadow   = "0 0 0 3px rgba(0,113,227,0.12)";
                 }}
                 onBlur={e => {
-                  e.target.style.borderColor = "rgba(255,255,255,0.1)";
+                  e.target.style.borderColor = "rgba(15,23,42,0.12)";
                   e.target.style.boxShadow   = "none";
                 }}
               />
             </div>
 
             {/* Remember me */}
-            <div style={{ marginBottom: "28px" }}>
+            <div style={{ marginBottom: "26px" }}>
               <label style={labelBase}>Mantener sesión</label>
               <select
                 value={remember}
@@ -192,29 +198,29 @@ export default function LoginPage() {
                   ...inputBase,
                   cursor: "pointer",
                   backgroundImage:
-                    "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%2398989d' d='M6 8L1 3h10z'/%3E%3C/svg%3E\")",
+                    "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%2364748b' d='M6 8L1 3h10z'/%3E%3C/svg%3E\")",
                   backgroundRepeat: "no-repeat",
                   backgroundPosition: "right 14px center",
                   paddingRight: "36px",
                 }}
               >
-                <option value="1"  style={{ background: "#111" }}>1 día</option>
-                <option value="7"  style={{ background: "#111" }}>7 días</option>
-                <option value="30" style={{ background: "#111" }}>30 días</option>
-                <option value="90" style={{ background: "#111" }}>3 meses</option>
+                <option value="1">1 día</option>
+                <option value="7">7 días</option>
+                <option value="30">30 días</option>
+                <option value="90">3 meses</option>
               </select>
             </div>
 
             {/* Error */}
             {error && (
               <div style={{
-                background: "rgba(255,69,58,0.08)",
-                border: "1px solid rgba(255,69,58,0.2)",
+                background: "rgba(239,68,68,0.06)",
+                border: "1px solid rgba(239,68,68,0.2)",
                 borderRadius: "10px",
                 padding: "10px 14px",
-                color: "#ff6961",
+                color: "#dc2626",
                 fontSize: "13.5px",
-                marginBottom: "20px",
+                marginBottom: "18px",
                 letterSpacing: "0.01em",
               }}>
                 {error}
@@ -227,24 +233,30 @@ export default function LoginPage() {
               disabled={loading}
               style={{
                 width: "100%",
-                padding: "13px",
+                padding: "12px",
                 background: loading ? "rgba(0,113,227,0.5)" : "#0071e3",
                 border: "none",
                 borderRadius: "12px",
-                color: "#fff",
+                color: "#ffffff",
                 fontSize: "15px",
                 fontWeight: 600,
                 cursor: loading ? "not-allowed" : "pointer",
                 letterSpacing: "-0.01em",
                 fontFamily: "-apple-system, 'SF Pro Text', 'Helvetica Neue', Arial, sans-serif",
-                transition: "background 0.2s ease, transform 0.15s ease",
-                transform: "translateY(0)",
+                transition: "background 0.2s ease, box-shadow 0.2s ease",
+                boxShadow: "0 2px 8px rgba(0,113,227,0.3)",
               }}
               onMouseEnter={e => {
-                if (!loading) (e.target as HTMLButtonElement).style.background = "#0077ed";
+                if (!loading) {
+                  (e.currentTarget as HTMLButtonElement).style.background = "#005bb5";
+                  (e.currentTarget as HTMLButtonElement).style.boxShadow = "0 4px 16px rgba(0,113,227,0.4)";
+                }
               }}
               onMouseLeave={e => {
-                if (!loading) (e.target as HTMLButtonElement).style.background = "#0071e3";
+                if (!loading) {
+                  (e.currentTarget as HTMLButtonElement).style.background = "#0071e3";
+                  (e.currentTarget as HTMLButtonElement).style.boxShadow = "0 2px 8px rgba(0,113,227,0.3)";
+                }
               }}
             >
               {loading ? "Iniciando sesión…" : "Iniciar sesión"}
@@ -256,7 +268,7 @@ export default function LoginPage() {
         {/* Footer */}
         <p style={{
           textAlign: "center",
-          color: "#3a3a3c",
+          color: "#94a3b8",
           fontSize: "12px",
           marginTop: "28px",
           letterSpacing: "0.02em",

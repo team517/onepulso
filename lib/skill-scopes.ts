@@ -1,7 +1,8 @@
 import { promises as fs } from "fs";
 import path from "path";
+import { dataPath } from "./data-dir";
 
-const FILE = path.join(process.cwd(), "data", "skill-scopes.json");
+const FILE = dataPath("skill-scopes.json");
 
 export type Scope = "campaigns" | "linkedin";
 

@@ -7,8 +7,9 @@ import {
   scheduleFollowup,
   Thread,
 } from "./email-threads";
+import { dataPath } from "./data-dir";
 
-const FILE = path.join(process.cwd(), "data", "email-sequences.json");
+const FILE = dataPath("email-sequences.json");
 
 export type SequenceStep = {
   delay_days: number; // días después del paso anterior (o del initial si es step 1)

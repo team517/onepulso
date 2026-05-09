@@ -1,7 +1,8 @@
 import { promises as fs, existsSync, readFileSync, writeFileSync, mkdirSync } from "fs";
 import path from "path";
+import { dataPath } from "./data-dir";
 
-const FILE = path.join(process.cwd(), "data", "credentials.json");
+const FILE = dataPath("credentials.json");
 
 const KNOWN_KEYS = [
   "ANTHROPIC_API_KEY",

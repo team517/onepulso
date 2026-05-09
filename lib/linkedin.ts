@@ -1,10 +1,11 @@
 import { promises as fs } from "fs";
 import path from "path";
 import { envVar } from "./env";
+import { dataPath } from "./data-dir";
 
-const AUTH_FILE = path.join(process.cwd(), "data", "linkedin-auth.json");
-const POSTS_FILE = path.join(process.cwd(), "data", "linkedin-posts.json");
-const IMAGES_DIR = path.join(process.cwd(), "data", "linkedin-images");
+const AUTH_FILE = dataPath("linkedin-auth.json");
+const POSTS_FILE = dataPath("linkedin-posts.json");
+const IMAGES_DIR = dataPath("linkedin-images");
 
 export type LinkedInAuth = {
   access_token: string;

@@ -1,8 +1,9 @@
 import { promises as fs } from "fs";
 import path from "path";
 import { randomUUID } from "crypto";
+import { dataPath } from "./data-dir";
 
-const DIR = path.join(process.cwd(), "data", "conversations");
+const DIR = dataPath("conversations");
 
 export type ConvMessage = {
   role: "user" | "assistant";

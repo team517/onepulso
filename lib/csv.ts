@@ -1,8 +1,9 @@
 import { promises as fs } from "fs";
 import path from "path";
 import { randomUUID } from "crypto";
+import { dataPath } from "./data-dir";
 
-const UPLOADS_DIR = path.join(process.cwd(), "data", "uploads");
+const UPLOADS_DIR = dataPath("uploads");
 
 export type CSVMetadata = {
   file_id: string;

@@ -1,7 +1,8 @@
 import { promises as fs } from "fs";
 import path from "path";
+import { dataPath } from "./data-dir";
 
-const MEM_DIR = path.join(process.cwd(), "data", "memory");
+const MEM_DIR = dataPath("memory");
 
 export type MemoryEntry = {
   slug: string;

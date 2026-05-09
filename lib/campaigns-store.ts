@@ -1,7 +1,8 @@
 import { promises as fs } from "fs";
 import path from "path";
+import { dataPath } from "./data-dir";
 
-const FILE = path.join(process.cwd(), "data", "campaigns.json");
+const FILE = dataPath("campaigns.json");
 
 export type CampaignRecord = {
   id: string;

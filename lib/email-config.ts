@@ -1,7 +1,8 @@
 import { promises as fs } from "fs";
 import path from "path";
+import { dataPath } from "./data-dir";
 
-const FILE = path.join(process.cwd(), "data", "email-config.json");
+const FILE = dataPath("email-config.json");
 
 export type EmailConfig = {
   email: string;

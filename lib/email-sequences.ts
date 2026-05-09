@@ -1,5 +1,3 @@
-import { promises as fs } from "fs";
-import path from "path";
 import { randomUUID } from "crypto";
 import {
   appendMessage,
@@ -7,9 +5,9 @@ import {
   scheduleFollowup,
   Thread,
 } from "./email-threads";
-import { dataPath } from "./data-dir";
+import { readJson, writeJson } from "./storage";
 
-const FILE = dataPath("email-sequences.json");
+const KEY = "email-sequences";
 
 export type SequenceStep = {
   delay_days: number; // días después del paso anterior (o del initial si es step 1)
@@ -28,16 +26,11 @@ export type Sequence = {
 };
 
 async function readAll(): Promise<Sequence[]> {
-  try {
-    return JSON.parse(await fs.readFile(FILE, "utf-8"));
-  } catch {
-    return [];
-  }
+  return (await readJson<Sequence[]>(KEY)) ?? [];
 }
 
 async function writeAll(items: Sequence[]) {
-  await fs.mkdir(path.dirname(FILE), { recursive: true });
-  await fs.writeFile(FILE, JSON.stringify(items, null, 2), "utf-8");
+  await writeJson(KEY, items);
 }
 
 export async function listSequences(): Promise<Sequence[]> {

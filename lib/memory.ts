@@ -1,8 +1,6 @@
-import { promises as fs } from "fs";
-import path from "path";
-import { dataPath } from "./data-dir";
+import { readJson, writeJson, deleteJson, listKeys } from "./storage";
 
-const MEM_DIR = dataPath("memory");
+const PREFIX = "memory/";
 
 export type MemoryEntry = {
   slug: string;
@@ -12,38 +10,22 @@ export type MemoryEntry = {
   updated: string;
 };
 
-async function ensureDir() {
-  await fs.mkdir(MEM_DIR, { recursive: true });
-}
-
 function safeSlug(s: string) {
   return s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 80);
 }
 
 export async function listMemory(): Promise<MemoryEntry[]> {
-  await ensureDir();
-  const files = await fs.readdir(MEM_DIR);
+  const keys = await listKeys(PREFIX);
   const entries: MemoryEntry[] = [];
-  for (const f of files) {
-    if (!f.endsWith(".md")) continue;
-    const full = path.join(MEM_DIR, f);
-    const raw = await fs.readFile(full, "utf-8");
-    const parsed = parseFrontmatter(raw);
-    const stat = await fs.stat(full);
-    entries.push({
-      slug: f.replace(/\.md$/, ""),
-      title: parsed.meta.title ?? f.replace(/\.md$/, ""),
-      category: parsed.meta.category ?? "general",
-      content: parsed.body,
-      updated: stat.mtime.toISOString(),
-    });
+  for (const k of keys) {
+    const e = await readJson<MemoryEntry>(k);
+    if (e) entries.push(e);
   }
-  return entries.sort((a, b) => b.updated.localeCompare(a.updated));
+  return entries.sort((a, b) => (b.updated || "").localeCompare(a.updated || ""));
 }
 
 export async function getMemory(slug: string): Promise<MemoryEntry | null> {
-  const all = await listMemory();
-  return all.find((e) => e.slug === slug) ?? null;
+  return await readJson<MemoryEntry>(`${PREFIX}${slug}`);
 }
 
 export async function saveMemory(input: {
@@ -52,43 +34,24 @@ export async function saveMemory(input: {
   category: string;
   content: string;
 }): Promise<MemoryEntry> {
-  await ensureDir();
   const slug = input.slug ?? safeSlug(input.title);
-  const file = path.join(MEM_DIR, `${slug}.md`);
-  const fm = `---\ntitle: ${input.title}\ncategory: ${input.category}\n---\n\n${input.content}\n`;
-  await fs.writeFile(file, fm, "utf-8");
-  return {
+  const entry: MemoryEntry = {
     slug,
     title: input.title,
     category: input.category,
     content: input.content,
     updated: new Date().toISOString(),
   };
+  await writeJson(`${PREFIX}${slug}`, entry);
+  return entry;
 }
 
 export async function deleteMemory(slug: string) {
-  const file = path.join(MEM_DIR, `${slug}.md`);
-  await fs.unlink(file).catch(() => {});
+  await deleteJson(`${PREFIX}${slug}`);
 }
 
 export async function memoryAsContext(): Promise<string> {
   const all = await listMemory();
   if (all.length === 0) return "(sin memoria configurada todavía)";
-  return all
-    .map((e) => `### [${e.category}] ${e.title}\n${e.content}`)
-    .join("\n\n---\n\n");
-}
-
-function parseFrontmatter(raw: string): { meta: Record<string, string>; body: string } {
-  if (!raw.startsWith("---")) return { meta: {}, body: raw };
-  const end = raw.indexOf("\n---", 3);
-  if (end === -1) return { meta: {}, body: raw };
-  const fmRaw = raw.slice(3, end).trim();
-  const body = raw.slice(end + 4).trimStart();
-  const meta: Record<string, string> = {};
-  for (const line of fmRaw.split("\n")) {
-    const m = line.match(/^([a-zA-Z0-9_-]+):\s*(.*)$/);
-    if (m) meta[m[1]] = m[2].trim();
-  }
-  return { meta, body };
+  return all.map((e) => `### [${e.category}] ${e.title}\n${e.content}`).join("\n\n---\n\n");
 }

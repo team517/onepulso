@@ -1,9 +1,7 @@
-import { promises as fs } from "fs";
-import path from "path";
 import { randomUUID } from "crypto";
-import { dataPath } from "./data-dir";
+import { readJson, writeJson } from "./storage";
 
-const FILE = dataPath("email-threads.json");
+const KEY = "email-threads";
 
 export type EmailMessage = {
   id: string;
@@ -30,20 +28,20 @@ export type Thread = {
   status: "active" | "closed" | "stale";
   followups: Followup[];
   notes?: string;
-  watched?: boolean;         // true = el usuario ha interactuado (envió, abrió, importó). Filtra ruido.
-  contact_name?: string;     // Nombre legible del contacto (auto-detectado o manual)
-  contact_context?: string;  // Contexto del contacto que el autopilot usa al redactar
-  tone?: string;             // Tono específico para este contacto (ej. "directo y técnico")
-  objective?: string;        // Objetivo del seguimiento (ej. "cerrar reunión 30 min")
-  custom_prompt?: string;    // Instrucciones extra que se inyectan en el prompt
-  contract_alert?: {         // Alerta de "el cliente pide contrato/propuesta"
+  watched?: boolean;
+  contact_name?: string;
+  contact_context?: string;
+  tone?: string;
+  objective?: string;
+  custom_prompt?: string;
+  contract_alert?: {
     detected_at: string;
     message_id?: string;
     excerpt: string;
     acknowledged?: boolean;
   };
-  auto_pilot?: boolean;      // Si true, la IA procesa cada nueva inbound: extrae fecha + redacta + programa
-  auto_pilot_processed_msg_ids?: string[]; // mensajes inbound ya procesados por auto-pilot
+  auto_pilot?: boolean;
+  auto_pilot_processed_msg_ids?: string[];
   created_at: string;
   updated_at: string;
 };
@@ -61,16 +59,11 @@ export type Followup = {
 };
 
 async function readThreads(): Promise<Thread[]> {
-  try {
-    return JSON.parse(await fs.readFile(FILE, "utf-8"));
-  } catch {
-    return [];
-  }
+  return (await readJson<Thread[]>(KEY)) ?? [];
 }
 
 async function writeThreads(threads: Thread[]) {
-  await fs.mkdir(path.dirname(FILE), { recursive: true });
-  await fs.writeFile(FILE, JSON.stringify(threads, null, 2), "utf-8");
+  await writeJson(KEY, threads);
 }
 
 export async function listThreads(): Promise<Thread[]> {
@@ -134,7 +127,6 @@ export async function appendMessage(threadId: string, msg: Omit<EmailMessage, "i
   const t = all.find((x) => x.id === threadId);
   if (!t) return null;
 
-  // Dedup: si ya hay un mensaje con el mismo message_id, no lo añadas
   if (msg.message_id) {
     const exists = t.messages.some((x) => x.message_id === msg.message_id);
     if (exists) return t;
@@ -142,7 +134,6 @@ export async function appendMessage(threadId: string, msg: Omit<EmailMessage, "i
 
   const m: EmailMessage = { id: randomUUID(), ...msg };
   t.messages.push(m);
-  // Mantener orden cronológico
   t.messages.sort((a, b) => (a.date || "").localeCompare(b.date || ""));
 
   if (m.direction === "inbound") t.last_inbound_at = m.date;
@@ -173,7 +164,7 @@ export async function scheduleFollowup(input: {
   body_html: string;
   scheduled_at: string;
   origin: Followup["origin"];
-  status?: Followup["status"]; // por defecto "scheduled"
+  status?: Followup["status"];
 }): Promise<Followup | null> {
   const all = await readThreads();
   const t = all.find((x) => x.id === input.thread_id);

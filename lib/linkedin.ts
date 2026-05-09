@@ -1,11 +1,9 @@
-import { promises as fs } from "fs";
-import path from "path";
 import { envVar } from "./env";
-import { dataPath } from "./data-dir";
+import { readJson, writeJson, deleteJson, readBlob, writeBlob } from "./storage";
 
-const AUTH_FILE = dataPath("linkedin-auth.json");
-const POSTS_FILE = dataPath("linkedin-posts.json");
-const IMAGES_DIR = dataPath("linkedin-images");
+const AUTH_KEY = "linkedin-auth";
+const POSTS_KEY = "linkedin-posts";
+const IMAGES_PREFIX = "linkedin-images/";
 
 export type LinkedInAuth = {
   access_token: string;
@@ -20,10 +18,10 @@ export type LinkedInAuth = {
 export type ScheduledPost = {
   id: string;
   text: string;
-  image_path?: string; // local path, optional
+  image_path?: string; // ahora es la KEY del blob (ej. "linkedin-images/abc.png")
   visibility: "PUBLIC" | "CONNECTIONS";
   status: "draft" | "scheduled" | "publishing" | "published" | "failed";
-  scheduled_at?: string; // ISO datetime
+  scheduled_at?: string;
   published_at?: string;
   linkedin_post_urn?: string;
   error?: string;
@@ -63,7 +61,6 @@ export async function exchangeCodeForToken(code: string): Promise<LinkedInAuth> 
   const data = await r.json();
   if (!r.ok) throw new Error(`LinkedIn token exchange failed: ${JSON.stringify(data)}`);
 
-  // Get profile via userinfo
   const profileRes = await fetch("https://api.linkedin.com/v2/userinfo", {
     headers: { Authorization: `Bearer ${data.access_token}` },
   });
@@ -79,39 +76,29 @@ export async function exchangeCodeForToken(code: string): Promise<LinkedInAuth> 
     email: profile.email,
     picture: profile.picture,
   };
-  await fs.mkdir(path.dirname(AUTH_FILE), { recursive: true });
-  await fs.writeFile(AUTH_FILE, JSON.stringify(auth, null, 2), "utf-8");
+  await writeJson(AUTH_KEY, auth);
   return auth;
 }
 
 export async function getAuth(): Promise<LinkedInAuth | null> {
-  try {
-    const raw = await fs.readFile(AUTH_FILE, "utf-8");
-    const auth: LinkedInAuth = JSON.parse(raw);
-    if (new Date(auth.expires_at).getTime() <= Date.now()) return null;
-    return auth;
-  } catch {
-    return null;
-  }
+  const auth = await readJson<LinkedInAuth>(AUTH_KEY);
+  if (!auth) return null;
+  if (new Date(auth.expires_at).getTime() <= Date.now()) return null;
+  return auth;
 }
 
 export async function clearAuth() {
-  await fs.unlink(AUTH_FILE).catch(() => {});
+  await deleteJson(AUTH_KEY);
 }
 
 // ----------- Posts CRUD -----------
 
 async function readPosts(): Promise<ScheduledPost[]> {
-  try {
-    return JSON.parse(await fs.readFile(POSTS_FILE, "utf-8"));
-  } catch {
-    return [];
-  }
+  return (await readJson<ScheduledPost[]>(POSTS_KEY)) ?? [];
 }
 
 async function writePosts(posts: ScheduledPost[]) {
-  await fs.mkdir(path.dirname(POSTS_FILE), { recursive: true });
-  await fs.writeFile(POSTS_FILE, JSON.stringify(posts, null, 2), "utf-8");
+  await writeJson(POSTS_KEY, posts);
 }
 
 export async function listPosts(): Promise<ScheduledPost[]> {
@@ -156,16 +143,22 @@ export async function deletePost(id: string) {
   await writePosts(filtered);
 }
 
-// ----------- LinkedIn publishing -----------
+// ----------- Imágenes -----------
 
+/** Guarda una imagen y devuelve la KEY (no path). Persiste en Postgres BLOB store. */
 export async function uploadImage(buffer: Buffer): Promise<string> {
-  // Save locally and return path
-  await fs.mkdir(IMAGES_DIR, { recursive: true });
   const id = crypto.randomUUID();
-  const fp = path.join(IMAGES_DIR, `${id}.png`);
-  await fs.writeFile(fp, buffer);
-  return fp;
+  const key = `${IMAGES_PREFIX}${id}.png`;
+  await writeBlob(key, buffer, "image/png");
+  return key;
 }
+
+/** Lee una imagen desde la KEY guardada */
+export async function readImage(key: string): Promise<{ data: Buffer; mime: string } | null> {
+  return await readBlob(key);
+}
+
+// ----------- LinkedIn publishing -----------
 
 async function registerLinkedInImage(auth: LinkedInAuth): Promise<{ uploadUrl: string; asset: string }> {
   const r = await fetch("https://api.linkedin.com/v2/assets?action=registerUpload", {
@@ -216,9 +209,10 @@ export async function publishPost(post: ScheduledPost): Promise<{ urn: string }>
 
   let mediaAsset: string | undefined;
   if (post.image_path) {
-    const buf = await fs.readFile(post.image_path);
+    const blob = await readBlob(post.image_path);
+    if (!blob) throw new Error("Imagen del post no encontrada");
     const reg = await registerLinkedInImage(auth);
-    await uploadImageToLinkedIn(reg.uploadUrl, buf, auth);
+    await uploadImageToLinkedIn(reg.uploadUrl, blob.data, auth);
     mediaAsset = reg.asset;
   }
 

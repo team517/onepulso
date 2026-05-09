@@ -1,8 +1,9 @@
-import { promises as fs, existsSync, readFileSync, writeFileSync, mkdirSync } from "fs";
-import path from "path";
+import { existsSync, readFileSync } from "fs";
+import { readJson, writeJson } from "./storage";
 import { dataPath } from "./data-dir";
 
-const FILE = dataPath("credentials.json");
+const KEY = "credentials";
+const FILE = dataPath("credentials.json"); // sólo se usa para readCredentialsSync (env override)
 
 const KNOWN_KEYS = [
   "ANTHROPIC_API_KEY",
@@ -16,6 +17,12 @@ export type CredentialKey = (typeof KNOWN_KEYS)[number];
 
 type CredentialMap = Partial<Record<CredentialKey, string>>;
 
+/**
+ * Versión SÍNCRONA (sólo lee del filesystem local).
+ * Se usa al boot para inyectar credentials en process.env antes de que
+ * cualquier otra cosa lea env vars. Si no existe el archivo, devuelve {}.
+ * En Railway prod las credentials vienen de env vars directamente.
+ */
 export function readCredentialsSync(): CredentialMap {
   try {
     if (!existsSync(FILE)) return {};
@@ -26,17 +33,11 @@ export function readCredentialsSync(): CredentialMap {
 }
 
 export async function readCredentials(): Promise<CredentialMap> {
-  try {
-    const raw = await fs.readFile(FILE, "utf-8");
-    return JSON.parse(raw);
-  } catch {
-    return {};
-  }
+  return (await readJson<CredentialMap>(KEY)) ?? {};
 }
 
 export async function writeCredentials(creds: CredentialMap) {
-  await fs.mkdir(path.dirname(FILE), { recursive: true });
-  await fs.writeFile(FILE, JSON.stringify(creds, null, 2), "utf-8");
+  await writeJson(KEY, creds);
 }
 
 export async function setCredential(key: CredentialKey, value: string) {

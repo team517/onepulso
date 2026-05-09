@@ -1,9 +1,7 @@
-import { promises as fs } from "fs";
-import path from "path";
 import { randomUUID } from "crypto";
-import { dataPath } from "./data-dir";
+import { readJson, writeJson, deleteJson, listKeys } from "./storage";
 
-const DIR = dataPath("conversations");
+const PREFIX = "conversations/";
 
 export type ConvMessage = {
   role: "user" | "assistant";
@@ -21,39 +19,21 @@ export type Conversation = {
 
 export type ConversationSummary = Pick<Conversation, "id" | "title" | "created_at" | "updated_at">;
 
-async function ensureDir() {
-  await fs.mkdir(DIR, { recursive: true });
-}
-
 export async function listConversations(): Promise<ConversationSummary[]> {
-  await ensureDir();
-  const files = await fs.readdir(DIR);
+  const keys = await listKeys(PREFIX);
   const out: ConversationSummary[] = [];
-  for (const f of files) {
-    if (!f.endsWith(".json")) continue;
-    try {
-      const raw = await fs.readFile(path.join(DIR, f), "utf-8");
-      const c: Conversation = JSON.parse(raw);
-      out.push({ id: c.id, title: c.title, created_at: c.created_at, updated_at: c.updated_at });
-    } catch {
-      /* skip corrupt */
-    }
+  for (const k of keys) {
+    const c = await readJson<Conversation>(k);
+    if (c) out.push({ id: c.id, title: c.title, created_at: c.created_at, updated_at: c.updated_at });
   }
   return out.sort((a, b) => b.updated_at.localeCompare(a.updated_at));
 }
 
 export async function getConversation(id: string): Promise<Conversation | null> {
-  await ensureDir();
-  try {
-    const raw = await fs.readFile(path.join(DIR, `${id}.json`), "utf-8");
-    return JSON.parse(raw);
-  } catch {
-    return null;
-  }
+  return await readJson<Conversation>(`${PREFIX}${id}`);
 }
 
 export async function createConversation(firstUserText?: string): Promise<Conversation> {
-  await ensureDir();
   const now = new Date().toISOString();
   const conv: Conversation = {
     id: randomUUID(),
@@ -62,22 +42,21 @@ export async function createConversation(firstUserText?: string): Promise<Conver
     created_at: now,
     updated_at: now,
   };
-  await fs.writeFile(path.join(DIR, `${conv.id}.json`), JSON.stringify(conv, null, 2), "utf-8");
+  await writeJson(`${PREFIX}${conv.id}`, conv);
   return conv;
 }
 
 export async function saveConversation(conv: Conversation): Promise<void> {
-  await ensureDir();
   conv.updated_at = new Date().toISOString();
   if (!conv.title || conv.title === "Nueva conversación") {
     const firstUser = conv.messages.find((m) => m.role === "user");
     if (firstUser?.text) conv.title = titleFrom(firstUser.text);
   }
-  await fs.writeFile(path.join(DIR, `${conv.id}.json`), JSON.stringify(conv, null, 2), "utf-8");
+  await writeJson(`${PREFIX}${conv.id}`, conv);
 }
 
 export async function deleteConversation(id: string): Promise<void> {
-  await fs.unlink(path.join(DIR, `${id}.json`)).catch(() => {});
+  await deleteJson(`${PREFIX}${id}`);
 }
 
 function titleFrom(text?: string): string {

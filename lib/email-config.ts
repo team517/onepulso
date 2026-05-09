@@ -1,16 +1,14 @@
-import { promises as fs } from "fs";
-import path from "path";
-import { dataPath } from "./data-dir";
+import { readJson, writeJson, deleteJson } from "./storage";
 
-const FILE = dataPath("email-config.json");
+const KEY = "email-config";
 
 export type EmailConfig = {
   email: string;
   display_name?: string;
-  send_aliases?: string[]; // otros emails desde los que el usuario envía (Gmail aliases / Send-As)
+  send_aliases?: string[];
   smtp_host: string;
   smtp_port: number;
-  smtp_secure: boolean; // true for 465, false for 587
+  smtp_secure: boolean;
   smtp_user: string;
   smtp_password: string;
   imap_host: string;
@@ -23,27 +21,19 @@ export type EmailConfig = {
 };
 
 export async function readEmailConfig(): Promise<EmailConfig | null> {
-  try {
-    return JSON.parse(await fs.readFile(FILE, "utf-8"));
-  } catch {
-    return null;
-  }
+  return await readJson<EmailConfig>(KEY);
 }
 
 export async function saveEmailConfig(c: EmailConfig) {
-  await fs.mkdir(path.dirname(FILE), { recursive: true });
-  await fs.writeFile(FILE, JSON.stringify(c, null, 2), "utf-8");
+  await writeJson(KEY, c);
 }
 
 export async function clearEmailConfig() {
-  await fs.unlink(FILE).catch(() => {});
+  await deleteJson(KEY);
 }
 
-/**
- * Defaults para Gmail con app password.
- * Para Outlook/Office 365: smtp.office365.com:587 (STARTTLS), outlook.office365.com:993
- */
-export function gmailDefaults(email: string): Partial<EmailConfig> {
+/** Defaults SMTP/IMAP para cuentas Gmail (con app password) */
+export function gmailDefaults(email: string) {
   return {
     smtp_host: "smtp.gmail.com",
     smtp_port: 465,

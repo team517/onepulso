@@ -1,24 +1,17 @@
-import { promises as fs } from "fs";
-import path from "path";
-import { dataPath } from "./data-dir";
+import { readJson, writeJson } from "./storage";
 
-const FILE = dataPath("skill-scopes.json");
+const KEY = "skill-scopes";
 
 export type Scope = "campaigns" | "linkedin";
 
 type ScopesMap = Record<string, Scope[]>;
 
 async function read(): Promise<ScopesMap> {
-  try {
-    return JSON.parse(await fs.readFile(FILE, "utf-8"));
-  } catch {
-    return {};
-  }
+  return (await readJson<ScopesMap>(KEY)) ?? {};
 }
 
 async function write(map: ScopesMap) {
-  await fs.mkdir(path.dirname(FILE), { recursive: true });
-  await fs.writeFile(FILE, JSON.stringify(map, null, 2), "utf-8");
+  await writeJson(KEY, map);
 }
 
 export async function getScopes(skillName: string): Promise<Scope[]> {

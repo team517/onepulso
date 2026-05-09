@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { promises as fs } from "fs";
-import { listPosts } from "@/lib/linkedin";
+import { listPosts, readImage } from "@/lib/linkedin";
 
 export const runtime = "nodejs";
 
@@ -11,15 +10,14 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
   if (!post || !post.image_path) {
     return NextResponse.json({ error: "no image" }, { status: 404 });
   }
-  try {
-    const buf = await fs.readFile(post.image_path);
-    return new NextResponse(buf, {
-      headers: {
-        "Content-Type": "image/png",
-        "Cache-Control": "no-cache",
-      },
-    });
-  } catch {
+  const blob = await readImage(post.image_path);
+  if (!blob) {
     return NextResponse.json({ error: "image file not found" }, { status: 404 });
   }
+  return new NextResponse(new Uint8Array(blob.data), {
+    headers: {
+      "Content-Type": blob.mime,
+      "Cache-Control": "no-cache",
+    },
+  });
 }

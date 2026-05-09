@@ -1,8 +1,6 @@
-import { promises as fs } from "fs";
-import path from "path";
-import { dataPath } from "./data-dir";
+import { readJson, writeJson } from "./storage";
 
-const FILE = dataPath("campaigns.json");
+const KEY = "campaigns";
 
 export type CampaignRecord = {
   id: string;
@@ -17,17 +15,11 @@ export type CampaignRecord = {
 };
 
 async function read(): Promise<CampaignRecord[]> {
-  try {
-    const raw = await fs.readFile(FILE, "utf-8");
-    return JSON.parse(raw);
-  } catch {
-    return [];
-  }
+  return (await readJson<CampaignRecord[]>(KEY)) ?? [];
 }
 
 async function write(records: CampaignRecord[]) {
-  await fs.mkdir(path.dirname(FILE), { recursive: true });
-  await fs.writeFile(FILE, JSON.stringify(records, null, 2), "utf-8");
+  await writeJson(KEY, records);
 }
 
 export async function listCampaignRecords(): Promise<CampaignRecord[]> {

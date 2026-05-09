@@ -1,9 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
 import { envVar } from "@/lib/env";
+import { promises as fs } from "fs";
+import path from "path";
+import { randomUUID } from "crypto";
+import { dataPath } from "@/lib/data-dir";
 
 export const runtime = "nodejs";
 export const maxDuration = 180;
+
+const DRAFT_DIR = dataPath("linkedin-images");
 
 const PROMPT_BUILDER_SYSTEM = `Convierte el texto de un post de LinkedIn en un image prompt cinematográfico, conceptual y visualmente potente para DALL-E 3.
 
@@ -109,8 +115,23 @@ export async function POST(req: NextRequest) {
   const b64 = data.data?.[0]?.b64_json;
   if (!b64) return NextResponse.json({ error: "OpenAI no devolvió imagen" }, { status: 500 });
 
+  // Guardar a disco para tener URL persistente (sobrevive a recargas)
+  let imageUrl: string | null = null;
+  let filename: string | null = null;
+  try {
+    await fs.mkdir(DRAFT_DIR, { recursive: true });
+    filename = `draft-${randomUUID()}.png`;
+    const filePath = path.join(DRAFT_DIR, filename);
+    await fs.writeFile(filePath, Buffer.from(b64, "base64"));
+    imageUrl = `/api/linkedin/draft-image/${filename}`;
+  } catch (e: any) {
+    console.warn("[linkedin/generate-image] no se pudo guardar a disco:", e.message);
+  }
+
   return NextResponse.json({
     image_base64: b64,
+    image_url: imageUrl,
+    image_filename: filename,
     mime: "image/png",
     image_prompt_used: finalPrompt,
     derived_from_post_text: derived,

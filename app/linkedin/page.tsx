@@ -247,9 +247,15 @@ export default function LinkedInPage() {
         setFeedback("⚠️ " + data.error.slice(0, 240));
       } else if (data.image_base64) {
         const blob = await (await fetch(`data:${data.mime ?? "image/png"};base64,${data.image_base64}`)).blob();
-        const file = new File([blob], `ai-${Date.now()}.png`, { type: data.mime ?? "image/png" });
+        const file = new File([blob], data.image_filename || `ai-${Date.now()}.png`, { type: data.mime ?? "image/png" });
         setImageFile(file);
-        setImagePreviewUrl(URL.createObjectURL(blob));
+        // Usar URL persistente del servidor si está disponible (sobrevive a recargas).
+        // Fallback a blob URL temporal si no.
+        if (data.image_url) {
+          setImagePreviewUrl(data.image_url);
+        } else {
+          setImagePreviewUrl(URL.createObjectURL(blob));
+        }
         setFeedback(
           data.derived_from_post_text
             ? "✓ Imagen generada del texto del post."
@@ -624,18 +630,7 @@ export default function LinkedInPage() {
               )}
             </div>
             {imagePreviewUrl && (
-              <img
-                src={imagePreviewUrl}
-                alt="preview"
-                style={{
-                  marginTop: 8,
-                  maxWidth: "100%",
-                  maxHeight: 200,
-                  borderRadius: 8,
-                  border: "1px solid var(--border)",
-                  objectFit: "contain",
-                }}
-              />
+              <ImagePreview url={imagePreviewUrl} />
             )}
 
             <div style={{ marginTop: 10 }}>
@@ -1132,17 +1127,7 @@ export default function LinkedInPage() {
                 <label className="li-label">Imagen</label>
                 {editImagePreview && !editRemoveImage && (
                   <div style={{ position: "relative", marginBottom: 8 }}>
-                    <img
-                      src={editImagePreview}
-                      alt="preview"
-                      style={{
-                        maxWidth: "100%",
-                        maxHeight: 220,
-                        borderRadius: 8,
-                        border: "1px solid var(--border)",
-                        display: "block",
-                      }}
-                    />
+                    <ImagePreview url={editImagePreview} />
                     <button
                       className="btn-ghost-sm"
                       style={{ marginTop: 8 }}
@@ -1255,5 +1240,65 @@ export default function LinkedInPage() {
       )}
       </div>
     </div>
+  );
+}
+
+/* ─── Componente de preview de imagen con fallback ──────────────────────── */
+function ImagePreview({ url }: { url: string }) {
+  const [error, setError] = useState(false);
+  const [retryKey, setRetryKey] = useState(0);
+
+  if (error) {
+    return (
+      <div style={{
+        marginTop: 8,
+        padding: "20px 16px",
+        background: "var(--bg-elev-2)",
+        border: "1px dashed var(--border)",
+        borderRadius: 8,
+        textAlign: "center",
+        fontSize: 12.5,
+        color: "var(--text-dim)",
+      }}>
+        ⚠️ La imagen no se pudo cargar.
+        <button
+          onClick={() => { setError(false); setRetryKey(k => k + 1); }}
+          style={{
+            display: "inline-block",
+            marginLeft: 8,
+            padding: "4px 10px",
+            background: "var(--accent)",
+            color: "#fff",
+            border: "none",
+            borderRadius: 6,
+            fontSize: 11.5,
+            fontWeight: 600,
+            cursor: "pointer",
+            fontFamily: "inherit",
+          }}
+        >
+          Reintentar
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <img
+      key={retryKey}
+      src={url}
+      alt="preview"
+      onError={() => setError(true)}
+      style={{
+        marginTop: 8,
+        maxWidth: "100%",
+        maxHeight: 200,
+        borderRadius: 8,
+        border: "1px solid var(--border)",
+        objectFit: "contain",
+        background: "var(--bg-elev-2)",
+        display: "block",
+      }}
+    />
   );
 }

@@ -476,16 +476,9 @@ export async function runAutopilot(): Promise<{ processed: number; scheduled: nu
       continue;
     }
 
-    // Si hay follow-ups programados y el prospect ha respondido,
-    // CANCELAMOS los pendientes (la conversación cambió de rumbo)
-    // y generamos una respuesta contextual nueva con date-aware scheduling.
-    const pendingFus = t.followups.filter((f) => f.status === "scheduled");
-    if (pendingFus.length > 0) {
-      for (const f of pendingFus) {
-        await updateFollowup(t.id, f.id, { status: "cancelled" });
-      }
-      console.log(`[autopilot] cancelados ${pendingFus.length} follow-ups (prospect respondió)`);
-    }
+    // NO cancelamos a ciegas los follow-ups existentes.
+    // Más adelante decidimos si UPDATE (cambio de fecha) o KEEP (sigue válido).
+    // Sólo cancelamos los duplicados de "respuesta inmediata" antiguos sin enviar.
 
     try {
       processed++;
@@ -515,11 +508,29 @@ export async function runAutopilot(): Promise<{ processed: number; scheduled: nu
         continue;
       }
 
-      // 2) Decidir flujo según si hay fecha futura
+      // 2) Decidir flujo según fecha extraída
       const hasFutureDate = dateInfo.has_date && dateInfo.date_iso &&
                             new Date(dateInfo.date_iso).getTime() > Date.now() + 30 * 60 * 1000;
 
-      // SIEMPRE generar la respuesta INMEDIATA de confirmación
+      // Cancelar respuestas inmediatas obsoletas no aprobadas todavía
+      // (si hay un draft pending_approval inmediato anterior, sustituir).
+      const oldImmediates = t.followups.filter(f =>
+        f.status === "pending_approval" &&
+        f.origin === "ai_auto" &&
+        new Date(f.scheduled_at).getTime() < Date.now() + 6 * 60 * 60 * 1000
+      );
+      for (const f of oldImmediates) {
+        await updateFollowup(t.id, f.id, { status: "cancelled" });
+      }
+
+      // Buscar reminder existente futuro (pending_approval o scheduled, ai_auto, > 6h)
+      const existingReminder = t.followups.find(f =>
+        (f.status === "pending_approval" || f.status === "scheduled") &&
+        f.origin === "ai_auto" &&
+        new Date(f.scheduled_at).getTime() > Date.now() + 6 * 60 * 60 * 1000
+      );
+
+      // SIEMPRE: respuesta inmediata de confirmación
       const immediateAt = new Date(Date.now() + 30 * 60 * 1000).toISOString();
       const immediateReply = await aiGenerateReply(t, apiKey, {
         mode: "immediate",
@@ -534,36 +545,60 @@ export async function runAutopilot(): Promise<{ processed: number; scheduled: nu
       });
       scheduled++;
 
-      // SI hay fecha futura → ADEMÁS programar un REMINDER para ese día
+      // Si hay fecha futura → gestionar el reminder
       if (hasFutureDate) {
         const target = new Date(dateInfo.date_iso!);
         const explicitTime = /\b\d{1,2}:\d{2}\b/.test(dateInfo.date_text || "");
-
         if (explicitTime) {
-          // Hora explícita → enviar 1h antes
           target.setTime(target.getTime() - 60 * 60 * 1000);
         } else {
-          // Sin hora explícita → 9:00 del día
           target.setHours(9, 0, 0, 0);
         }
         if (target.getTime() <= Date.now() + 60 * 60 * 1000) {
-          target.setTime(Date.now() + 24 * 60 * 60 * 1000); // mín. mañana
+          target.setTime(Date.now() + 24 * 60 * 60 * 1000);
         }
+        const newReminderAt = target.toISOString();
 
-        const reminderAt = target.toISOString();
-        const reminderBody = await aiGenerateReply(t, apiKey, {
-          mode: "reminder",
-          deliveryDate: reminderAt,
-          dateContext: dateInfo.date_text || undefined,
-        });
-        await scheduleFollowup({
-          thread_id: t.id,
-          body_html: reminderBody,
-          scheduled_at: reminderAt,
-          origin: "ai_auto",
-          status: "pending_approval",
-        });
-        scheduled++;
+        if (existingReminder) {
+          // Comparar día (ignorando hora) — si el día es distinto, hubo cambio de fecha
+          const oldDay = new Date(existingReminder.scheduled_at).toDateString();
+          const newDay = new Date(newReminderAt).toDateString();
+
+          if (oldDay !== newDay) {
+            // CAMBIO DE FECHA → actualizar el reminder existente, no crear duplicado
+            const updatedBody = await aiGenerateReply(t, apiKey, {
+              mode: "reminder",
+              deliveryDate: newReminderAt,
+              dateContext: dateInfo.date_text || undefined,
+            });
+            await updateFollowup(t.id, existingReminder.id, {
+              body_html: updatedBody,
+              scheduled_at: newReminderAt,
+              status: "pending_approval",
+            });
+            console.log(`[autopilot] reminder MOVIDO de ${oldDay} a ${newDay}`);
+          }
+          // Si oldDay === newDay → mantener tal cual (misma fecha, no duplicar)
+        } else {
+          // No había reminder previo → crear uno nuevo
+          const reminderBody = await aiGenerateReply(t, apiKey, {
+            mode: "reminder",
+            deliveryDate: newReminderAt,
+            dateContext: dateInfo.date_text || undefined,
+          });
+          await scheduleFollowup({
+            thread_id: t.id,
+            body_html: reminderBody,
+            scheduled_at: newReminderAt,
+            origin: "ai_auto",
+            status: "pending_approval",
+          });
+          scheduled++;
+        }
+      } else if (existingReminder) {
+        // Sin fecha en este mensaje pero hay reminder previo → mantenerlo
+        // (la conversación sigue, no anular el plan acordado)
+        console.log(`[autopilot] sin fecha nueva, manteniendo reminder existente ${existingReminder.id}`);
       }
 
       const ids = [...(t.auto_pilot_processed_msg_ids ?? [])];

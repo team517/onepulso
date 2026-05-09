@@ -7,11 +7,7 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
   const { id } = await ctx.params;
   const t = await getThread(id);
   if (!t) return NextResponse.json({ error: "not found" }, { status: 404 });
-  // Auto-marcar como watched al abrir (user-initiated interaction)
-  if (!t.watched) {
-    await updateThread(id, { watched: true } as any);
-    t.watched = true;
-  }
+  // NO auto-marcar watched aquí. El usuario decide explícitamente qué seguir.
   return NextResponse.json({ thread: t });
 }
 

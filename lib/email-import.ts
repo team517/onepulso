@@ -7,6 +7,7 @@ import {
   findThreadByMessageId,
   findThreadBySubjectAndParticipant,
   getThread,
+  updateThread,
 } from "./email-threads";
 
 type ResolvedFolders = {
@@ -235,6 +236,11 @@ export async function importThread(opts: {
       date: r.date,
     });
     imported++;
+  }
+
+  // Marcar como watched=true porque el usuario lo importó explícitamente vía búsqueda
+  if (!(thread as any).watched) {
+    await updateThread(thread.id, { watched: true } as any);
   }
 
   return { thread_id: thread.id, imported, skipped };

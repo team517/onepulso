@@ -730,6 +730,19 @@ export default function SeguimientosPage() {
     setTimeout(() => setFeedback(null), 5000);
   }
 
+  async function deleteThreadFromList(id: string) {
+    setFeedback("Eliminando hilo…");
+    try {
+      await fetch(`/api/email/threads/${id}`, { method: "DELETE" });
+      if (thread?.id === id) setThread(null);
+      await refreshThreads();
+      setFeedback("✓ Hilo eliminado");
+    } catch (e: any) {
+      setFeedback("⚠️ " + e.message);
+    }
+    setTimeout(() => setFeedback(null), 4000);
+  }
+
   async function cancelFollowup(id: string) {
     if (!confirm("¿Cancelar este follow-up?")) return;
     await fetch(`/api/email/followups/${id}`, { method: "DELETE" });
@@ -900,6 +913,7 @@ export default function SeguimientosPage() {
                       active={thread?.id === t.id}
                       onClick={() => loadThread(t.id)}
                       fmtRelative={fmtRelative}
+                      onDelete={() => deleteThreadFromList(t.id)}
                     />
                   ))
                 )}
@@ -2354,8 +2368,14 @@ function MsgBubble({
 // ============== Componentes ==============
 
 function ThreadCard({
-  t, active, onClick, fmtRelative,
-}: { t: ThreadSummary; active: boolean; onClick: () => void; fmtRelative: (d?: string) => string }) {
+  t, active, onClick, fmtRelative, onDelete,
+}: {
+  t: ThreadSummary;
+  active: boolean;
+  onClick: () => void;
+  fmtRelative: (d?: string) => string;
+  onDelete: () => void;
+}) {
   const initials = (t.contact_name || t.contact_email)
     .split(/[\s.@_-]+/)
     .filter(Boolean)
@@ -2363,11 +2383,48 @@ function ThreadCard({
     .map((w) => w.charAt(0).toUpperCase())
     .join("");
   const colorIdx = (t.contact_email.charCodeAt(0) ?? 0) % 6;
+
+  function handleDelete(e: React.MouseEvent) {
+    e.stopPropagation();
+    if (confirm(`¿Eliminar el hilo de ${t.contact_name || t.contact_email}?\n\nSe quitará de la lista (no se borra el email en Gmail).`)) {
+      onDelete();
+    }
+  }
+
   return (
     <div
       className={`seg-card-thread seg-status-${t.dynamic_status} ${active ? "active" : ""}`}
       onClick={onClick}
+      style={{ position: "relative" }}
     >
+      <button
+        onClick={handleDelete}
+        title="Eliminar de la lista"
+        style={{
+          position: "absolute", top: 8, right: 8,
+          width: 22, height: 22, borderRadius: 6,
+          background: "transparent", border: "1px solid var(--border)",
+          color: "var(--text-faint)", fontSize: 12, lineHeight: 1,
+          cursor: "pointer", padding: 0,
+          display: "flex", alignItems: "center", justifyContent: "center",
+          opacity: 0.5, transition: "opacity 0.15s, background 0.15s",
+          zIndex: 2,
+        }}
+        onMouseEnter={(e) => {
+          e.currentTarget.style.opacity = "1";
+          e.currentTarget.style.background = "rgba(239,68,68,0.1)";
+          e.currentTarget.style.color = "#dc2626";
+          e.currentTarget.style.borderColor = "rgba(239,68,68,0.3)";
+        }}
+        onMouseLeave={(e) => {
+          e.currentTarget.style.opacity = "0.5";
+          e.currentTarget.style.background = "transparent";
+          e.currentTarget.style.color = "var(--text-faint)";
+          e.currentTarget.style.borderColor = "var(--border)";
+        }}
+      >
+        ✕
+      </button>
       <div className={`seg-avatar seg-avatar-${colorIdx}`}>{initials}</div>
       <div style={{ flex: 1, minWidth: 0 }}>
         <div className="seg-card-row">

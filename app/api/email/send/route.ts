@@ -9,6 +9,7 @@ import {
   createThread,
   getThread,
   findThreadBySubjectAndParticipant,
+  updateThread,
 } from "@/lib/email-threads";
 
 export const runtime = "nodejs";
@@ -91,6 +92,12 @@ export async function POST(req: NextRequest) {
       subject: subject.replace(/^(re:|fwd?:)\s*/gi, "").trim(),
       participants: [cfg.email, to],
     });
+  }
+
+  // Marcar el hilo como "watched" para que aparezca en la lista de seguimientos.
+  // El usuario lo está iniciando él mismo, así que es de los que sí quiere ver.
+  if (!(thread as any).watched) {
+    await updateThread(thread.id, { watched: true } as any);
   }
 
   await appendMessage(thread.id, {

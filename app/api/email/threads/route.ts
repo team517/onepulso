@@ -29,12 +29,13 @@ export async function GET() {
   const cfg = await readEmailConfig();
   const myEmail = (cfg?.email ?? "").toLowerCase();
 
-  // Solo threads donde el usuario ha interactuado:
-  //  - Enviado al menos un mensaje (outbound), O
-  //  - Marcado como "watched" (importado vía búsqueda, abierto manualmente, etc.)
-  const filtered = all.filter((t) =>
-    (t as any).watched === true || t.messages.some((m) => m.direction === "outbound")
-  );
+  // SOLO threads explícitamente marcados como "watched" por el usuario.
+  // watched=true se setea cuando:
+  //   - el usuario compone un email nuevo (+ Nuevo)
+  //   - el usuario importa uno desde la búsqueda
+  //   - el usuario abre uno y lo marca explícitamente
+  // Todo lo demás se ignora.
+  const filtered = all.filter((t) => (t as any).watched === true);
 
   return NextResponse.json({
     threads: filtered.map((t) => {

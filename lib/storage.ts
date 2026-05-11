@@ -16,9 +16,20 @@ export async function readJson<T = any>(key: string): Promise<T | null> {
   if (isDbEnabled()) {
     await ensureSchema();
     const r = await withClient((c) => c.query<{ value: T }>("SELECT value FROM kv_store WHERE key = $1", [key]));
-    return r.rows[0]?.value ?? null;
+    if (r.rows[0]) return r.rows[0].value;
+    // Auto-seed: si no está en Postgres pero hay un archivo bundled en el repo,
+    // lo cargamos y lo escribimos a Postgres para futuras lecturas.
+    try {
+      const filePath = keyToPath(key);
+      const raw = await fs.readFile(filePath, "utf-8");
+      const value = JSON.parse(raw) as T;
+      await writeJson(key, value).catch(() => {});
+      return value;
+    } catch {
+      return null;
+    }
   }
-  // Fallback fs
+  // Modo dev: lectura directa de fs
   try {
     const filePath = keyToPath(key);
     const raw = await fs.readFile(filePath, "utf-8");
@@ -128,12 +139,12 @@ export async function writeBlob(key: string, data: Buffer, mime: string = "appli
 
 /** Convierte una clave tipo "memory/foo" o "email-threads" a ruta de filesystem */
 function keyToPath(key: string): string {
-  // Si la clave NO termina en .json y no tiene extensión, asumimos JSON
   const hasExt = /\.[a-z0-9]+$/i.test(key);
   const segments = key.split("/").filter(Boolean);
-  const last = segments[segments.length - 1];
-  if (!hasExt && segments.length === 1) {
-    return dataPath(`${last}.json`);
+  if (segments.length === 0) return dataPath(key);
+  // Si no hay extensión, añadimos .json al último segmento
+  if (!hasExt) {
+    segments[segments.length - 1] = `${segments[segments.length - 1]}.json`;
   }
   return dataPath(...segments);
 }

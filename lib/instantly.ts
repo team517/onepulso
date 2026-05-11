@@ -1,10 +1,10 @@
-import { envVar } from "./env";
+import { getActiveApiKey } from "./instantly-accounts";
 
 const BASE = "https://api.instantly.ai/api/v2";
 
-function authHeaders() {
-  const key = envVar("INSTANTLY_API_KEY");
-  if (!key) throw new Error("INSTANTLY_API_KEY missing in .env.local");
+async function authHeaders() {
+  const key = await getActiveApiKey();
+  if (!key) throw new Error("No hay cuenta de Instantly configurada. Añade una en Gestionar Instantly.");
   return {
     Authorization: `Bearer ${key}`,
     "Content-Type": "application/json",
@@ -14,13 +14,13 @@ function authHeaders() {
 }
 
 export async function listCampaigns(limit = 50) {
-  const r = await fetch(`${BASE}/campaigns?limit=${limit}`, { headers: authHeaders() });
+  const r = await fetch(`${BASE}/campaigns?limit=${limit}`, { headers: await authHeaders() });
   if (!r.ok) throw new Error(`Instantly listCampaigns ${r.status}`);
   return r.json();
 }
 
 export async function getCampaign(id: string) {
-  const r = await fetch(`${BASE}/campaigns/${id}`, { headers: authHeaders() });
+  const r = await fetch(`${BASE}/campaigns/${id}`, { headers: await authHeaders() });
   if (!r.ok) throw new Error(`Instantly getCampaign ${r.status}`);
   return r.json();
 }
@@ -66,7 +66,7 @@ export async function createCampaign(
   };
   const r = await fetch(`${BASE}/campaigns`, {
     method: "POST",
-    headers: authHeaders(),
+    headers: await authHeaders(),
     body: JSON.stringify(body),
   });
   if (r.ok) return r.json();
@@ -88,7 +88,7 @@ export async function uploadLead(campaignId: string, lead: {
 }, attempt = 0): Promise<any> {
   const r = await fetch(`${BASE}/leads`, {
     method: "POST",
-    headers: authHeaders(),
+    headers: await authHeaders(),
     body: JSON.stringify({ campaign: campaignId, ...lead }),
   });
   if (r.ok) return r.json();
@@ -152,7 +152,7 @@ export async function createEmailAccount(input: EmailAccountInput, attempt = 0):
 
   const r = await fetch(`${BASE}/accounts`, {
     method: "POST",
-    headers: authHeaders(),
+    headers: await authHeaders(),
     body: JSON.stringify(body),
   });
   if (r.ok) return r.json();
@@ -167,7 +167,7 @@ export async function createEmailAccount(input: EmailAccountInput, attempt = 0):
 // ===== Custom Tags =====
 
 export async function listCustomTags(): Promise<any> {
-  const r = await fetch(`${BASE}/custom-tags`, { headers: authHeaders() });
+  const r = await fetch(`${BASE}/custom-tags`, { headers: await authHeaders() });
   if (!r.ok) throw new Error(`listCustomTags ${r.status}`);
   return r.json();
 }
@@ -175,7 +175,7 @@ export async function listCustomTags(): Promise<any> {
 export async function createCustomTag(label: string, description?: string): Promise<any> {
   const r = await fetch(`${BASE}/custom-tags`, {
     method: "POST",
-    headers: authHeaders(),
+    headers: await authHeaders(),
     body: JSON.stringify({ label, description: description ?? null }),
   });
   if (!r.ok) {
@@ -202,7 +202,7 @@ export async function assignTagToAccounts(tagId: string, emails: string[]): Prom
   if (emails.length === 0) return { ok: true, count: 0 };
   const r = await fetch(`${BASE}/custom-tags/toggle-resource`, {
     method: "POST",
-    headers: authHeaders(),
+    headers: await authHeaders(),
     body: JSON.stringify({
       tag_ids: [tagId],
       resource_type: 1, // 1 = Account
@@ -221,7 +221,7 @@ export async function enableWarmupForEmails(emails: string[]): Promise<any> {
   if (emails.length === 0) return { ok: true, count: 0 };
   const r = await fetch(`${BASE}/accounts/warmup/enable`, {
     method: "POST",
-    headers: authHeaders(),
+    headers: await authHeaders(),
     body: JSON.stringify({ emails }),
   });
   if (!r.ok) {

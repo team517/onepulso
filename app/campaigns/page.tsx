@@ -61,6 +61,54 @@ export default function Page() {
   const [memCat, setMemCat] = useState("identity");
   const [memContent, setMemContent] = useState("");
   const [instantlyStatus, setInstantlyStatus] = useState<{ connected: boolean; count?: number } | null>(null);
+  const [instantlyModalOpen, setInstantlyModalOpen] = useState(false);
+  const [instantlyAccounts, setInstantlyAccounts] = useState<any[]>([]);
+  const [newAcctTitle, setNewAcctTitle] = useState("");
+  const [newAcctKey, setNewAcctKey] = useState("");
+  const [savingAcct, setSavingAcct] = useState(false);
+
+  async function loadInstantlyAccounts() {
+    try {
+      const j = await fetch("/api/instantly/accounts").then(r => r.json());
+      setInstantlyAccounts(j.accounts ?? []);
+    } catch {}
+  }
+
+  async function addInstantlyAccount() {
+    if (!newAcctTitle.trim() || !newAcctKey.trim()) return;
+    setSavingAcct(true);
+    try {
+      const r = await fetch("/api/instantly/accounts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: newAcctTitle, api_key: newAcctKey }),
+      }).then(r => r.json());
+      if (r.error) {
+        alert("⚠️ " + r.error);
+      } else {
+        setNewAcctTitle("");
+        setNewAcctKey("");
+        await loadInstantlyAccounts();
+        await fetch("/api/instantly/status").then(r => r.json()).then(setInstantlyStatus);
+      }
+    } finally { setSavingAcct(false); }
+  }
+
+  async function setActiveInstantly(id: string) {
+    await fetch(`/api/instantly/accounts/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ active: true }),
+    });
+    await loadInstantlyAccounts();
+    await fetch("/api/instantly/status").then(r => r.json()).then(setInstantlyStatus);
+  }
+
+  async function deleteInstantlyAccount(id: string, title: string) {
+    if (!confirm(`¿Eliminar la cuenta "${title}"?`)) return;
+    await fetch(`/api/instantly/accounts/${id}`, { method: "DELETE" });
+    await loadInstantlyAccounts();
+  }
   const [uploading, setUploading] = useState(false);
   const [attachments, setAttachments] = useState<Array<{ name: string; text: string; size: number }>>([]);
   const [attaching, setAttaching] = useState(false);
@@ -394,6 +442,23 @@ export default function Page() {
               {memory.length} notas en memoria
             </div>
           </div>
+          <button
+            onClick={() => { setInstantlyModalOpen(true); loadInstantlyAccounts(); }}
+            style={{
+              padding: "7px 13px",
+              background: "#fff",
+              border: "1px solid var(--border)",
+              borderRadius: 9,
+              fontSize: 12.5,
+              fontWeight: 600,
+              color: "var(--text-dim)",
+              cursor: "pointer",
+              fontFamily: "inherit",
+            }}
+            title="Gestionar cuentas de Instantly"
+          >
+            ⚙️ Gestionar Instantly
+          </button>
         </div>
 
         <div className="chat-stream" ref={streamRef}>
@@ -714,6 +779,174 @@ export default function Page() {
         </div>
       </aside>
       </div>
+
+      {/* Modal: Gestionar cuentas de Instantly */}
+      {instantlyModalOpen && (
+        <div
+          onClick={() => setInstantlyModalOpen(false)}
+          style={{
+            position: "fixed", inset: 0,
+            background: "rgba(15,23,42,0.45)",
+            display: "grid", placeItems: "center",
+            zIndex: 100, backdropFilter: "blur(4px)",
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              background: "#fff", borderRadius: 18,
+              width: "92%", maxWidth: 580,
+              maxHeight: "90vh", overflowY: "auto",
+              padding: 26,
+              boxShadow: "0 24px 60px rgba(15,23,42,0.25)",
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 14 }}>
+              <div>
+                <div style={{ fontFamily: "var(--font-display)", fontSize: 19, fontWeight: 700, letterSpacing: "-0.02em" }}>
+                  ⚙️ Gestionar cuentas de Instantly
+                </div>
+                <div style={{ fontSize: 12.5, color: "var(--text-dim)", marginTop: 4 }}>
+                  Añade varias cuentas y cambia entre ellas. Toda la memoria y la IA se comparten.
+                </div>
+              </div>
+              <button
+                onClick={() => setInstantlyModalOpen(false)}
+                style={{ background: "transparent", border: "none", fontSize: 22, color: "var(--text-faint)", cursor: "pointer" }}
+              >×</button>
+            </div>
+
+            {/* Lista de cuentas */}
+            <div style={{ marginBottom: 16 }}>
+              <div style={{
+                fontSize: 11, fontWeight: 700, letterSpacing: "0.06em",
+                textTransform: "uppercase", color: "var(--text-faint)",
+                marginBottom: 8,
+              }}>
+                Cuentas guardadas ({instantlyAccounts.length})
+              </div>
+              {instantlyAccounts.length === 0 ? (
+                <div style={{
+                  padding: "16px 14px", textAlign: "center",
+                  background: "var(--bg-elev-2)", borderRadius: 10,
+                  color: "var(--text-faint)", fontSize: 13,
+                }}>
+                  Aún no hay cuentas. Añade la primera abajo.
+                </div>
+              ) : (
+                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                  {instantlyAccounts.map((a) => (
+                    <div key={a.id} style={{
+                      display: "flex", alignItems: "center", gap: 10,
+                      padding: "11px 13px",
+                      background: a.active ? "rgba(34,197,94,0.06)" : "#fff",
+                      border: "1px solid",
+                      borderColor: a.active ? "rgba(34,197,94,0.3)" : "var(--border)",
+                      borderRadius: 11,
+                    }}>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                          <span style={{ fontSize: 13.5, fontWeight: 700, color: "var(--text)" }}>
+                            {a.title}
+                          </span>
+                          {a.active && (
+                            <span style={{
+                              fontSize: 9.5, fontWeight: 700,
+                              padding: "2px 7px", borderRadius: 99,
+                              background: "rgba(34,197,94,0.15)", color: "#15803d",
+                              letterSpacing: "0.04em",
+                            }}>ACTIVA</span>
+                          )}
+                        </div>
+                        <div style={{ fontSize: 11, color: "var(--text-faint)", fontFamily: "var(--font-mono)", marginTop: 2 }}>
+                          {a.api_key_masked}
+                        </div>
+                      </div>
+                      {!a.active && (
+                        <button
+                          onClick={() => setActiveInstantly(a.id)}
+                          style={{
+                            padding: "6px 11px", background: "var(--accent)", color: "#fff",
+                            border: "none", borderRadius: 8, fontSize: 11.5, fontWeight: 600,
+                            cursor: "pointer", fontFamily: "inherit",
+                          }}
+                        >Usar</button>
+                      )}
+                      <button
+                        onClick={() => deleteInstantlyAccount(a.id, a.title)}
+                        title="Eliminar"
+                        style={{
+                          padding: "6px 9px", background: "transparent", color: "var(--text-faint)",
+                          border: "1px solid var(--border)", borderRadius: 8,
+                          fontSize: 11, cursor: "pointer", fontFamily: "inherit",
+                        }}
+                      >🗑</button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Formulario añadir nueva */}
+            <div style={{
+              padding: 14,
+              background: "var(--bg-elev-2)",
+              border: "1px solid var(--border)",
+              borderRadius: 12,
+            }}>
+              <div style={{
+                fontSize: 11, fontWeight: 700, letterSpacing: "0.06em",
+                textTransform: "uppercase", color: "var(--text-dim)",
+                marginBottom: 8,
+              }}>
+                + Añadir cuenta
+              </div>
+              <input
+                value={newAcctTitle}
+                onChange={(e) => setNewAcctTitle(e.target.value)}
+                placeholder='Título: ej "Cuenta cliente Acme"'
+                style={{
+                  width: "100%", padding: "9px 11px",
+                  background: "#fff", border: "1px solid var(--border)",
+                  borderRadius: 9, fontSize: 13, color: "var(--text)",
+                  outline: "none", boxSizing: "border-box", marginBottom: 8,
+                  fontFamily: "inherit",
+                }}
+              />
+              <input
+                value={newAcctKey}
+                onChange={(e) => setNewAcctKey(e.target.value)}
+                placeholder="API key de Instantly"
+                type="password"
+                style={{
+                  width: "100%", padding: "9px 11px",
+                  background: "#fff", border: "1px solid var(--border)",
+                  borderRadius: 9, fontSize: 13, color: "var(--text)",
+                  outline: "none", boxSizing: "border-box", marginBottom: 10,
+                  fontFamily: "var(--font-mono)",
+                }}
+              />
+              <button
+                onClick={addInstantlyAccount}
+                disabled={savingAcct || !newAcctTitle.trim() || !newAcctKey.trim()}
+                style={{
+                  width: "100%", padding: "10px 14px",
+                  background: "var(--accent)", color: "#fff",
+                  border: "none", borderRadius: 9, fontSize: 13, fontWeight: 700,
+                  cursor: "pointer", fontFamily: "inherit",
+                  opacity: (savingAcct || !newAcctTitle.trim() || !newAcctKey.trim()) ? 0.5 : 1,
+                  boxShadow: "0 2px 8px rgba(0,113,227,0.25)",
+                }}
+              >
+                {savingAcct ? "Guardando..." : "Añadir cuenta"}
+              </button>
+              <div style={{ fontSize: 11, color: "var(--text-faint)", marginTop: 8, lineHeight: 1.5 }}>
+                💡 La API key se guarda en Postgres. Tu memoria y skills se comparten entre todas las cuentas.
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

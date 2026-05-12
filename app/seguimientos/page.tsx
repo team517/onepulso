@@ -989,6 +989,8 @@ export default function SeguimientosPage() {
                   sendNowFollowup={sendNowFollowup}
                   reloadThread={() => loadThread(thread.id)}
                   markClosed={markClosed}
+                  deleteThread={deleteThreadFromList}
+                  myEmail={status?.email}
                   toggleAutopilot={toggleAutopilot}
                   sequences={sequences}
                   applySequenceToThread={async (seqId: string): Promise<{ ok: boolean; scheduled?: number; error?: string }> => {
@@ -3070,6 +3072,24 @@ function ThreadView(p: any) {
               Cerrar hilo
             </button>
           )}
+          <button
+            onClick={() => {
+              if (confirm(`¿Eliminar el contacto y todo el hilo de ${t.participants.filter((x: string) => x !== p.myEmail).join(", ")}?\n\nEsto borra los mensajes y follow-ups asociados de la plataforma (no afecta a Gmail).`)) {
+                p.deleteThread(t.id);
+              }
+            }}
+            title="Eliminar contacto y hilo"
+            style={{
+              padding: "7px 13px",
+              background: "transparent",
+              border: "1px solid rgba(239,68,68,0.25)",
+              borderRadius: 9, fontSize: 12, fontWeight: 600,
+              color: "var(--error)", cursor: "pointer",
+              fontFamily: "inherit",
+            }}
+          >
+            🗑 Eliminar contacto
+          </button>
         </div>
       </section>
 

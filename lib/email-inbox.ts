@@ -93,7 +93,8 @@ async function processUids(
 
       const direction: "inbound" | "outbound" = ownEmails.has(from) ? "outbound" : "inbound";
 
-      // Match thread existente
+      // Match thread existente (solo hilos que el usuario ya añadió manualmente).
+      // findThreadByMessageId y findThreadBySubjectAndParticipant ya filtran por hilos existentes.
       let thread: Thread | null = null;
       if (inReplyTo) thread = await findThreadByMessageId(inReplyTo);
       if (!thread) {
@@ -107,21 +108,20 @@ async function processUids(
         if (matchAddr) thread = await findThreadBySubjectAndParticipant(subject, matchAddr);
       }
 
-      // FILTRO ANTI-RUIDO: si NO hay match con un hilo existente, sólo creamos
-      // hilo nuevo si el contacto es uno con el que YA hemos interactuado.
-      //   - outbound: nosotros lo iniciamos → siempre crear
-      //   - inbound: solo crear si "from" está en watchedAddrs
-      //     (se evita crear hilos desde calendly, arsys, factura, no_reply, etc.)
+      // FILTRO ULTRA-ESTRICTO: el sync NUNCA crea hilos nuevos.
+      // Los hilos sólo se crean cuando el usuario hace:
+      //   - "+ Nuevo" (compose) → /api/email/send crea el thread
+      //   - 🔎 Buscar e importar → /api/email/import crea el thread
+      // Si no hay match con un hilo existente del usuario → SKIP.
+      // Esto garantiza que nunca aparezcan contactos que no buscó manualmente.
       if (!thread) {
-        const isWatched = direction === "outbound" || (direction === "inbound" && watchedAddrs.has(from));
-        if (!isWatched) {
-          continue; // skip — no crear hilo desde un remitente no rastreado
-        }
-        const cleanSubject = subject.replace(/^(re:|fwd?:)\s*/gi, "").trim() || "(sin asunto)";
-        const participants = direction === "inbound"
-          ? [from, ...to].filter(Boolean)
-          : [...to, from].filter(Boolean);
-        thread = await createThread({ subject: cleanSubject, participants });
+        continue;
+      }
+      // Además, sólo procesamos mensajes en hilos marcados como watched=true.
+      // Si por algún motivo un hilo no está watched, no se le añaden mensajes nuevos
+      // (deberá ser eliminado o re-añadirse desde búsqueda).
+      if ((thread as any).watched !== true) {
+        continue;
       }
 
       await appendMessage(thread.id, {

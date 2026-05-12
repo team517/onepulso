@@ -433,6 +433,26 @@ export default function SeguimientosPage() {
     } catch {}
   }
 
+  async function manualSaveCheck() {
+    setFeedback("⏳ Verificando guardado en Postgres…");
+    try {
+      const j = await fetch("/api/debug/storage").then(r => r.json());
+      setStorageStatus(j);
+      if (j.postgres?.connected && j.has_database_url) {
+        const kv = j.postgres.kv_rows || "0";
+        const blob = j.postgres.blob_rows || "0";
+        setFeedback(`✓ Todo guardado en Postgres · ${kv} registros · ${blob} archivos`);
+      } else if (!j.has_database_url) {
+        setFeedback("⚠️ DATABASE_URL no configurado. Los datos NO se guardan.");
+      } else {
+        setFeedback("⚠️ Postgres no responde. " + (j.postgres?.error || "Error desconocido"));
+      }
+    } catch (e: any) {
+      setFeedback("⚠️ " + e.message);
+    }
+    setTimeout(() => setFeedback(null), 6000);
+  }
+
   async function loadPendingApprovals() {
     try {
       const j = await fetch("/api/email/followups/pending").then(r => r.json());
@@ -932,6 +952,30 @@ export default function SeguimientosPage() {
               </button>
               <button className="btn-ghost" onClick={syncInboxNow} disabled={syncing} title="Sincronizar inbox">
                 {syncing ? "..." : "↻"}
+              </button>
+              <button
+                onClick={manualSaveCheck}
+                title="Verificar que todo está guardado en Postgres"
+                style={{
+                  padding: "7px 14px",
+                  background: storageStatus?.postgres?.connected
+                    ? "linear-gradient(135deg, #10b981, #059669)"
+                    : storageStatus?.has_database_url === false
+                      ? "linear-gradient(135deg, #ef4444, #dc2626)"
+                      : "linear-gradient(135deg, #0071e3, #1d4ed8)",
+                  color: "#fff",
+                  border: "none",
+                  borderRadius: 9,
+                  fontSize: 12.5,
+                  fontWeight: 700,
+                  cursor: "pointer",
+                  fontFamily: "inherit",
+                  boxShadow: "0 2px 8px rgba(15,23,42,0.15)",
+                }}
+              >
+                {storageStatus?.postgres?.connected ? "✓ Guardado" :
+                 storageStatus?.has_database_url === false ? "⚠ Sin DB" :
+                 "💾 Guardar"}
               </button>
               <button
                 className="btn-primary"

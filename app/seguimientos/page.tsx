@@ -709,6 +709,29 @@ export default function SeguimientosPage() {
     }
   }
 
+  const [fuAiLoading, setFuAiLoading] = useState(false);
+  async function aiGenerateFuBody() {
+    if (!thread || fuAiLoading) return;
+    setFuAiLoading(true);
+    try {
+      const hint = fuSteps.length > 0
+        ? `Este es el paso ${fuSteps.length + 1} de una secuencia de follow-ups programados. Programado para ${fuWhen || "fecha próxima"}. Aporta valor nuevo, no repitas lo anterior.`
+        : `Este es un follow-up programado para ${fuWhen || "fecha próxima"}. Tono natural, breve, con CTA claro.`;
+      const r = await fetch("/api/email/ai/reply", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ thread_id: thread.id, hint }),
+      }).then((r) => r.json());
+      if (r.body_html) setFuBody(r.body_html);
+      else if (r.error) setFeedback("⚠️ " + r.error);
+    } catch (e: any) {
+      setFeedback("⚠️ " + e.message);
+    } finally {
+      setFuAiLoading(false);
+      setTimeout(() => setFeedback(null), 4000);
+    }
+  }
+
   function addStep() {
     if (!fuBody || !fuWhen) return;
     setFuSteps((prev) => [...prev, { when: fuWhen, body: fuBody }]);
@@ -1315,7 +1338,28 @@ export default function SeguimientosPage() {
                 <input type="datetime-local" className="li-input" value={fuWhen} onChange={(e) => setFuWhen(e.target.value)} />
               </div>
               <div className="li-row">
-                <label className="li-label">Texto (HTML)</label>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                  <label className="li-label" style={{ margin: 0 }}>Texto (HTML)</label>
+                  <button
+                    onClick={aiGenerateFuBody}
+                    disabled={fuAiLoading || !thread}
+                    style={{
+                      padding: "5px 12px",
+                      background: "linear-gradient(135deg, rgba(99,102,241,0.1), rgba(0,113,227,0.1))",
+                      border: "1px solid var(--accent)",
+                      borderRadius: 8,
+                      fontSize: 11.5,
+                      fontWeight: 700,
+                      color: "var(--accent)",
+                      cursor: fuAiLoading ? "wait" : "pointer",
+                      fontFamily: "inherit",
+                      opacity: fuAiLoading ? 0.6 : 1,
+                    }}
+                    title="Generar texto con IA basándose en el hilo y la fecha"
+                  >
+                    {fuAiLoading ? "🪄 Creando…" : "✨ Crear con IA"}
+                  </button>
+                </div>
                 <textarea className="li-textarea" rows={10} value={fuBody} onChange={(e) => setFuBody(e.target.value)} />
               </div>
               <div className="li-row">

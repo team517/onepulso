@@ -173,6 +173,7 @@ export default function SeguimientosPage() {
   const [fuOpen, setFuOpen] = useState(false);
   const [fuBody, setFuBody] = useState("");
   const [fuWhen, setFuWhen] = useState("");
+  const [fuSteps, setFuSteps] = useState<Array<{ when: string; body: string }>>([]);
   const [fuOrigin, setFuOrigin] = useState<"manual" | "ai_assisted" | "ai_auto">("manual");
   const [fuDateExtraction, setFuDateExtraction] = useState<any>(null);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -708,26 +709,52 @@ export default function SeguimientosPage() {
     }
   }
 
+  function addStep() {
+    if (!fuBody || !fuWhen) return;
+    setFuSteps((prev) => [...prev, { when: fuWhen, body: fuBody }]);
+    // limpiar para el siguiente
+    setFuBody("");
+    setFuWhen("");
+  }
+
+  function removeStep(i: number) {
+    setFuSteps((prev) => prev.filter((_, idx) => idx !== i));
+  }
+
   async function saveFollowup() {
-    if (!thread || !fuBody || !fuWhen) return;
-    const r = await fetch("/api/email/followups", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        thread_id: thread.id,
-        body_html: fuBody,
-        scheduled_at: new Date(fuWhen).toISOString(),
-        origin: fuOrigin,
-      }),
-    }).then((r) => r.json());
-    if (r.error) setFeedback("⚠️ " + r.error);
-    else {
-      setFeedback("✓ Follow-up programado");
-      setFuOpen(false);
-      loadThread(thread.id);
-      refreshThreads();
+    if (!thread) return;
+    // Combinar el paso actual (si lo hay) con los pasos ya añadidos
+    const allSteps = [...fuSteps];
+    if (fuBody && fuWhen) {
+      allSteps.push({ when: fuWhen, body: fuBody });
     }
-    setTimeout(() => setFeedback(null), 5000);
+    if (allSteps.length === 0) return;
+
+    let okCount = 0;
+    for (const step of allSteps) {
+      const r = await fetch("/api/email/followups", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          thread_id: thread.id,
+          body_html: step.body,
+          scheduled_at: new Date(step.when).toISOString(),
+          origin: fuOrigin,
+        }),
+      }).then((r) => r.json()).catch(() => ({ error: "fallo" }));
+      if (!r.error) okCount++;
+    }
+
+    if (okCount === 0) {
+      setFeedback("⚠️ No se pudo programar ningún follow-up");
+    } else {
+      setFeedback(`✓ ${okCount} follow-up${okCount > 1 ? "s" : ""} programados · se cancelan si el prospect responde`);
+      setFuSteps([]);
+      setFuBody("");
+      setFuWhen("");
+      setFuOpen(false);
+      if (thread) loadThread(thread.id);
+    }
   }
 
   async function deleteThreadFromList(id: string) {
@@ -1196,11 +1223,11 @@ export default function SeguimientosPage() {
 
       {fuOpen && (
         <div className="modal-backdrop" onClick={() => setFuOpen(false)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 720 }}>
+          <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 760 }}>
             <div className="modal-header">
               <div>
-                <div className="modal-title">Programar follow-up</div>
-                <div className="modal-sub">Se enviará automáticamente a la fecha indicada</div>
+                <div className="modal-title">Programar follow-ups</div>
+                <div className="modal-sub">Añade uno o varios pasos · si el prospect responde, se cancelan automáticamente</div>
               </div>
               <button className="modal-close" onClick={() => setFuOpen(false)}>×</button>
             </div>
@@ -1211,13 +1238,85 @@ export default function SeguimientosPage() {
                   Sugiere {new Date(fuDateExtraction.date_iso).toLocaleString()} (confianza: {fuDateExtraction.confidence}).
                 </div>
               )}
+
+              {/* Lista de pasos ya añadidos */}
+              {fuSteps.length > 0 && (
+                <div style={{ marginBottom: 14 }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: "var(--text-dim)", marginBottom: 8 }}>
+                    📅 Pasos programados ({fuSteps.length})
+                  </div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                    {fuSteps.map((s, i) => (
+                      <div key={i} style={{
+                        display: "flex", alignItems: "center", gap: 10,
+                        padding: "9px 12px",
+                        background: "var(--bg-elev-2)",
+                        border: "1px solid var(--border)",
+                        borderRadius: 9,
+                      }}>
+                        <div style={{
+                          minWidth: 28, height: 28, borderRadius: 99,
+                          background: "var(--accent)", color: "#fff",
+                          display: "flex", alignItems: "center", justifyContent: "center",
+                          fontSize: 12, fontWeight: 700,
+                        }}>{i + 1}</div>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontSize: 12, fontWeight: 600 }}>
+                            {new Date(s.when).toLocaleString("es-ES", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}
+                          </div>
+                          <div style={{ fontSize: 11, color: "var(--text-dim)", overflow: "hidden", whiteSpace: "nowrap", textOverflow: "ellipsis" }}>
+                            {s.body.replace(/<[^>]+>/g, " ").slice(0, 80)}
+                          </div>
+                        </div>
+                        <button
+                          onClick={() => removeStep(i)}
+                          style={{ background: "transparent", border: "1px solid var(--border)", color: "var(--text-faint)", padding: "4px 9px", borderRadius: 6, fontSize: 11, cursor: "pointer", fontFamily: "inherit" }}
+                        >×</button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Atajos rápidos de fecha */}
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 12 }}>
+                {[
+                  { label: "Mañana 9:00", days: 1, hour: 9 },
+                  { label: "+3 días 9:00", days: 3, hour: 9 },
+                  { label: "+7 días 9:00", days: 7, hour: 9 },
+                  { label: "+14 días 9:00", days: 14, hour: 9 },
+                  { label: "+30 días 9:00", days: 30, hour: 9 },
+                ].map((preset) => (
+                  <button
+                    key={preset.label}
+                    onClick={() => {
+                      const d = new Date();
+                      d.setDate(d.getDate() + preset.days);
+                      d.setHours(preset.hour, 0, 0, 0);
+                      // Format para datetime-local: YYYY-MM-DDTHH:mm
+                      const pad = (n: number) => String(n).padStart(2, "0");
+                      setFuWhen(`${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`);
+                    }}
+                    style={{
+                      padding: "5px 11px",
+                      background: "var(--bg-elev-2)",
+                      border: "1px solid var(--border)",
+                      borderRadius: 99, fontSize: 11.5, fontWeight: 600,
+                      color: "var(--text-dim)", cursor: "pointer", fontFamily: "inherit",
+                    }}
+                  >
+                    {preset.label}
+                  </button>
+                ))}
+              </div>
+
               <div className="li-row">
                 <label className="li-label">Fecha y hora</label>
                 <input type="datetime-local" className="li-input" value={fuWhen} onChange={(e) => setFuWhen(e.target.value)} />
               </div>
               <div className="li-row">
                 <label className="li-label">Texto (HTML)</label>
-                <textarea className="li-textarea" rows={12} value={fuBody} onChange={(e) => setFuBody(e.target.value)} />
+                <textarea className="li-textarea" rows={10} value={fuBody} onChange={(e) => setFuBody(e.target.value)} />
               </div>
               <div className="li-row">
                 <label className="li-label">Origen</label>
@@ -1231,9 +1330,30 @@ export default function SeguimientosPage() {
                   <option value="ai_auto">IA detectó fecha automáticamente</option>
                 </select>
               </div>
-              <div style={{ display: "flex", gap: 8 }}>
-                <button className="btn-primary" onClick={saveFollowup} disabled={!fuBody || !fuWhen}>Programar</button>
-                <button className="btn-ghost" onClick={() => setFuOpen(false)}>Cancelar</button>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                <button
+                  onClick={addStep}
+                  disabled={!fuBody || !fuWhen}
+                  style={{
+                    padding: "9px 14px",
+                    background: "#fff", color: "var(--accent)",
+                    border: "1.5px solid var(--accent)",
+                    borderRadius: 9, fontSize: 13, fontWeight: 600,
+                    cursor: "pointer", fontFamily: "inherit",
+                    opacity: (!fuBody || !fuWhen) ? 0.5 : 1,
+                  }}
+                >
+                  + Añadir otro paso
+                </button>
+                <button
+                  className="btn-primary"
+                  onClick={saveFollowup}
+                  disabled={fuSteps.length === 0 && (!fuBody || !fuWhen)}
+                >
+                  🚀 Programar {fuSteps.length + (fuBody && fuWhen ? 1 : 0)} follow-up
+                  {(fuSteps.length + (fuBody && fuWhen ? 1 : 0)) !== 1 ? "s" : ""}
+                </button>
+                <button className="btn-ghost" onClick={() => { setFuOpen(false); setFuSteps([]); }}>Cancelar</button>
               </div>
             </div>
           </div>

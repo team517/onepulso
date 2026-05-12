@@ -7,6 +7,7 @@ import {
   findThreadByMessageId,
   findThreadBySubjectAndParticipant,
   listThreads,
+  updateFollowup,
   Thread,
 } from "./email-threads";
 
@@ -108,6 +109,9 @@ async function processUids(
         if (matchAddr) thread = await findThreadBySubjectAndParticipant(subject, matchAddr);
       }
 
+      // Si llega un INBOUND a un hilo existente del usuario, cancelar los
+      // follow-ups programados de ese hilo (la conversación cambió, ya no
+      // hace falta perseguir al prospect).
       // FILTRO ULTRA-ESTRICTO: el sync NUNCA crea hilos nuevos.
       // Los hilos sólo se crean cuando el usuario hace:
       //   - "+ Nuevo" (compose) → /api/email/send crea el thread
@@ -139,6 +143,16 @@ async function processUids(
       threadsTouched.add(thread.id);
       newMessages++;
       knownMsgIds.add(messageId);
+
+      // Si fue un INBOUND, cancelar follow-ups programados o pending_approval
+      // de este hilo (el prospect respondió, la secuencia para automáticamente).
+      if (direction === "inbound") {
+        for (const f of thread.followups) {
+          if (f.status === "scheduled" || f.status === "pending_approval") {
+            await updateFollowup(thread.id, f.id, { status: "cancelled" });
+          }
+        }
+      }
     } catch (msgErr: any) {
       console.warn(`[email-inbox] error processing uid ${uid}:`, msgErr.message);
     }

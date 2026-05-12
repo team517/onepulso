@@ -3,3 +3,22 @@ data/credentials.json
 .env.local
 .next/dev/
 .next/cache/
+
+# Data runtime — sólo persistente en Postgres en producción.
+# Las versiones bundleadas pueden sobrescribir Postgres en cada deploy.
+data/email-threads.json
+data/email-threads.backup-*.json
+data/email-config.json
+data/email-sequences.json
+data/campaigns.json
+data/skill-scopes.json
+data/instantly-accounts.json
+data/linkedin-auth.json
+data/linkedin-posts.json
+data/conversations/
+data/linkedin-images/
+data/uploads/
+
+# Pero SÍ mantenemos los .md de memoria (son seed de tu propuesta de valor)
+!data/memory/
+!data/memory/*.md

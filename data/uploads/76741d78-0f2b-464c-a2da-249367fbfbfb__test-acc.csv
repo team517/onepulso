@@ -1,3 +1,0 @@
-email,smtp_host,smtp_port,smtp_password,imap_host,imap_port,imap_password,first_name
-fake1@invalid-test-domain-zzz999.com,smtp.invalid-zzz999.com,587,fake1,imap.invalid-zzz999.com,993,fake1,T1
-fake2@invalid-test-domain-zzz999.com,smtp.invalid-zzz999.com,587,fake2,imap.invalid-zzz999.com,993,fake2,T2

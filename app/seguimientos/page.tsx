@@ -123,6 +123,7 @@ export default function SeguimientosPage() {
   const [contractAlerts, setContractAlerts] = useState<ContractAlert[]>([]);
   const [memoryOpen, setMemoryOpen] = useState(false);
   const [pendingApprovals, setPendingApprovals] = useState<any[]>([]);
+  const [storageStatus, setStorageStatus] = useState<any>(null);
   const [syncing, setSyncing] = useState(false);
   const [search, setSearch] = useState("");
 
@@ -184,6 +185,7 @@ export default function SeguimientosPage() {
     refreshSequences();
     loadContractAlerts();
     loadPendingApprovals();
+    loadStorageStatus();
     const intervalMs = thread ? 12000 : 30000;
     let syncCounter = 0;
     const t = setInterval(() => {
@@ -421,6 +423,13 @@ export default function SeguimientosPage() {
     try {
       const j = await fetch("/api/email/contract-alerts").then(r => r.json());
       setContractAlerts(j.alerts ?? []);
+    } catch {}
+  }
+
+  async function loadStorageStatus() {
+    try {
+      const j = await fetch("/api/debug/storage").then(r => r.json());
+      setStorageStatus(j);
     } catch {}
   }
 
@@ -850,6 +859,46 @@ export default function SeguimientosPage() {
     <div className="dash-shell">
       <DashboardNav />
       <div className="dash-content seg-app">
+
+      {/* Banner: aviso si Postgres no está conectado en producción */}
+      {storageStatus && (!storageStatus.has_database_url || (storageStatus.postgres && !storageStatus.postgres.connected)) && (
+        <div style={{
+          background: "linear-gradient(135deg, #fef2f2, #fee2e2)",
+          border: "2px solid #dc2626",
+          borderRadius: 14,
+          padding: "16px 20px",
+          marginBottom: 18,
+          display: "flex", gap: 14, alignItems: "flex-start",
+        }}>
+          <span style={{ fontSize: 28, lineHeight: 1 }}>⚠️</span>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 15, fontWeight: 800, color: "#991b1b", marginBottom: 4 }}>
+              ¡ATENCIÓN! Tus datos NO se están guardando permanentemente.
+            </div>
+            <div style={{ fontSize: 13, color: "#7f1d1d", lineHeight: 1.55, marginBottom: 8 }}>
+              Railway no tiene la variable <code style={{ background: "#fecaca", padding: "1px 5px", borderRadius: 4 }}>DATABASE_URL</code> conectada al servicio. Por eso los seguimientos desaparecen cuando el servidor se reinicia.
+            </div>
+            <div style={{ fontSize: 12, color: "#7f1d1d", lineHeight: 1.6, background: "rgba(255,255,255,0.5)", padding: "10px 12px", borderRadius: 8 }}>
+              <strong>Cómo arreglarlo (2 min):</strong><br/>
+              1. Ve a <a href="https://railway.app" target="_blank" rel="noreferrer" style={{ color: "#dc2626", fontWeight: 700 }}>railway.app</a> → tu proyecto → click en el servicio <strong>web</strong> (no en Postgres)<br/>
+              2. Pestaña <strong>Variables</strong> → <strong>+ New Variable</strong> → <strong>Add Reference</strong><br/>
+              3. Selecciona <strong>Postgres</strong> → variable <strong>DATABASE_URL</strong> → Add<br/>
+              4. Espera 1-2 min al redeploy y refresca esta página
+            </div>
+          </div>
+          <button
+            onClick={loadStorageStatus}
+            style={{
+              padding: "6px 12px", background: "#dc2626", color: "#fff",
+              border: "none", borderRadius: 8, fontSize: 12, fontWeight: 700,
+              cursor: "pointer", fontFamily: "inherit", flexShrink: 0,
+            }}
+          >
+            Recomprobar
+          </button>
+        </div>
+      )}
+
       <header className="seg-header">
         <div>
           <div className="dash-page-title">Seguimientos</div>

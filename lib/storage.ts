@@ -39,21 +39,30 @@ export async function readJson<T = any>(key: string): Promise<T | null> {
   }
 }
 
-/** Guarda un valor JSON por clave. Sobrescribe si existe. */
+/** Guarda un valor JSON por clave. Sobrescribe si existe.
+ *  En producción (DATABASE_URL set) escribe a Postgres. Si Postgres falla,
+ *  LANZA el error en vez de caer a fs (que en Railway se pierde en cada restart).
+ *  En dev (sin DATABASE_URL) escribe a fs local. */
 export async function writeJson(key: string, value: any): Promise<void> {
   if (isDbEnabled()) {
-    await ensureSchema();
-    await withClient((c) =>
-      c.query(
-        `INSERT INTO kv_store (key, value, updated_at)
-         VALUES ($1, $2::jsonb, NOW())
-         ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()`,
-        [key, JSON.stringify(value)]
-      )
-    );
-    return;
+    try {
+      await ensureSchema();
+      await withClient((c) =>
+        c.query(
+          `INSERT INTO kv_store (key, value, updated_at)
+           VALUES ($1, $2::jsonb, NOW())
+           ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()`,
+          [key, JSON.stringify(value)]
+        )
+      );
+      return;
+    } catch (e: any) {
+      console.error(`[storage] FATAL: writeJson Postgres falló para key=${key}:`, e.message);
+      // Re-lanzar para que el caller sepa que el guardado falló
+      throw new Error(`Postgres write failed: ${e.message}`);
+    }
   }
-  // Fallback fs
+  // Fallback fs (sólo dev local)
   const filePath = keyToPath(key);
   await fs.mkdir(path.dirname(filePath), { recursive: true });
   await fs.writeFile(filePath, JSON.stringify(value, null, 2), "utf-8");

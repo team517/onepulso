@@ -8,7 +8,7 @@ type Event = {
   id: string;
   thread_id: string;
   scheduled_at: string;
-  status: "scheduled" | "sending" | "sent" | "failed" | "cancelled";
+  status: "scheduled" | "sending" | "sent" | "failed" | "cancelled" | "pending_approval";
   origin: "manual" | "ai_auto" | "ai_assisted";
   subject: string;
   contact_email: string;
@@ -17,6 +17,9 @@ type Event = {
   auto_pilot: boolean;
   body_html: string;
   sent_at?: string;
+  cancelled_reason?: string;
+  cancelled_at?: string;
+  error?: string;
 };
 
 const MONTHS = [
@@ -254,33 +257,31 @@ export default function CalendarPage() {
                       )}
                     </div>
                     <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
-                      {evs.slice(0, 3).map(e => (
-                        <div
-                          key={e.id}
-                          onClick={ev => { ev.stopPropagation(); setSelectedEvent(e); }}
-                          style={{
-                            fontSize: 10.5, fontWeight: 600,
-                            padding: "3px 7px", borderRadius: 6,
-                            background: e.status === "sent"
-                              ? "rgba(16,185,129,0.1)"
-                              : e.auto_pilot
-                                ? "rgba(245,158,11,0.1)"
-                                : "rgba(0,113,227,0.1)",
-                            color: e.status === "sent"
-                              ? "#059669"
-                              : e.auto_pilot
-                                ? "#b45309"
-                                : "var(--accent)",
-                            whiteSpace: "nowrap",
-                            overflow: "hidden",
-                            textOverflow: "ellipsis",
-                            cursor: "pointer",
-                          }}
-                          title={`${e.contact_name} · ${new Date(e.scheduled_at).toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" })}`}
-                        >
-                          {new Date(e.scheduled_at).toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" })} · {e.contact_name}
-                        </div>
-                      ))}
+                      {evs.slice(0, 3).map(e => {
+                        const s = statusInfo(e);
+                        const isCancelled = e.status === "cancelled";
+                        return (
+                          <div
+                            key={e.id}
+                            onClick={ev => { ev.stopPropagation(); setSelectedEvent(e); }}
+                            style={{
+                              fontSize: 10.5, fontWeight: 600,
+                              padding: "3px 7px", borderRadius: 6,
+                              background: s.bg,
+                              color: s.fg,
+                              whiteSpace: "nowrap",
+                              overflow: "hidden",
+                              textOverflow: "ellipsis",
+                              cursor: "pointer",
+                              opacity: isCancelled ? 0.65 : 1,
+                              textDecoration: isCancelled ? "line-through" : "none",
+                            }}
+                            title={`${e.contact_name} · ${new Date(e.scheduled_at).toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" })} · ${s.label}${e.cancelled_reason === "prospect_replied" ? " (respondió)" : ""}`}
+                          >
+                            {s.icon} {new Date(e.scheduled_at).toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" })} · {e.contact_name}
+                          </div>
+                        );
+                      })}
                       {evs.length > 3 && (
                         <div style={{ fontSize: 10, color: "var(--text-faint)", padding: "0 7px" }}>
                           +{evs.length - 3} más
@@ -518,10 +519,37 @@ function Legend({ color, label }: { color: string; label: string }) {
   );
 }
 
+/** Estilo unificado por estado de follow-up */
+function statusInfo(event: Event): { label: string; bg: string; fg: string; border: string; icon: string } {
+  switch (event.status) {
+    case "sent":
+      return { label: "ENVIADO", bg: "rgba(16,185,129,0.12)", fg: "#059669", border: "#10b981", icon: "✓" };
+    case "scheduled":
+      return event.auto_pilot
+        ? { label: "AUTO", bg: "rgba(245,158,11,0.12)", fg: "#b45309", border: "#f59e0b", icon: "🤖" }
+        : { label: "PROGRAMADO", bg: "rgba(0,113,227,0.10)", fg: "#0071e3", border: "#0071e3", icon: "📅" };
+    case "pending_approval":
+      return { label: "ESPERA APROBACIÓN", bg: "rgba(99,102,241,0.12)", fg: "#4f46e5", border: "#6366f1", icon: "⏸" };
+    case "sending":
+      return { label: "ENVIANDO", bg: "rgba(0,113,227,0.10)", fg: "#0071e3", border: "#0071e3", icon: "📤" };
+    case "failed":
+      return { label: "FALLÓ", bg: "rgba(239,68,68,0.10)", fg: "#dc2626", border: "#ef4444", icon: "⚠" };
+    case "cancelled":
+      const reason = event.cancelled_reason;
+      if (reason === "prospect_replied") {
+        return { label: "RESPONDIÓ", bg: "rgba(34,197,94,0.12)", fg: "#15803d", border: "#22c55e", icon: "💬" };
+      }
+      return { label: "CANCELADO", bg: "rgba(100,116,139,0.10)", fg: "#475569", border: "#94a3b8", icon: "✕" };
+    default:
+      return { label: event.status, bg: "var(--bg-elev-3)", fg: "var(--text-dim)", border: "var(--border)", icon: "·" };
+  }
+}
+
 function EventRow({ event, onClick }: { event: Event; onClick: () => void }) {
   const time = new Date(event.scheduled_at).toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" });
   const date = new Date(event.scheduled_at).toLocaleDateString("es-ES", { day: "numeric", month: "short" });
-  const sentColor = event.status === "sent";
+  const s = statusInfo(event);
+  const isCancelled = event.status === "cancelled";
 
   return (
     <div
@@ -529,43 +557,40 @@ function EventRow({ event, onClick }: { event: Event; onClick: () => void }) {
       style={{
         background: "#fff",
         border: "1px solid var(--border)",
-        borderLeft: `3px solid ${
-          sentColor ? "#10b981"
-          : event.auto_pilot ? "#f59e0b"
-          : "#0071e3"
-        }`,
+        borderLeft: `3px solid ${s.border}`,
         borderRadius: 10,
         padding: "10px 12px",
         cursor: "pointer",
         transition: "all 0.15s",
+        opacity: isCancelled ? 0.6 : 1,
       }}
     >
-      <div style={{ fontSize: 13.5, fontWeight: 700, color: "var(--text)", letterSpacing: "-0.01em" }}>
+      <div style={{
+        fontSize: 13.5, fontWeight: 700, color: "var(--text)",
+        letterSpacing: "-0.01em",
+        textDecoration: isCancelled ? "line-through" : "none",
+      }}>
         {event.contact_name}
       </div>
       <div style={{ fontSize: 11.5, color: "var(--text-dim)", marginTop: 2, overflow: "hidden", whiteSpace: "nowrap", textOverflow: "ellipsis" }}>
         {event.subject}
       </div>
-      <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 6 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 6, flexWrap: "wrap" }}>
         <span style={{ fontSize: 11, fontWeight: 600, color: "var(--text-dim)" }}>
           {date} · {time}
         </span>
-        {event.auto_pilot && (
+        <span style={{
+          fontSize: 9.5, fontWeight: 700,
+          padding: "1px 7px", borderRadius: 99,
+          background: s.bg, color: s.fg,
+          letterSpacing: "0.04em",
+        }}>{s.icon} {s.label}</span>
+        {event.auto_pilot && event.status !== "scheduled" && (
           <span style={{
             fontSize: 9.5, fontWeight: 700,
             padding: "1px 7px", borderRadius: 99,
-            background: "rgba(245,158,11,0.12)",
-            color: "#b45309",
-            letterSpacing: "0.04em",
-          }}>AUTO</span>
-        )}
-        {event.status === "sent" && (
-          <span style={{
-            fontSize: 9.5, fontWeight: 700,
-            padding: "1px 7px", borderRadius: 99,
-            background: "rgba(16,185,129,0.12)",
-            color: "#059669",
-          }}>ENVIADO</span>
+            background: "rgba(245,158,11,0.12)", color: "#b45309",
+          }}>🤖 AUTO</span>
         )}
       </div>
     </div>
@@ -637,11 +662,61 @@ function EventModal({
         </div>
 
         {/* Status badges */}
-        <div style={{ display: "flex", gap: 6, marginBottom: 16, flexWrap: "wrap" }}>
-          <Pill color={event.status === "scheduled" ? "blue" : event.status === "sent" ? "green" : "grey"} text={event.status} />
+        <div style={{ display: "flex", gap: 6, marginBottom: 12, flexWrap: "wrap" }}>
+          {(() => {
+            const s = statusInfo(event);
+            return (
+              <span style={{
+                padding: "3px 10px", borderRadius: 999,
+                fontSize: 11, fontWeight: 700,
+                background: s.bg, color: s.fg,
+              }}>{s.icon} {s.label}</span>
+            );
+          })()}
           <Pill color={event.auto_pilot ? "amber" : "grey"} text={event.auto_pilot ? "🤖 Autopilot ON" : "Autopilot OFF"} />
           <Pill color="purple" text={`origen: ${event.origin}`} />
         </div>
+
+        {/* Motivo de cancelación */}
+        {event.status === "cancelled" && (
+          <div style={{
+            background: event.cancelled_reason === "prospect_replied"
+              ? "rgba(34,197,94,0.08)"
+              : "rgba(100,116,139,0.08)",
+            border: "1px solid",
+            borderColor: event.cancelled_reason === "prospect_replied"
+              ? "rgba(34,197,94,0.3)"
+              : "rgba(100,116,139,0.25)",
+            borderRadius: 10,
+            padding: "10px 13px",
+            marginBottom: 14,
+            fontSize: 12.5,
+            color: event.cancelled_reason === "prospect_replied" ? "#15803d" : "var(--text-dim)",
+            lineHeight: 1.5,
+          }}>
+            {event.cancelled_reason === "prospect_replied" ? (
+              <><strong>💬 El prospect respondió.</strong> Este follow-up se canceló automáticamente porque la conversación está activa otra vez.</>
+            ) : (
+              <><strong>✕ Cancelado.</strong> {event.cancelled_at ? `Cancelado el ${new Date(event.cancelled_at).toLocaleString("es-ES")}` : "Sin motivo registrado"}.</>
+            )}
+          </div>
+        )}
+
+        {/* Error si falló */}
+        {event.status === "failed" && event.error && (
+          <div style={{
+            background: "rgba(239,68,68,0.06)",
+            border: "1px solid rgba(239,68,68,0.25)",
+            borderRadius: 10,
+            padding: "10px 13px",
+            marginBottom: 14,
+            fontSize: 12.5,
+            color: "#dc2626",
+            lineHeight: 1.5,
+          }}>
+            <strong>⚠ Fallo al enviar:</strong> {event.error}
+          </div>
+        )}
 
         {/* Editable: Contact name */}
         <label style={labelStyle}>Nombre del contacto</label>

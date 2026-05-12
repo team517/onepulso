@@ -149,7 +149,11 @@ async function processUids(
       if (direction === "inbound") {
         for (const f of thread.followups) {
           if (f.status === "scheduled" || f.status === "pending_approval") {
-            await updateFollowup(thread.id, f.id, { status: "cancelled" });
+            await updateFollowup(thread.id, f.id, {
+              status: "cancelled",
+              cancelled_reason: "prospect_replied",
+              cancelled_at: new Date().toISOString(),
+            });
           }
         }
       }

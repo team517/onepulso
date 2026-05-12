@@ -34,6 +34,9 @@ export async function GET() {
           auto_pilot: !!t.auto_pilot,
           body_html: f.body_html,
           sent_at: f.sent_at,
+          cancelled_reason: f.cancelled_reason,
+          cancelled_at: f.cancelled_at,
+          error: f.error,
         });
       }
     }

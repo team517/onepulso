@@ -56,6 +56,10 @@ export type Followup = {
   error?: string;
   sent_at?: string;
   sent_message_id?: string;
+  // Razón de cancelación, útil para entender qué pasó:
+  // "prospect_replied" | "manual" | "duplicate" | "thread_closed"
+  cancelled_reason?: string;
+  cancelled_at?: string;
 };
 
 async function readThreads(): Promise<Thread[]> {

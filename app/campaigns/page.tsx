@@ -845,7 +845,7 @@ export default function Page() {
                       borderRadius: 11,
                     }}>
                       <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                           <span style={{ fontSize: 13.5, fontWeight: 700, color: "var(--text)" }}>
                             {a.title}
                           </span>
@@ -857,10 +857,39 @@ export default function Page() {
                               letterSpacing: "0.04em",
                             }}>ACTIVA</span>
                           )}
+                          {a.subscription?.plan && (
+                            <span style={{
+                              fontSize: 10, fontWeight: 600,
+                              padding: "2px 7px", borderRadius: 99,
+                              background: "rgba(99,102,241,0.12)", color: "#4f46e5",
+                            }}>{a.subscription.plan}</span>
+                          )}
+                          {typeof a.subscription?.days_remaining === "number" && (
+                            <span style={{
+                              fontSize: 10, fontWeight: 700,
+                              padding: "2px 7px", borderRadius: 99,
+                              background:
+                                a.subscription.days_remaining <= 3 ? "rgba(239,68,68,0.12)" :
+                                a.subscription.days_remaining <= 10 ? "rgba(245,158,11,0.12)" :
+                                "rgba(34,197,94,0.12)",
+                              color:
+                                a.subscription.days_remaining <= 3 ? "#dc2626" :
+                                a.subscription.days_remaining <= 10 ? "#b45309" :
+                                "#15803d",
+                            }}>
+                              {a.subscription.is_trial ? "🧪 " : "⏳ "}
+                              {a.subscription.days_remaining} día{a.subscription.days_remaining !== 1 ? "s" : ""}
+                            </span>
+                          )}
                         </div>
                         <div style={{ fontSize: 11, color: "var(--text-faint)", fontFamily: "var(--font-mono)", marginTop: 2 }}>
                           {a.api_key_masked}
                         </div>
+                        {a.subscription?.expires_at && (
+                          <div style={{ fontSize: 10.5, color: "var(--text-faint)", marginTop: 2 }}>
+                            Vence el {new Date(a.subscription.expires_at).toLocaleDateString("es-ES", { day: "numeric", month: "long", year: "numeric" })}
+                          </div>
+                        )}
                       </div>
                       {!a.active && (
                         <button

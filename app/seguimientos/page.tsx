@@ -3315,7 +3315,7 @@ function ThreadView(p: any) {
                 <div className="seg-msg-ghost-label">
                   📅 Programado · se enviará {p.fmt(f.scheduled_at)} · {f.origin}
                 </div>
-                <div className="seg-msg-body" dangerouslySetInnerHTML={{ __html: f.body_html.slice(0, 600) }} />
+                <div className="seg-msg-body" style={{ maxHeight: "none", overflow: "visible" }} dangerouslySetInnerHTML={{ __html: f.body_html }} />
                 <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
                   <button
                     onClick={() => p.sendNowFollowup(f.id)}
@@ -3362,7 +3362,7 @@ function ThreadView(p: any) {
                     {" · "}{f.origin}
                   </span>
                 </div>
-                <div className="li-post-text" dangerouslySetInnerHTML={{ __html: f.body_html.slice(0, 400) }} />
+                <div className="li-post-text" dangerouslySetInnerHTML={{ __html: f.body_html }} />
                 {f.error && <div className="li-post-err">{f.error}</div>}
                 {f.status === "scheduled" && (
                   <div className="li-post-actions" style={{ display: "flex", gap: 6, marginTop: 8 }}>

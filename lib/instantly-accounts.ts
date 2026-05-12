@@ -10,7 +10,10 @@ export type InstantlyAccount = {
   api_key: string;
   active: boolean;
   created_at: string;
-  // Cache de info de suscripción (refrescada cada 30 min)
+  // Fecha de renovación manual (la API de Instantly no la expone)
+  renews_at?: string; // ISO date — tú la pones manualmente
+  plan_label?: string; // ej "Pro", "Growth" — etiqueta libre opcional
+  // Subscripción (legacy, ya no se rellena automáticamente — se mantiene para retrocompat)
   subscription?: {
     plan?: string;
     days_remaining?: number;
@@ -21,8 +24,15 @@ export type InstantlyAccount = {
   };
 };
 
-export type InstantlyAccountPublic = Omit<InstantlyAccount, "api_key"> & {
+export type InstantlyAccountPublic = {
+  id: string;
+  title: string;
+  active: boolean;
+  created_at: string;
   api_key_masked: string;
+  renews_at?: string;
+  plan_label?: string;
+  days_remaining?: number;
 };
 
 const SUBSCRIPTION_TTL_MS = 30 * 60 * 1000;
@@ -103,35 +113,26 @@ function mask(s: string): string {
   return s.slice(0, 6) + "•".repeat(s.length - 10) + s.slice(-4);
 }
 
-export async function listAccounts(opts: { refresh?: boolean } = {}): Promise<InstantlyAccountPublic[]> {
+export async function listAccounts(): Promise<InstantlyAccountPublic[]> {
   const all = await readAll();
-  // Refrescar info de suscripción si es vieja o si se pide explícitamente
-  const now = Date.now();
-  let mutated = false;
-  await Promise.all(
-    all.map(async (a) => {
-      const stale =
-        !a.subscription ||
-        now - new Date(a.subscription.fetched_at).getTime() > SUBSCRIPTION_TTL_MS;
-      if (stale || opts.refresh) {
-        const sub = await fetchSubscription(a.api_key);
-        if (sub) {
-          a.subscription = sub;
-          mutated = true;
-        }
-      }
-    })
-  );
-  if (mutated) await writeAll(all);
-
-  return all.map((a) => ({
-    id: a.id,
-    title: a.title,
-    active: a.active,
-    created_at: a.created_at,
-    api_key_masked: mask(a.api_key),
-    subscription: a.subscription,
-  }));
+  return all.map((a) => {
+    // Calcular días restantes desde renews_at (fecha manual)
+    let daysRemaining: number | undefined;
+    if (a.renews_at) {
+      const ms = new Date(a.renews_at).getTime() - Date.now();
+      daysRemaining = Math.max(0, Math.ceil(ms / (24 * 60 * 60 * 1000)));
+    }
+    return {
+      id: a.id,
+      title: a.title,
+      active: a.active,
+      created_at: a.created_at,
+      api_key_masked: mask(a.api_key),
+      renews_at: a.renews_at,
+      plan_label: a.plan_label,
+      days_remaining: daysRemaining,
+    };
+  });
 }
 
 export async function getActiveAccount(): Promise<InstantlyAccount | null> {
@@ -147,24 +148,53 @@ export async function getActiveApiKey(): Promise<string | null> {
   return envVar("INSTANTLY_API_KEY") || null;
 }
 
-export async function addAccount(input: { title: string; api_key: string }): Promise<InstantlyAccountPublic> {
+export async function addAccount(input: {
+  title: string;
+  api_key: string;
+  renews_at?: string;
+  plan_label?: string;
+}): Promise<InstantlyAccountPublic> {
   const all = await readAll();
   const account: InstantlyAccount = {
     id: randomUUID(),
     title: input.title.trim(),
     api_key: input.api_key.trim(),
-    active: all.length === 0, // primera cuenta = activa por defecto
+    active: all.length === 0,
     created_at: new Date().toISOString(),
+    renews_at: input.renews_at,
+    plan_label: input.plan_label?.trim() || undefined,
   };
   all.push(account);
   await writeAll(all);
+  const daysRemaining = account.renews_at
+    ? Math.max(0, Math.ceil((new Date(account.renews_at).getTime() - Date.now()) / 86400000))
+    : undefined;
   return {
     id: account.id,
     title: account.title,
     active: account.active,
     created_at: account.created_at,
     api_key_masked: mask(account.api_key),
+    renews_at: account.renews_at,
+    plan_label: account.plan_label,
+    days_remaining: daysRemaining,
   };
+}
+
+export async function updateAccountMeta(id: string, patch: {
+  title?: string;
+  renews_at?: string | null;
+  plan_label?: string | null;
+}): Promise<void> {
+  const all = await readAll();
+  const a = all.find((x) => x.id === id);
+  if (!a) return;
+  if (typeof patch.title === "string" && patch.title.trim()) a.title = patch.title.trim();
+  if (patch.renews_at === null) delete a.renews_at;
+  else if (typeof patch.renews_at === "string") a.renews_at = patch.renews_at;
+  if (patch.plan_label === null) delete a.plan_label;
+  else if (typeof patch.plan_label === "string") a.plan_label = patch.plan_label.trim() || undefined;
+  await writeAll(all);
 }
 
 export async function deleteAccount(id: string) {

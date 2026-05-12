@@ -64,13 +64,20 @@ export default function Page() {
     connected: boolean;
     count?: number;
     active_title?: string;
-    subscription?: { plan?: string; days_remaining?: number; expires_at?: string; is_trial?: boolean };
+    plan_label?: string;
+    renews_at?: string;
+    days_remaining?: number;
   } | null>(null);
   const [instantlyModalOpen, setInstantlyModalOpen] = useState(false);
   const [instantlyAccounts, setInstantlyAccounts] = useState<any[]>([]);
   const [newAcctTitle, setNewAcctTitle] = useState("");
   const [newAcctKey, setNewAcctKey] = useState("");
+  const [newAcctRenews, setNewAcctRenews] = useState("");
+  const [newAcctPlan, setNewAcctPlan] = useState("");
   const [savingAcct, setSavingAcct] = useState(false);
+  const [editingAcctId, setEditingAcctId] = useState<string | null>(null);
+  const [editAcctRenews, setEditAcctRenews] = useState("");
+  const [editAcctPlan, setEditAcctPlan] = useState("");
 
   async function loadInstantlyAccounts() {
     try {
@@ -86,17 +93,44 @@ export default function Page() {
       const r = await fetch("/api/instantly/accounts", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title: newAcctTitle, api_key: newAcctKey }),
+        body: JSON.stringify({
+          title: newAcctTitle,
+          api_key: newAcctKey,
+          renews_at: newAcctRenews ? new Date(newAcctRenews).toISOString() : undefined,
+          plan_label: newAcctPlan.trim() || undefined,
+        }),
       }).then(r => r.json());
       if (r.error) {
         alert("⚠️ " + r.error);
       } else {
         setNewAcctTitle("");
         setNewAcctKey("");
+        setNewAcctRenews("");
+        setNewAcctPlan("");
         await loadInstantlyAccounts();
         await fetch("/api/instantly/status").then(r => r.json()).then(setInstantlyStatus);
       }
     } finally { setSavingAcct(false); }
+  }
+
+  function startEditAccount(a: any) {
+    setEditingAcctId(a.id);
+    setEditAcctRenews(a.renews_at ? a.renews_at.slice(0, 10) : "");
+    setEditAcctPlan(a.plan_label || "");
+  }
+
+  async function saveEditAccount(id: string) {
+    await fetch(`/api/instantly/accounts/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        renews_at: editAcctRenews ? new Date(editAcctRenews).toISOString() : "",
+        plan_label: editAcctPlan,
+      }),
+    });
+    setEditingAcctId(null);
+    await loadInstantlyAccounts();
+    await fetch("/api/instantly/status").then(r => r.json()).then(setInstantlyStatus);
   }
 
   async function setActiveInstantly(id: string) {
@@ -438,20 +472,20 @@ export default function Page() {
                   <span style={{ color: "#22c55e" }}>● </span>
                   Instantly{instantlyStatus.active_title ? ` (${instantlyStatus.active_title})` : ""} conectado
                   {" · "}{instantlyStatus.count} campañas
-                  {typeof instantlyStatus.subscription?.days_remaining === "number" && (
+                  {instantlyStatus.plan_label && (
+                    <>{" · "}<span style={{ fontWeight: 600 }}>{instantlyStatus.plan_label}</span></>
+                  )}
+                  {typeof instantlyStatus.days_remaining === "number" && (
                     <>
                       {" · "}
                       <span style={{
                         color:
-                          instantlyStatus.subscription.days_remaining <= 3 ? "#dc2626" :
-                          instantlyStatus.subscription.days_remaining <= 10 ? "#b45309" :
+                          instantlyStatus.days_remaining <= 3 ? "#dc2626" :
+                          instantlyStatus.days_remaining <= 10 ? "#b45309" :
                           "#15803d",
                         fontWeight: 600,
                       }}>
-                        {instantlyStatus.subscription.is_trial ? "🧪 " : "⏳ "}
-                        {instantlyStatus.subscription.days_remaining} día
-                        {instantlyStatus.subscription.days_remaining !== 1 ? "s" : ""}
-                        {" "}restantes
+                        ⏳ {instantlyStatus.days_remaining} día{instantlyStatus.days_remaining !== 1 ? "s" : ""} restantes
                       </span>
                     </>
                   )}
@@ -880,40 +914,74 @@ export default function Page() {
                               letterSpacing: "0.04em",
                             }}>ACTIVA</span>
                           )}
-                          {a.subscription?.plan && (
+                          {a.plan_label && (
                             <span style={{
                               fontSize: 10, fontWeight: 600,
                               padding: "2px 7px", borderRadius: 99,
                               background: "rgba(99,102,241,0.12)", color: "#4f46e5",
-                            }}>{a.subscription.plan}</span>
+                            }}>{a.plan_label}</span>
                           )}
-                          {typeof a.subscription?.days_remaining === "number" && (
+                          {typeof a.days_remaining === "number" && (
                             <span style={{
                               fontSize: 10, fontWeight: 700,
                               padding: "2px 7px", borderRadius: 99,
                               background:
-                                a.subscription.days_remaining <= 3 ? "rgba(239,68,68,0.12)" :
-                                a.subscription.days_remaining <= 10 ? "rgba(245,158,11,0.12)" :
+                                a.days_remaining <= 3 ? "rgba(239,68,68,0.12)" :
+                                a.days_remaining <= 10 ? "rgba(245,158,11,0.12)" :
                                 "rgba(34,197,94,0.12)",
                               color:
-                                a.subscription.days_remaining <= 3 ? "#dc2626" :
-                                a.subscription.days_remaining <= 10 ? "#b45309" :
+                                a.days_remaining <= 3 ? "#dc2626" :
+                                a.days_remaining <= 10 ? "#b45309" :
                                 "#15803d",
                             }}>
-                              {a.subscription.is_trial ? "🧪 " : "⏳ "}
-                              {a.subscription.days_remaining} día{a.subscription.days_remaining !== 1 ? "s" : ""}
+                              ⏳ {a.days_remaining} día{a.days_remaining !== 1 ? "s" : ""}
                             </span>
                           )}
                         </div>
                         <div style={{ fontSize: 11, color: "var(--text-faint)", fontFamily: "var(--font-mono)", marginTop: 2 }}>
                           {a.api_key_masked}
                         </div>
-                        {a.subscription?.expires_at && (
+                        {a.renews_at && editingAcctId !== a.id && (
                           <div style={{ fontSize: 10.5, color: "var(--text-faint)", marginTop: 2 }}>
-                            Vence el {new Date(a.subscription.expires_at).toLocaleDateString("es-ES", { day: "numeric", month: "long", year: "numeric" })}
+                            Renueva el {new Date(a.renews_at).toLocaleDateString("es-ES", { day: "numeric", month: "long", year: "numeric" })}
+                          </div>
+                        )}
+
+                        {/* Inline editor */}
+                        {editingAcctId === a.id && (
+                          <div style={{ marginTop: 8, padding: 10, background: "var(--bg-elev-2)", borderRadius: 8, display: "flex", flexDirection: "column", gap: 6 }}>
+                            <label style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: "var(--text-dim)" }}>Fecha de renovación</label>
+                            <input
+                              type="date"
+                              value={editAcctRenews}
+                              onChange={(e) => setEditAcctRenews(e.target.value)}
+                              style={{ padding: "6px 10px", border: "1px solid var(--border)", borderRadius: 6, fontSize: 12, fontFamily: "inherit", background: "#fff" }}
+                            />
+                            <label style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: "var(--text-dim)" }}>Plan (opcional)</label>
+                            <input
+                              value={editAcctPlan}
+                              onChange={(e) => setEditAcctPlan(e.target.value)}
+                              placeholder="Ej: Growth, Pro, Trial"
+                              style={{ padding: "6px 10px", border: "1px solid var(--border)", borderRadius: 6, fontSize: 12, fontFamily: "inherit", background: "#fff" }}
+                            />
+                            <div style={{ display: "flex", gap: 6 }}>
+                              <button onClick={() => saveEditAccount(a.id)} style={{ padding: "5px 12px", background: "var(--accent)", color: "#fff", border: "none", borderRadius: 6, fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>Guardar</button>
+                              <button onClick={() => setEditingAcctId(null)} style={{ padding: "5px 12px", background: "transparent", border: "1px solid var(--border)", borderRadius: 6, fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: "inherit", color: "var(--text-dim)" }}>Cancelar</button>
+                            </div>
                           </div>
                         )}
                       </div>
+                      {editingAcctId !== a.id && (
+                        <button
+                          onClick={() => startEditAccount(a)}
+                          title="Editar fecha de renovación / plan"
+                          style={{
+                            padding: "6px 9px", background: "transparent", color: "var(--text-faint)",
+                            border: "1px solid var(--border)", borderRadius: 8,
+                            fontSize: 11, cursor: "pointer", fontFamily: "inherit",
+                          }}
+                        >✏️</button>
+                      )}
                       {!a.active && (
                         <button
                           onClick={() => setActiveInstantly(a.id)}
@@ -974,10 +1042,42 @@ export default function Page() {
                   width: "100%", padding: "9px 11px",
                   background: "#fff", border: "1px solid var(--border)",
                   borderRadius: 9, fontSize: 13, color: "var(--text)",
-                  outline: "none", boxSizing: "border-box", marginBottom: 10,
+                  outline: "none", boxSizing: "border-box", marginBottom: 8,
                   fontFamily: "var(--font-mono)",
                 }}
               />
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 10 }}>
+                <div>
+                  <label style={{ display: "block", fontSize: 10, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: "var(--text-dim)", marginBottom: 4 }}>Plan (opcional)</label>
+                  <input
+                    value={newAcctPlan}
+                    onChange={(e) => setNewAcctPlan(e.target.value)}
+                    placeholder="Growth, Pro, Trial…"
+                    style={{
+                      width: "100%", padding: "8px 10px",
+                      background: "#fff", border: "1px solid var(--border)",
+                      borderRadius: 8, fontSize: 12.5, color: "var(--text)",
+                      outline: "none", boxSizing: "border-box",
+                      fontFamily: "inherit",
+                    }}
+                  />
+                </div>
+                <div>
+                  <label style={{ display: "block", fontSize: 10, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: "var(--text-dim)", marginBottom: 4 }}>Renueva el (opcional)</label>
+                  <input
+                    type="date"
+                    value={newAcctRenews}
+                    onChange={(e) => setNewAcctRenews(e.target.value)}
+                    style={{
+                      width: "100%", padding: "8px 10px",
+                      background: "#fff", border: "1px solid var(--border)",
+                      borderRadius: 8, fontSize: 12.5, color: "var(--text)",
+                      outline: "none", boxSizing: "border-box",
+                      fontFamily: "inherit",
+                    }}
+                  />
+                </div>
+              </div>
               <button
                 onClick={addInstantlyAccount}
                 disabled={savingAcct || !newAcctTitle.trim() || !newAcctKey.trim()}

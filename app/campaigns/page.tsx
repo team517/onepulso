@@ -60,7 +60,12 @@ export default function Page() {
   const [memTitle, setMemTitle] = useState("");
   const [memCat, setMemCat] = useState("identity");
   const [memContent, setMemContent] = useState("");
-  const [instantlyStatus, setInstantlyStatus] = useState<{ connected: boolean; count?: number } | null>(null);
+  const [instantlyStatus, setInstantlyStatus] = useState<{
+    connected: boolean;
+    count?: number;
+    active_title?: string;
+    subscription?: { plan?: string; days_remaining?: number; expires_at?: string; is_trial?: boolean };
+  } | null>(null);
   const [instantlyModalOpen, setInstantlyModalOpen] = useState(false);
   const [instantlyAccounts, setInstantlyAccounts] = useState<any[]>([]);
   const [newAcctTitle, setNewAcctTitle] = useState("");
@@ -431,7 +436,25 @@ export default function Page() {
               {instantlyStatus?.connected ? (
                 <>
                   <span style={{ color: "#22c55e" }}>● </span>
-                  Instantly conectado · {instantlyStatus.count} campañas
+                  Instantly{instantlyStatus.active_title ? ` (${instantlyStatus.active_title})` : ""} conectado
+                  {" · "}{instantlyStatus.count} campañas
+                  {typeof instantlyStatus.subscription?.days_remaining === "number" && (
+                    <>
+                      {" · "}
+                      <span style={{
+                        color:
+                          instantlyStatus.subscription.days_remaining <= 3 ? "#dc2626" :
+                          instantlyStatus.subscription.days_remaining <= 10 ? "#b45309" :
+                          "#15803d",
+                        fontWeight: 600,
+                      }}>
+                        {instantlyStatus.subscription.is_trial ? "🧪 " : "⏳ "}
+                        {instantlyStatus.subscription.days_remaining} día
+                        {instantlyStatus.subscription.days_remaining !== 1 ? "s" : ""}
+                        {" "}restantes
+                      </span>
+                    </>
+                  )}
                 </>
               ) : instantlyStatus ? (
                 <span style={{ color: "var(--error)" }}>● Instantly: error de conexión</span>

@@ -32,7 +32,9 @@ export async function POST(_req: Request, ctx: { params: Promise<{ id: string }>
       return NextResponse.json({ error: "Follow-up no encontrado" }, { status: 404 });
     }
 
-    if (followup.status !== "scheduled") {
+    // Permitimos forzar envío desde "scheduled" o "failed" (reintento manual).
+    // Bloqueamos sólo estados terminales o en curso.
+    if (followup.status !== "scheduled" && followup.status !== "failed") {
       return NextResponse.json(
         { error: `No se puede enviar (estado: ${followup.status})` },
         { status: 400 }
@@ -94,6 +96,7 @@ export async function POST(_req: Request, ctx: { params: Promise<{ id: string }>
         status: "sent",
         sent_at: new Date().toISOString(),
         sent_message_id: info.messageId,
+        error: undefined,
       });
 
       return NextResponse.json({

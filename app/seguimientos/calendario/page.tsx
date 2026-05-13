@@ -370,7 +370,8 @@ function EditableBody({
 
   const isPending = event.status === "pending_approval";
   const isScheduled = event.status === "scheduled";
-  const editable = isPending || isScheduled;
+  const isFailed = event.status === "failed";
+  const editable = isPending || isScheduled || isFailed;
 
   async function approve(sendNow: boolean) {
     setBusy(true);
@@ -417,7 +418,7 @@ function EditableBody({
   return (
     <div style={{ marginTop: 18 }}>
       <div style={{ ...labelStyle, marginBottom: 8, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-        <span>{isPending ? "✨ Borrador del autopilot" : isScheduled ? "📧 Email programado" : "Preview"}</span>
+        <span>{isPending ? "✨ Borrador del autopilot" : isScheduled ? "📧 Email programado" : isFailed ? "⚠ Falló — listo para reintentar" : "Preview"}</span>
         {editable && !editing && (
           <button onClick={() => setEditing(true)} style={{ background: "transparent", border: "1px solid var(--border)", color: "var(--text-dim)", padding: "3px 9px", borderRadius: 7, fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>
             ✏️ Editar
@@ -611,7 +612,11 @@ function EventModal({
   const [sendingNow, setSendingNow] = useState(false);
 
   async function sendNow() {
-    if (!confirm(`¿Enviar AHORA el email a ${event.contact_name}?\n\nSe enviará inmediatamente, antes de la fecha programada (${new Date(event.scheduled_at).toLocaleString("es-ES")}).`)) return;
+    const isRetry = event.status === "failed";
+    const msg = isRetry
+      ? `¿Reintentar el envío a ${event.contact_name}?\n\nÚltimo error: ${event.error ?? "(sin detalle)"}\n\nSe enviará por SMTP con la cuenta conectada.`
+      : `¿Enviar AHORA el email a ${event.contact_name}?\n\nSe enviará inmediatamente, antes de la fecha programada (${new Date(event.scheduled_at).toLocaleString("es-ES")}).`;
+    if (!confirm(msg)) return;
     setSendingNow(true);
     try {
       const r = await fetch(`/api/email/followups/${event.id}/send-now`, { method: "POST" });
@@ -753,7 +758,7 @@ function EventModal({
           </button>
         </div>
 
-        {/* SEND NOW — sólo si está scheduled */}
+        {/* SEND NOW — si está scheduled */}
         {event.status === "scheduled" && (
           <button
             onClick={sendNow}
@@ -770,6 +775,26 @@ function EventModal({
             }}
           >
             {sendingNow ? "Enviando..." : "🚀 Enviar AHORA (antes de la fecha)"}
+          </button>
+        )}
+
+        {/* RETRY — si está failed */}
+        {event.status === "failed" && (
+          <button
+            onClick={sendNow}
+            disabled={sendingNow}
+            style={{
+              marginTop: 10, width: "100%",
+              padding: "11px 16px",
+              background: "linear-gradient(135deg, #ef4444, #dc2626)",
+              color: "#fff", border: "none", borderRadius: 11,
+              fontSize: 13.5, fontWeight: 700, cursor: "pointer",
+              boxShadow: "0 4px 14px rgba(239,68,68,0.35)",
+              fontFamily: "inherit",
+              opacity: sendingNow ? 0.6 : 1,
+            }}
+          >
+            {sendingNow ? "Reintentando..." : "🔄 Reintentar envío ahora"}
           </button>
         )}
 

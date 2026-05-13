@@ -3516,6 +3516,26 @@ function ThreadView(p: any) {
                     </button>
                   </div>
                 )}
+                {f.status === "failed" && (
+                  <div className="li-post-actions" style={{ display: "flex", gap: 6, marginTop: 8, flexWrap: "wrap" }}>
+                    <button
+                      onClick={() => p.sendNowFollowup(f.id)}
+                      style={{
+                        padding: "6px 14px",
+                        background: "linear-gradient(135deg, #ef4444, #dc2626)",
+                        color: "#fff", border: "none", borderRadius: 9,
+                        fontSize: 12, fontWeight: 700, cursor: "pointer",
+                        boxShadow: "0 2px 8px rgba(239,68,68,0.3)",
+                        fontFamily: "inherit",
+                      }}
+                    >
+                      🔄 Reintentar envío
+                    </button>
+                    <button className="btn-ghost-sm" onClick={() => p.cancelFollowup(f.id)}>
+                      Descartar
+                    </button>
+                  </div>
+                )}
               </div>
             ))}
           </div>

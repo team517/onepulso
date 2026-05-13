@@ -190,6 +190,39 @@ async function processUids(
           }
         }
       }
+
+      // Si fue un OUTBOUND nuevo (= el usuario respondió manualmente desde su
+      // cliente de correo, NO desde la plataforma), cancelar TODOS los borradores
+      // pendientes y follow-ups programados del autopilot — el humano ya respondió,
+      // que el bot no le pise.
+      // Detección: el message_id no estaba en knownMsgIds antes de procesarse
+      // (= no fue enviado por la plataforma). Como ya llegamos aquí pasando el
+      // chequeo `knownMsgIds.has(messageId)` de arriba, sabemos que es nuevo.
+      if (direction === "outbound") {
+        for (const f of thread.followups) {
+          if (f.status === "scheduled" || f.status === "pending_approval") {
+            await updateFollowup(thread.id, f.id, {
+              status: "cancelled",
+              cancelled_reason: "user_replied_manually",
+              cancelled_at: new Date().toISOString(),
+            });
+            console.log(`[email-inbox] cancelado follow-up ${f.id} (origin=${f.origin}) — respuesta manual del usuario`);
+          }
+        }
+        // También marcar como "procesado" para el autopilot, así no procesa el
+        // último inbound otra vez (porque ya hay respuesta).
+        const ids = [...(thread.auto_pilot_processed_msg_ids ?? [])];
+        for (const m of thread.messages) {
+          if (m.direction === "inbound" && m.message_id && !ids.includes(m.message_id)) {
+            ids.push(m.message_id);
+          }
+        }
+        if (ids.length !== (thread.auto_pilot_processed_msg_ids?.length ?? 0)) {
+          await import("./email-threads").then(({ updateThread }) =>
+            updateThread(thread!.id, { auto_pilot_processed_msg_ids: ids })
+          );
+        }
+      }
     } catch (msgErr: any) {
       console.warn(`[email-inbox] error processing uid ${uid}:`, msgErr.message);
     }
@@ -271,11 +304,22 @@ export async function syncInbox(opts: { days?: number; max?: number } = {}): Pro
   try {
     await client.connect();
 
-    // Detectar carpetas
+    // Detectar carpetas. Incluimos también la carpeta Sent para detectar
+    // respuestas manuales del usuario (envíos desde Gmail directamente, no
+    // desde la plataforma). El sync las marca como outbound y cancela
+    // borradores del autopilot.
     const folders: string[] = [];
     try {
       const list = await client.list();
       if (list.find(m => /^inbox$/i.test(m.path))) folders.push("INBOX");
+      const sent = list.find(m =>
+        m.specialUse === "\\Sent" ||
+        /\[Gmail\]\/Sent Mail/i.test(m.path) ||
+        /\[Gmail\]\/Enviados/i.test(m.path) ||
+        /^Sent$/i.test(m.path) ||
+        /^Enviados$/i.test(m.path)
+      );
+      if (sent) folders.push(sent.path);
       const allMail = list.find(m =>
         m.specialUse === "\\All" ||
         /\[Gmail\]\/All Mail/i.test(m.path) ||
@@ -298,7 +342,9 @@ export async function syncInbox(opts: { days?: number; max?: number } = {}): Pro
       try {
         const lock = await client.getMailboxLock(folder);
         try {
-          // 1) Búsqueda PRIORITARIA por participante activo (rápida, pocos UIDs)
+          // 1) Búsqueda PRIORITARIA por participante activo (rápida, pocos UIDs).
+          //    Buscamos tanto FROM (prospect → yo, en INBOX/All Mail) como TO
+          //    (yo → prospect, en Sent/All Mail) para detectar las dos direcciones.
           const targetedUids: number[] = [];
           for (const addr of watchedAddrs) {
             try {
@@ -306,6 +352,12 @@ export async function syncInbox(opts: { days?: number; max?: number } = {}): Pro
               targetedUids.push(...fromUids);
             } catch (e: any) {
               console.warn(`[email-inbox] from search ${addr} failed:`, e.message);
+            }
+            try {
+              const toUids = (await client.search({ to: addr } as any, { uid: true })) ?? [];
+              targetedUids.push(...toUids);
+            } catch (e: any) {
+              console.warn(`[email-inbox] to search ${addr} failed:`, e.message);
             }
           }
           const targetedUnique = Array.from(new Set(targetedUids));

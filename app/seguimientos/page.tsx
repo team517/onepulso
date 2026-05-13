@@ -130,6 +130,8 @@ export default function SeguimientosPage() {
   const [smtpDiag, setSmtpDiag] = useState<any>(null);
   const [smtpDiagLoading, setSmtpDiagLoading] = useState(false);
   const [resendModal, setResendModal] = useState<{ open: boolean; status?: any; saving?: boolean; testing?: boolean; testResult?: any; apiKey: string; fromAddr: string }>({ open: false, apiKey: "", fromAddr: "" });
+  const [deepRefreshing, setDeepRefreshing] = useState(false);
+  const [lastDeepRefresh, setLastDeepRefresh] = useState<Date | null>(null);
   const [syncing, setSyncing] = useState(false);
   const [search, setSearch] = useState("");
 
@@ -533,6 +535,62 @@ export default function SeguimientosPage() {
       setInboxLoading(false);
     }
   }
+
+  async function runDeepRefresh() {
+    if (deepRefreshing) return;
+    setDeepRefreshing(true);
+    try {
+      const r = await fetch("/api/email/deep-refresh", { method: "POST" }).then((r) => r.json());
+      setLastDeepRefresh(new Date());
+      if (r.new_messages > 0) {
+        setFeedback(`✓ ${r.new_messages} mensaje(s) nuevo(s) en ${r.threads_refreshed} hilos`);
+        refreshThreads();
+        if (thread) loadThread(thread.id);
+        if (view === "inbox") loadInbox(inboxUnreadOnly);
+      } else {
+        setFeedback(`✓ Sin cambios · ${r.threads_refreshed} hilos revisados`);
+      }
+    } catch (e: any) {
+      setFeedback("⚠️ " + e.message);
+    } finally {
+      setDeepRefreshing(false);
+      setTimeout(() => setFeedback(null), 5000);
+    }
+  }
+
+  // Deep refresh automático cada 2 minutos mientras la plataforma esté abierta
+  useEffect(() => {
+    // Disparar uno al inicio (tras 5s, para no bloquear el primer paint)
+    const t0 = setTimeout(() => {
+      fetch("/api/email/deep-refresh", { method: "POST" })
+        .then((r) => r.json())
+        .then((r) => {
+          setLastDeepRefresh(new Date());
+          if (r.new_messages > 0) {
+            refreshThreads();
+            if (thread) loadThread(thread.id);
+            if (view === "inbox") loadInbox(inboxUnreadOnly);
+          }
+        })
+        .catch(() => {});
+    }, 5000);
+    // Luego cada 2 min
+    const t = setInterval(() => {
+      fetch("/api/email/deep-refresh", { method: "POST" })
+        .then((r) => r.json())
+        .then((r) => {
+          setLastDeepRefresh(new Date());
+          if (r.new_messages > 0) {
+            refreshThreads();
+            if (thread) loadThread(thread.id);
+            if (view === "inbox") loadInbox(inboxUnreadOnly);
+          }
+        })
+        .catch(() => {});
+    }, 2 * 60 * 1000);
+    return () => { clearTimeout(t0); clearInterval(t); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [thread?.id, view, inboxUnreadOnly]);
 
   async function openInbox() {
     setView("inbox");
@@ -1386,6 +1444,34 @@ export default function SeguimientosPage() {
                 }}
               >
                 🚀 Enviar ahora
+              </button>
+              <button
+                onClick={runDeepRefresh}
+                disabled={deepRefreshing}
+                title={lastDeepRefresh ? `Último refresh: ${lastDeepRefresh.toLocaleTimeString("es-ES")}` : "Escanea Gmail buscando mensajes nuevos en todos los hilos"}
+                style={{
+                  padding: "7px 14px",
+                  background: deepRefreshing
+                    ? "linear-gradient(135deg, #94a3b8, #64748b)"
+                    : "linear-gradient(135deg, #06b6d4, #0e7490)",
+                  color: "#fff",
+                  border: "none",
+                  borderRadius: 9,
+                  fontSize: 12.5,
+                  fontWeight: 700,
+                  cursor: deepRefreshing ? "wait" : "pointer",
+                  fontFamily: "inherit",
+                  boxShadow: "0 2px 8px rgba(6,182,212,0.3)",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 6,
+                }}
+              >
+                <span style={{
+                  display: "inline-block",
+                  animation: deepRefreshing ? "spin 1s linear infinite" : "none",
+                }}>🔄</span>
+                {deepRefreshing ? "Escaneando…" : "Sync todo"}
               </button>
               <button
                 onClick={openInbox}

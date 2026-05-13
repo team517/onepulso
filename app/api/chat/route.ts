@@ -28,8 +28,8 @@ export async function POST(req: NextRequest) {
 
   const client = new Anthropic({
     apiKey,
-    maxRetries: 4, // reintenta 5xx / overloaded
-    timeout: 180_000, // 3 min por llamada (campañas con 12 variantes pueden ser largas)
+    maxRetries: 8, // SDK reintenta 8 veces 5xx/429/overloaded con backoff exponencial
+    timeout: 180_000, // 3 min por llamada
   });
 
   const apiMessages: Anthropic.Messages.MessageParam[] = messages.map((m) => ({
@@ -39,20 +39,53 @@ export async function POST(req: NextRequest) {
 
   const events: Array<{ type: string; data: any }> = [];
 
+  /** Llama a Claude con retry adicional encima del SDK.
+   *  Total: SDK (8 internal) × 3 outer = hasta 24 intentos antes de rendirse. */
+  async function callClaudeWithRetry(): Promise<Anthropic.Messages.Message> {
+    const maxOuterAttempts = 3;
+    let lastErr: any;
+    for (let attempt = 1; attempt <= maxOuterAttempts; attempt++) {
+      try {
+        return await client.messages.create({
+          model: "claude-opus-4-7",
+          max_tokens: 16000,
+          system: SYSTEM_PROMPT,
+          tools,
+          messages: apiMessages,
+        });
+      } catch (e: any) {
+        lastErr = e;
+        const status = e?.status ?? e?.statusCode;
+        const msg = String(e?.message ?? e ?? "").toLowerCase();
+        const retryable =
+          status === 500 || status === 502 || status === 503 || status === 504 || status === 529 ||
+          msg.includes("overloaded") || msg.includes("internal server") || msg.includes("temporarily");
+        if (!retryable || attempt >= maxOuterAttempts) throw e;
+        const wait = Math.min(3000 * 2 ** (attempt - 1), 15000); // 3s, 6s, 12s
+        console.warn(`[chat] Claude error ${status} (${msg.slice(0, 80)}) — reintentando en ${wait}ms (${attempt}/${maxOuterAttempts})`);
+        await new Promise((r) => setTimeout(r, wait));
+      }
+    }
+    throw lastErr;
+  }
+
   for (let i = 0; i < 20; i++) {
     let response: Anthropic.Messages.Message;
     try {
-      response = await client.messages.create({
-        model: "claude-opus-4-7",
-        max_tokens: 16000, // suficiente para 12 variantes con HTML
-        system: SYSTEM_PROMPT,
-        tools,
-        messages: apiMessages,
-      });
+      response = await callClaudeWithRetry();
     } catch (e: any) {
+      const status = e?.status ?? e?.statusCode;
+      const friendly =
+        status === 529 || /overloaded/i.test(String(e?.message))
+          ? "Anthropic está saturado ahora mismo. Espera 30-60 segundos y vuelve a darle."
+          : status >= 500
+          ? "Anthropic tuvo un fallo interno (5xx). Reintenta en unos segundos — los servidores suelen recuperarse rápido."
+          : status === 429
+          ? "Has hecho demasiadas peticiones muy seguidas. Espera 30s."
+          : e.message ?? String(e);
       events.push({
         type: "text",
-        data: `\n\n⚠️ Error llamando a Claude: ${e.message ?? String(e)}. Iteración ${i + 1}/20. Reintenta el mensaje si quieres.`,
+        data: `\n\n⚠️ ${friendly}`,
       });
       break;
     }

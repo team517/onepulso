@@ -55,7 +55,7 @@ ${transcript}
 ${hint ? `\nINSTRUCCIÓN ADICIONAL del usuario para esta respuesta: ${hint}\n` : ""}
 Redacta la siguiente respuesta de Xavi como HTML del body (<p>...</p> por bloque). Solo el body, nada más.`;
 
-  const client = new Anthropic({ apiKey, maxRetries: 3, timeout: 120_000 });
+  const client = new Anthropic({ apiKey, maxRetries: 6, timeout: 120_000 });
   const r = await client.messages.create({
     model: "claude-opus-4-7",
     max_tokens: 2000,

@@ -88,7 +88,7 @@ async function aiExtractDate(text: string, anthropicKey: string): Promise<{
 }> {
   const today = new Date();
   const dow = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"][today.getDay()];
-  const client = new Anthropic({ apiKey: anthropicKey, maxRetries: 2 });
+  const client = new Anthropic({ apiKey: anthropicKey, maxRetries: 6 });
   const r = await client.messages.create({
     model: "claude-haiku-4-5-20251001",
     max_tokens: 500,
@@ -118,7 +118,7 @@ async function aiDetectContractIntent(text: string, anthropicKey: string): Promi
   confidence?: string;
   excerpt?: string | null;
 }> {
-  const client = new Anthropic({ apiKey: anthropicKey, maxRetries: 2 });
+  const client = new Anthropic({ apiKey: anthropicKey, maxRetries: 6 });
   const r = await client.messages.create({
     model: "claude-haiku-4-5-20251001",
     max_tokens: 300,
@@ -143,7 +143,7 @@ async function aiGenerateReply(
   anthropicKey: string,
   opts: { mode: "immediate" | "reminder"; deliveryDate?: string; dateContext?: string } = { mode: "immediate" },
 ): Promise<string> {
-  const client = new Anthropic({ apiKey: anthropicKey, maxRetries: 2, timeout: 120_000 });
+  const client = new Anthropic({ apiKey: anthropicKey, maxRetries: 6, timeout: 120_000 });
   const memory = await memoryAsContext();
   const transcript = thread.messages
     .map((m) => {
@@ -258,7 +258,7 @@ async function aiPlanSequence(
   strategy: string,
   anthropicKey: string,
 ): Promise<SequenceStep[]> {
-  const client = new Anthropic({ apiKey: anthropicKey, maxRetries: 2, timeout: 120_000 });
+  const client = new Anthropic({ apiKey: anthropicKey, maxRetries: 6, timeout: 120_000 });
   const memory = await memoryAsContext();
 
   const transcript = thread.messages

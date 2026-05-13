@@ -50,7 +50,7 @@ ${description}
 
 Devuelve solo el JSON con la secuencia.`;
 
-  const client = new Anthropic({ apiKey, maxRetries: 3, timeout: 120_000 });
+  const client = new Anthropic({ apiKey, maxRetries: 6, timeout: 120_000 });
   const r = await client.messages.create({
     model: "claude-opus-4-7",
     max_tokens: 6000,

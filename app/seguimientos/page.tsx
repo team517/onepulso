@@ -650,6 +650,25 @@ export default function SeguimientosPage() {
     setView("thread");
     setReplyHtml("");
     setReplyHint("");
+
+    // Sync agresivo en background del contacto del hilo — busca cualquier mensaje
+    // nuevo intercambiado con ellos en los últimos 90 días (FROM + TO en INBOX,
+    // Sent, All Mail, Spam). Si encuentra algo, recarga el hilo.
+    fetch("/api/email/sync-thread", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ thread_id: id, days: 90 }),
+    })
+      .then((res) => res.json())
+      .then((j) => {
+        if (j?.added > 0) {
+          // Hay mensajes nuevos → recargar el hilo
+          fetch(`/api/email/threads/${id}`).then((r) => r.json()).then((r2) => {
+            setThread(r2.thread ?? null);
+          });
+        }
+      })
+      .catch(() => {});
   }
 
   // Filtros por tab + search

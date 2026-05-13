@@ -20,17 +20,17 @@ export function startEmailScheduler() {
 }
 
 let lastInboxSync = 0;
-const INBOX_SYNC_MS = 60_000; // sync inbox cada 60s para detectar respuestas casi en tiempo real
+const INBOX_SYNC_MS = 30_000; // sync inbox cada 30s (cada tick) para máxima reactividad
 
 export async function tick() {
   // 1. Enviar follow-ups vencidos
   const dueResults = await sendDueFollowups();
 
-  // 2. Sync inbox cada 5 min
+  // 2. Sync inbox cada 30s (= cada tick prácticamente)
   if (Date.now() - lastInboxSync > INBOX_SYNC_MS) {
     lastInboxSync = Date.now();
     try {
-      const r = await syncInbox({ days: 7, max: 100 });
+      const r = await syncInbox({ days: 14, max: 150 });
       if (r.new_messages > 0) {
         console.log(`[email-scheduler] inbox sync: ${r.new_messages} new in ${r.threads_touched.length} threads`);
         // Después de sync, correr autopilot por si hay nuevas inbounds

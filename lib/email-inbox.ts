@@ -8,6 +8,7 @@ import {
   findThreadBySubjectAndParticipant,
   listThreads,
   updateFollowup,
+  updateThread,
   Thread,
 } from "./email-threads";
 
@@ -603,6 +604,153 @@ export async function deepRefreshAllThreads(opts: {
         console.warn(`[deep-refresh] folder ${folder}: ${e.message}`);
       }
     }
+    // ====================================================================
+    // AUTO-DISCOVER: busca conversaciones bidireccionales con contactos
+    // que aún NO tienen hilo en la plataforma. Filtra spam/newsletters.
+    // ====================================================================
+    let autoCreated = 0;
+    try {
+      const inboxFolder = folderList.find((m) => /^inbox$/i.test(m.path));
+      if (inboxFolder) {
+        const lock = await client.getMailboxLock(inboxFolder.path);
+        try {
+          // Inbound recientes (14 días)
+          const since14 = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000);
+          const recentUids: number[] = (await client.search({ since: since14 } as any, { uid: true })) ?? [];
+          // Limitar a los últimos 80 para no saturar
+          const limited = recentUids.sort((a, b) => b - a).slice(0, 80);
+
+          // Pre-construir set de contactos ya conocidos (en addrToThreads)
+          const knownContacts = new Set<string>(addrToThreads.keys());
+          // También considerar todos los participants de TODOS los threads (incluso cerrados)
+          for (const t of allThreads) {
+            for (const p of t.participants) {
+              const addr = String(p).toLowerCase().trim();
+              if (addr && !ownEmails.has(addr)) knownContacts.add(addr);
+            }
+          }
+
+          const candidatesByAddr = new Map<string, { uid: number; parsed: any; full: any }>();
+          for (const uid of limited) {
+            try {
+              const full = await client.fetchOne(uid, { source: true, envelope: true, internalDate: true }, { uid: true });
+              if (!full) continue;
+              const parsed = _hasMailparser && full.source ? await simpleParser(full.source) : null;
+              if (!parsed) continue;
+              const messageId = normMsgId(parsed.messageId ?? "");
+              if (!messageId || knownMsgIds.has(messageId)) continue;
+              const fromAddr = String(parsed.from?.value?.[0]?.address ?? "").toLowerCase();
+              if (!fromAddr || ownEmails.has(fromAddr)) continue;
+              if (knownContacts.has(fromAddr)) continue;
+              // Filtros antispam/newsletter
+              if (isNoiseAddress(fromAddr) || isNoiseSubject(parsed.subject || "")) continue;
+              // Solo un candidato por dirección (el más reciente)
+              if (!candidatesByAddr.has(fromAddr)) {
+                candidatesByAddr.set(fromAddr, { uid, parsed, full });
+              }
+            } catch {}
+          }
+          lock.release();
+
+          // Para cada candidato, verificar en Sent que tenemos al menos 1 email TO ellos
+          const sentFolder = folderList.find((m) =>
+            m.specialUse === "\\Sent" || /\[Gmail\]\/Sent Mail/i.test(m.path) || /\[Gmail\]\/Enviados/i.test(m.path)
+          );
+          if (sentFolder && candidatesByAddr.size > 0) {
+            const sentLock = await client.getMailboxLock(sentFolder.path);
+            try {
+              for (const [addr, cand] of candidatesByAddr) {
+                try {
+                  const sentToUids = (await client.search({ to: addr } as any, { uid: true })) ?? [];
+                  if (sentToUids.length === 0) continue; // nunca le hemos escrito → no es un prospect nuestro
+
+                  // Conversación bidireccional confirmada → crear thread
+                  const contactName = (cand.parsed.from?.value?.[0]?.name as string) || addr.split("@")[0];
+                  const subject = (cand.parsed.subject as string) || "(sin asunto)";
+
+                  const newThread = await createThread({
+                    subject,
+                    participants: [cfg.email.toLowerCase(), addr],
+                    contact_email: addr,
+                    contact_name: contactName,
+                  });
+                  // Marcar como watched
+                  await updateThread(newThread.id, { watched: true } as any);
+
+                  // Adjuntar el inbound que encontramos
+                  const inMsgId = normMsgId(cand.parsed.messageId ?? "");
+                  const inboundDate = (cand.full.internalDate ?? new Date()).toISOString();
+                  const inboundTos = ((cand.parsed.to as any)?.value ?? [])
+                    .map((a: any) => String(a.address || "").toLowerCase())
+                    .filter(Boolean);
+                  await appendMessage(newThread.id, {
+                    direction: "inbound",
+                    from: addr,
+                    to: inboundTos,
+                    subject,
+                    body_html: cand.parsed.html || undefined,
+                    body_text: cand.parsed.text || undefined,
+                    message_id: inMsgId,
+                    in_reply_to: normMsgId(cand.parsed.inReplyTo) || undefined,
+                    references: cand.parsed.references
+                      ? (Array.isArray(cand.parsed.references) ? cand.parsed.references : [cand.parsed.references]).map((r: any) => normMsgId(r)).filter(Boolean)
+                      : undefined,
+                    date: inboundDate,
+                  });
+                  knownMsgIds.add(inMsgId);
+
+                  // Y adjuntar el último outbound del Sent (para que la conversación se vea completa)
+                  try {
+                    const lastSentUid = Math.max(...sentToUids);
+                    const sentFull = await client.fetchOne(lastSentUid, { source: true, envelope: true, internalDate: true }, { uid: true });
+                    if (sentFull) {
+                      const sentParsed = await simpleParser(sentFull.source as any);
+                      const sentMid = normMsgId(sentParsed.messageId ?? "");
+                      if (sentMid && !knownMsgIds.has(sentMid)) {
+                        const sentTos = ((sentParsed.to as any)?.value ?? [])
+                          .map((a: any) => String(a.address || "").toLowerCase())
+                          .filter(Boolean);
+                        await appendMessage(newThread.id, {
+                          direction: "outbound",
+                          from: String(sentParsed.from?.value?.[0]?.address ?? cfg.email).toLowerCase(),
+                          to: sentTos,
+                          subject: (sentParsed.subject as string) || subject,
+                          body_html: sentParsed.html || undefined,
+                          body_text: sentParsed.text || undefined,
+                          message_id: sentMid,
+                          in_reply_to: normMsgId(sentParsed.inReplyTo) || undefined,
+                          references: sentParsed.references
+                            ? (Array.isArray(sentParsed.references) ? sentParsed.references : [sentParsed.references]).map((r: any) => normMsgId(r)).filter(Boolean)
+                            : undefined,
+                          date: (sentFull.internalDate ?? new Date()).toISOString(),
+                        });
+                        knownMsgIds.add(sentMid);
+                      }
+                    }
+                  } catch {}
+
+                  autoCreated++;
+                  totalNew += 2; // estimación
+
+                  // Añadir a addrToThreads para que el siguiente ciclo lo cubra
+                  addrToThreads.set(addr, [newThread as any]);
+                  console.log(`[deep-refresh] AUTO-IMPORT: ${addr} (${contactName}) — conversación bidireccional creada`);
+                } catch (e: any) {
+                  console.warn(`[deep-refresh] auto-import ${addr} falló:`, e.message);
+                }
+              }
+            } finally {
+              sentLock.release();
+            }
+          }
+        } catch (e: any) {
+          console.warn("[deep-refresh] auto-discover error:", e.message);
+        }
+      }
+    } catch (e: any) {
+      console.warn("[deep-refresh] auto-discover fatal:", e.message);
+    }
+
     await client.logout();
   } catch (e: any) {
     errors++;
@@ -613,6 +761,16 @@ export async function deepRefreshAllThreads(opts: {
     console.log(`[deep-refresh] ✓ ${totalNew} mensajes nuevos en ${openThreads.length} hilos refrescados`);
   }
   return { threads_refreshed: openThreads.length, new_messages: totalNew, errors };
+}
+
+/** Detecta direcciones noreply/automáticas */
+function isNoiseAddress(addr: string): boolean {
+  return /(?:^|@|\.)(no.?reply|noreply|donotreply|do-not-reply|mailer-daemon|postmaster|notification|notifications|alert|alerts|bounces?|mailer|info-|news|newsletter|hello|support|automated|automation|system|webmaster|admin@google\.com|robot|googlecommunityteam)/i.test(addr);
+}
+
+/** Detecta asuntos de spam/automatizados típicos */
+function isNoiseSubject(subj: string): boolean {
+  return /(?:undelivered|delivery status|out of office|automatic reply|auto.?response|fuera de la oficina|respuesta automática|invitation\.ics|calendar invite|google calendar|mailer-daemon|account security|password|verification code|código de verificación|mensaje del sistema)/i.test(subj);
 }
 
 export async function verifyImap(): Promise<{ ok: boolean; error?: string }> {

@@ -197,6 +197,11 @@ export default function SeguimientosPage() {
       if (syncCounter % 2 === 0) {
         fetch("/api/email/sync", { method: "POST" }).catch(() => {});
       }
+      // Cada ~1 min disparar el cron tick para que envíe los follow-ups vencidos
+      // (mantiene scheduler alive incluso si Railway reinicia el proceso)
+      if (syncCounter % 5 === 0) {
+        fetch("/api/cron/tick").catch(() => {});
+      }
     }, intervalMs);
     return () => clearInterval(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -431,6 +436,22 @@ export default function SeguimientosPage() {
       const j = await fetch("/api/debug/storage").then(r => r.json());
       setStorageStatus(j);
     } catch {}
+  }
+
+  async function forceSendNow() {
+    setFeedback("⏳ Disparando envío de follow-ups vencidos…");
+    try {
+      const r = await fetch("/api/cron/tick").then(r => r.json());
+      if (r.ok) {
+        setFeedback(`✓ Tick ejecutado · ${r.sent} enviados · ${r.failed} fallaron`);
+        refreshThreads();
+      } else {
+        setFeedback("⚠️ " + (r.error || "Error desconocido"));
+      }
+    } catch (e: any) {
+      setFeedback("⚠️ " + e.message);
+    }
+    setTimeout(() => setFeedback(null), 8000);
   }
 
   async function manualSaveCheck() {
@@ -952,6 +973,24 @@ export default function SeguimientosPage() {
               </button>
               <button className="btn-ghost" onClick={syncInboxNow} disabled={syncing} title="Sincronizar inbox">
                 {syncing ? "..." : "↻"}
+              </button>
+              <button
+                onClick={forceSendNow}
+                title="Forzar envío de follow-ups vencidos ahora"
+                style={{
+                  padding: "7px 14px",
+                  background: "linear-gradient(135deg, #f59e0b, #d97706)",
+                  color: "#fff",
+                  border: "none",
+                  borderRadius: 9,
+                  fontSize: 12.5,
+                  fontWeight: 700,
+                  cursor: "pointer",
+                  fontFamily: "inherit",
+                  boxShadow: "0 2px 8px rgba(245,158,11,0.3)",
+                }}
+              >
+                🚀 Enviar ahora
               </button>
               <button
                 onClick={manualSaveCheck}

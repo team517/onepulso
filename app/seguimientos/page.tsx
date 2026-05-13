@@ -458,14 +458,24 @@ export default function SeguimientosPage() {
 
   async function runSmtpDiag() {
     setSmtpDiagLoading(true);
-    setSmtpDiag({ loading: true, message: "Probando TCP + verify + envío bare-bones + envío via lib (puede tardar 30-60s)…" });
+    setSmtpDiag({ loading: true, message: "Probando TCP + verify + envíos reales en 465 y 587 (máx ~45s)…" });
+    const controller = new AbortController();
+    const hardTimeout = setTimeout(() => controller.abort(), 70000); // 70s hard cap
     try {
-      const r = await fetch("/api/email/smtp-test", { cache: "no-store" });
+      const r = await fetch("/api/email/smtp-test", { cache: "no-store", signal: controller.signal });
       const j = await r.json();
       setSmtpDiag(j);
     } catch (e: any) {
-      setSmtpDiag({ error: e.message });
+      if (e.name === "AbortError") {
+        setSmtpDiag({
+          error: "TIMEOUT: el endpoint /api/email/smtp-test no respondió en 70s. Esto suele indicar que el servidor Railway está colgado tratando de conectar a Gmail SMTP. Mira los logs de Railway (Deployments → View Logs).",
+          diagnosis: "🚨 El endpoint se cuelga. Probablemente Railway → Gmail está bloqueado a nivel de red. Necesitamos cambiar a un relay SMTP (Resend, Brevo) o probar /api/email/smtp-test?nosend=1 que se salta los envíos reales.",
+        });
+      } else {
+        setSmtpDiag({ error: e.message });
+      }
     } finally {
+      clearTimeout(hardTimeout);
       setSmtpDiagLoading(false);
     }
   }

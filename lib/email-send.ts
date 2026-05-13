@@ -89,11 +89,14 @@ function buildTransporter(cfg: EmailConfig, overrides?: { port?: number; secure?
     secure,
     auth: { user: cfg.smtp_user, pass },
     // Timeouts generosos — Railway a veces tarda en establecer conexión a Gmail
-    connectionTimeout: 60000,  // 60s para abrir el socket TCP
-    greetingTimeout: 30000,    // 30s para recibir el banner SMTP
-    socketTimeout: 90000,      // 90s sin actividad → cierra
-    // TLS permisivo: dejamos que nodemailer decida y aceptamos certs incluso si hay proxy intermedio
+    connectionTimeout: 30000,
+    greetingTimeout: 20000,
+    socketTimeout: 45000,
+    // Forzar IPv4: el routing IPv6 de algunos hosts a Gmail está roto/bloqueado
+    family: 4,
     tls: { rejectUnauthorized: false },
+    // Nombre EHLO — algunos filtros antispam de Gmail evalúan el hostname presentado
+    name: "onepulso.online",
   });
 }
 

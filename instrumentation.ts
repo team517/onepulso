@@ -1,3 +1,4 @@
+// REDEPLOY MARKER: 2026-05-13 — fuerza nueva IP egress en Railway
 /**
  * Next.js instrumentation hook — corre UNA VEZ al arrancar el servidor.
  *

@@ -37,7 +37,7 @@ function rawTcpProbe(host: string, port: number, timeoutMs = 8000): Promise<{ ok
     sock.on("data", (chunk) => { banner += chunk.toString("utf-8"); });
     sock.on("timeout", () => done({ ok: false, error: `TCP connect timeout tras ${timeoutMs}ms` }));
     sock.on("error", (err) => done({ ok: false, error: `${(err as any).code || ""} ${err.message}`.trim() }));
-    try { sock.connect(port, host); } catch (e: any) { done({ ok: false, error: e.message }); }
+    try { sock.connect({ port, host, family: 4 }); } catch (e: any) { done({ ok: false, error: e.message }); }
   });
 }
 
@@ -53,7 +53,9 @@ async function fastVerify(cfg: any, port: number, secure: boolean) {
     connectionTimeout: 8000,
     greetingTimeout: 6000,
     socketTimeout: 10000,
+    family: 4,
     tls: { rejectUnauthorized: false },
+    name: "onepulso.online",
   });
   try {
     await t.verify();
@@ -77,7 +79,9 @@ async function fastSend(cfg: any, port: number, secure: boolean, to: string, lab
     connectionTimeout: 12000,
     greetingTimeout: 8000,
     socketTimeout: 15000,
+    family: 4,
     tls: { rejectUnauthorized: false },
+    name: "onepulso.online",
   });
   try {
     const info = await t.sendMail({

@@ -126,6 +126,7 @@ export default function SeguimientosPage() {
   const [storageStatus, setStorageStatus] = useState<any>(null);
   const [smtpDiag, setSmtpDiag] = useState<any>(null);
   const [smtpDiagLoading, setSmtpDiagLoading] = useState(false);
+  const [resendModal, setResendModal] = useState<{ open: boolean; status?: any; saving?: boolean; testing?: boolean; testResult?: any; apiKey: string; fromAddr: string }>({ open: false, apiKey: "", fromAddr: "" });
   const [syncing, setSyncing] = useState(false);
   const [search, setSearch] = useState("");
 
@@ -454,6 +455,68 @@ export default function SeguimientosPage() {
       setFeedback("⚠️ " + e.message);
     }
     setTimeout(() => setFeedback(null), 8000);
+  }
+
+  async function openResendModal() {
+    const j = await fetch("/api/email/relay").then((r) => r.json()).catch(() => null);
+    setResendModal({
+      open: true,
+      status: j,
+      apiKey: "",
+      fromAddr: j?.resend_from || "",
+    });
+  }
+
+  async function saveResendKey() {
+    if (!resendModal.apiKey.trim()) return;
+    setResendModal((s) => ({ ...s, saving: true }));
+    try {
+      const r = await fetch("/api/email/relay", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          resend_api_key: resendModal.apiKey.trim(),
+          resend_from: resendModal.fromAddr.trim() || undefined,
+        }),
+      }).then((r) => r.json());
+      if (r.error) {
+        setFeedback("⚠️ " + r.error);
+      } else {
+        setFeedback("✓ Resend conectado. Los próximos envíos irán por Resend.");
+        const status = await fetch("/api/email/relay").then((r) => r.json()).catch(() => null);
+        setResendModal((s) => ({ ...s, status, apiKey: "", saving: false }));
+      }
+    } catch (e: any) {
+      setFeedback("⚠️ " + e.message);
+    } finally {
+      setResendModal((s) => ({ ...s, saving: false }));
+      setTimeout(() => setFeedback(null), 4000);
+    }
+  }
+
+  async function clearResendKey() {
+    if (!confirm("¿Desconectar Resend? Los envíos volverán a intentar por SMTP directo (que está bloqueado).")) return;
+    await fetch("/api/email/relay", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ clear: true }),
+    });
+    const status = await fetch("/api/email/relay").then((r) => r.json()).catch(() => null);
+    setResendModal((s) => ({ ...s, status, apiKey: "" }));
+    setFeedback("Resend desconectado");
+    setTimeout(() => setFeedback(null), 3000);
+  }
+
+  async function testResend() {
+    setResendModal((s) => ({ ...s, testing: true, testResult: null }));
+    try {
+      const r = await fetch("/api/email/relay", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({}) }).then((r) => r.json());
+      setResendModal((s) => ({ ...s, testResult: r }));
+    } catch (e: any) {
+      setResendModal((s) => ({ ...s, testResult: { ok: false, error: e.message } }));
+    } finally {
+      setResendModal((s) => ({ ...s, testing: false }));
+    }
   }
 
   async function runSmtpDiag() {
@@ -928,6 +991,158 @@ export default function SeguimientosPage() {
       <div className="dash-content seg-app">
 
       {/* Banner: aviso si Postgres no está conectado en producción */}
+      {resendModal.open && (
+        <div
+          onClick={() => setResendModal((s) => ({ ...s, open: false }))}
+          style={{
+            position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)",
+            display: "flex", alignItems: "center", justifyContent: "center",
+            zIndex: 1000, padding: 20,
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              background: "#fff", borderRadius: 14, padding: 26,
+              maxWidth: 620, width: "100%", maxHeight: "90vh", overflowY: "auto",
+              boxShadow: "0 20px 60px rgba(0,0,0,0.3)",
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
+              <h3 style={{ margin: 0, fontSize: 19, fontWeight: 700, letterSpacing: "-0.02em" }}>📡 Relay Resend</h3>
+              <button onClick={() => setResendModal((s) => ({ ...s, open: false }))} style={{ background: "transparent", border: "none", fontSize: 22, cursor: "pointer", color: "var(--text-faint)" }}>×</button>
+            </div>
+
+            {/* Estado actual */}
+            {resendModal.status?.resend_enabled ? (
+              <div style={{
+                background: "rgba(16,185,129,0.1)", border: "1px solid rgba(16,185,129,0.3)",
+                padding: "12px 14px", borderRadius: 10, fontSize: 13, marginBottom: 14,
+              }}>
+                <strong>✓ Resend conectado.</strong> Key: <code>{resendModal.status.resend_api_key_preview}</code><br/>
+                From: <code>{resendModal.status.resend_from || resendModal.status.email}</code>
+                <div style={{ marginTop: 8, display: "flex", gap: 8 }}>
+                  <button
+                    onClick={testResend}
+                    disabled={resendModal.testing}
+                    style={{
+                      padding: "6px 12px",
+                      background: "var(--accent)", color: "#fff",
+                      border: "none", borderRadius: 8,
+                      fontSize: 12, fontWeight: 700, cursor: "pointer",
+                      fontFamily: "inherit",
+                    }}
+                  >{resendModal.testing ? "Probando…" : "🧪 Test envío"}</button>
+                  <button
+                    onClick={clearResendKey}
+                    style={{
+                      padding: "6px 12px",
+                      background: "transparent", color: "#dc2626",
+                      border: "1px solid rgba(239,68,68,0.3)", borderRadius: 8,
+                      fontSize: 12, fontWeight: 600, cursor: "pointer",
+                      fontFamily: "inherit",
+                    }}
+                  >Desconectar</button>
+                </div>
+                {resendModal.testResult && (
+                  <div style={{
+                    marginTop: 10, padding: "8px 10px",
+                    background: resendModal.testResult.ok ? "rgba(16,185,129,0.15)" : "rgba(239,68,68,0.1)",
+                    border: "1px solid",
+                    borderColor: resendModal.testResult.ok ? "rgba(16,185,129,0.4)" : "rgba(239,68,68,0.3)",
+                    borderRadius: 8, fontSize: 12.5,
+                  }}>
+                    {resendModal.testResult.ok
+                      ? <>✓ Test enviado · id <code>{resendModal.testResult.id}</code> · revisa la bandeja de <code>{resendModal.testResult.sent_to}</code></>
+                      : <>⚠️ Error: {resendModal.testResult.error}</>}
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div style={{
+                background: "rgba(245,158,11,0.08)", border: "1px solid rgba(245,158,11,0.25)",
+                padding: "11px 13px", borderRadius: 10, fontSize: 12.5, marginBottom: 14,
+                color: "var(--text-dim)", lineHeight: 1.55,
+              }}>
+                <strong style={{ color: "#b45309" }}>Sin Resend conectado.</strong> Los envíos están fallando porque Railway no puede salir por SMTP a Gmail. Configura Resend (gratis hasta 100 emails/día) para arreglarlo.
+              </div>
+            )}
+
+            {/* Instrucciones */}
+            <div style={{ fontSize: 12.5, lineHeight: 1.65, marginBottom: 14, color: "var(--text-dim)" }}>
+              <strong style={{ color: "var(--text)", fontSize: 13 }}>Cómo configurar (3 minutos):</strong>
+              <ol style={{ paddingLeft: 20, margin: "8px 0" }}>
+                <li>Crea cuenta gratuita en <a href="https://resend.com/signup" target="_blank" rel="noreferrer" style={{ color: "var(--accent)" }}>resend.com/signup</a></li>
+                <li>Verifica tu dominio (<code>onepulso.online</code>) en <a href="https://resend.com/domains" target="_blank" rel="noreferrer" style={{ color: "var(--accent)" }}>resend.com/domains</a> añadiendo los registros DNS que te indique</li>
+                <li>Genera una API key en <a href="https://resend.com/api-keys" target="_blank" rel="noreferrer" style={{ color: "var(--accent)" }}>resend.com/api-keys</a> (Full access)</li>
+                <li>Pégala abajo y guarda</li>
+              </ol>
+              <em>Mientras se verifica tu dominio puedes probar con la dirección de prueba de Resend (<code>onboarding@resend.dev</code>) en el campo "From".</em>
+            </div>
+
+            {/* Inputs */}
+            <label style={{ display: "block", fontSize: 11.5, fontWeight: 700, color: "var(--text-dim)", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 5 }}>API Key</label>
+            <input
+              type="password"
+              value={resendModal.apiKey}
+              onChange={(e) => setResendModal((s) => ({ ...s, apiKey: e.target.value }))}
+              placeholder="re_xxxxxxxxxxxx"
+              style={{
+                width: "100%", padding: "10px 12px",
+                background: "#fff", border: "1.5px solid var(--border)",
+                borderRadius: 9, fontSize: 13, color: "var(--text)",
+                outline: "none", fontFamily: "ui-monospace, Consolas, monospace",
+                boxSizing: "border-box", marginBottom: 12,
+              }}
+            />
+
+            <label style={{ display: "block", fontSize: 11.5, fontWeight: 700, color: "var(--text-dim)", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 5 }}>
+              From (dirección verificada en Resend) <span style={{ fontWeight: 400, textTransform: "none", letterSpacing: 0 }}>— opcional, por defecto tu email</span>
+            </label>
+            <input
+              type="text"
+              value={resendModal.fromAddr}
+              onChange={(e) => setResendModal((s) => ({ ...s, fromAddr: e.target.value }))}
+              placeholder="team@onepulso.online"
+              style={{
+                width: "100%", padding: "10px 12px",
+                background: "#fff", border: "1.5px solid var(--border)",
+                borderRadius: 9, fontSize: 13, color: "var(--text)",
+                outline: "none", fontFamily: "inherit",
+                boxSizing: "border-box", marginBottom: 14,
+              }}
+            />
+
+            <div style={{ display: "flex", gap: 8 }}>
+              <button
+                onClick={saveResendKey}
+                disabled={resendModal.saving || !resendModal.apiKey.trim()}
+                style={{
+                  flex: 1, padding: "11px 14px",
+                  background: "linear-gradient(135deg, #0ea5e9, #0369a1)",
+                  color: "#fff", border: "none", borderRadius: 10,
+                  fontSize: 13.5, fontWeight: 700, cursor: "pointer",
+                  fontFamily: "inherit",
+                  opacity: resendModal.saving || !resendModal.apiKey.trim() ? 0.5 : 1,
+                }}
+              >
+                {resendModal.saving ? "Guardando…" : "💾 Guardar y activar"}
+              </button>
+              <button
+                onClick={() => setResendModal((s) => ({ ...s, open: false }))}
+                style={{
+                  padding: "11px 14px",
+                  background: "transparent", color: "var(--text-dim)",
+                  border: "1px solid var(--border)", borderRadius: 10,
+                  fontSize: 13.5, fontWeight: 600, cursor: "pointer",
+                  fontFamily: "inherit",
+                }}
+              >Cerrar</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {smtpDiag && (
         <div
           onClick={() => !smtpDiagLoading && setSmtpDiag(null)}
@@ -1104,6 +1319,24 @@ export default function SeguimientosPage() {
                 }}
               >
                 🚀 Enviar ahora
+              </button>
+              <button
+                onClick={openResendModal}
+                title="Configurar Resend como relay SMTP (Railway tiene Gmail SMTP bloqueado)"
+                style={{
+                  padding: "7px 14px",
+                  background: "linear-gradient(135deg, #0ea5e9, #0369a1)",
+                  color: "#fff",
+                  border: "none",
+                  borderRadius: 9,
+                  fontSize: 12.5,
+                  fontWeight: 700,
+                  cursor: "pointer",
+                  fontFamily: "inherit",
+                  boxShadow: "0 2px 8px rgba(14,165,233,0.3)",
+                }}
+              >
+                📡 Resend
               </button>
               <button
                 onClick={runSmtpDiag}

@@ -1,6 +1,7 @@
 import nodemailer from "nodemailer";
 import { ImapFlow } from "imapflow";
 import { readEmailConfig, type EmailConfig } from "./email-config";
+import { promises as fs } from "fs";
 
 export type SendInput = {
   to: string | string[];
@@ -10,6 +11,69 @@ export type SendInput = {
   in_reply_to?: string; // Message-ID for threading
   references?: string[];
 };
+
+/**
+ * Envío via Resend HTTPS API (https://resend.com).
+ * Se usa cuando el host bloquea SMTP saliente — Resend va por HTTPS 443
+ * que Railway nunca bloquea.
+ */
+async function sendViaResend(cfg: EmailConfig, input: SendInput): Promise<{ messageId: string; envelope: any; via: "resend" }> {
+  const apiKey = cfg.resend_api_key!;
+  const fromAddr = cfg.resend_from || cfg.email;
+  const from = cfg.display_name ? `${cfg.display_name} <${fromAddr}>` : fromAddr;
+
+  let html = input.body_html;
+  if (cfg.signature_html) html += `<br><br>${cfg.signature_html}`;
+
+  // Cabeceras para threading — Resend las soporta vía el parámetro 'headers'
+  const headers: Record<string, string> = {};
+  if (input.in_reply_to) headers["In-Reply-To"] = input.in_reply_to;
+  if (input.references && input.references.length > 0) headers["References"] = input.references.join(" ");
+  // Reply-To: respondemos siempre a la cuenta real (cfg.email), no a la del dominio Resend
+  if (cfg.email && cfg.email !== fromAddr) headers["Reply-To"] = cfg.email;
+
+  // Attachments: Resend acepta { filename, content } donde content es base64 o url
+  let attachments: Array<{ filename: string; content: string }> | undefined;
+  if (input.attachments && input.attachments.length > 0) {
+    attachments = await Promise.all(
+      input.attachments.map(async (a) => ({
+        filename: a.filename,
+        content: (await fs.readFile(a.path)).toString("base64"),
+      }))
+    );
+  }
+
+  const body = {
+    from,
+    to: Array.isArray(input.to) ? input.to : [input.to],
+    subject: input.subject,
+    html,
+    headers: Object.keys(headers).length > 0 ? headers : undefined,
+    attachments,
+  };
+
+  const t0 = Date.now();
+  const res = await fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify(body),
+  });
+  const json: any = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const detail = json?.message || json?.error || JSON.stringify(json);
+    throw new Error(`Resend API ${res.status}: ${detail}`);
+  }
+  console.log(`[email-send] OK via Resend → id=${json.id} (${Date.now() - t0}ms)`);
+  // Resend devuelve { id: 'uuid' }. Lo usamos como messageId.
+  return {
+    messageId: `<${json.id}@resend.dev>`,
+    envelope: { from: fromAddr, to: body.to },
+    via: "resend",
+  };
+}
 
 /** Construye un transporter con timeouts explícitos y opcionalmente puerto/secure custom.
  *  Railway a veces tiene latencia o bloqueos transitorios → necesitamos timeouts y poder
@@ -71,6 +135,11 @@ async function trySend(
 export async function sendEmail(input: SendInput): Promise<{ messageId: string; envelope: any }> {
   const cfg = await readEmailConfig();
   if (!cfg) throw new Error("Email no conectado. Configura tu cuenta primero.");
+
+  // Si hay Resend configurado, lo preferimos (egress HTTPS, nunca bloqueado por Railway)
+  if (cfg.resend_api_key) {
+    return await sendViaResend(cfg, input);
+  }
 
   let html = input.body_html;
   if (cfg.signature_html) {

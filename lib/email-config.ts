@@ -18,6 +18,11 @@ export type EmailConfig = {
   imap_password: string;
   signature_html?: string;
   connected_at: string;
+  /** Si está configurado, los envíos se hacen por la API HTTPS de Resend en vez de SMTP directo.
+   *  Útil cuando el host (Railway) tiene el egress SMTP bloqueado a Gmail. */
+  resend_api_key?: string;
+  /** Dirección "from" verificada en Resend (necesita dominio verificado allí). Si no se setea, usa cfg.email. */
+  resend_from?: string;
 };
 
 export async function readEmailConfig(): Promise<EmailConfig | null> {

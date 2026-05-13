@@ -16,8 +16,12 @@ export type SendInput = {
  * Envío via Resend HTTPS API (https://resend.com).
  * Se usa cuando el host bloquea SMTP saliente — Resend va por HTTPS 443
  * que Railway nunca bloquea.
+ *
+ * Tras enviar por Resend, hacemos IMAP append del MIME a la carpeta "Enviados"
+ * de la cuenta del usuario, para que el correo aparezca en su Gmail "Enviados"
+ * (Resend no lo hace porque el SMTP de Gmail no participa en el envío).
  */
-async function sendViaResend(cfg: EmailConfig, input: SendInput): Promise<{ messageId: string; envelope: any; via: "resend" }> {
+async function sendViaResend(cfg: EmailConfig, input: SendInput): Promise<{ messageId: string; envelope: any; via: "resend"; message?: Buffer }> {
   const apiKey = cfg.resend_api_key!;
   const fromAddr = cfg.resend_from || cfg.email;
   const from = cfg.display_name ? `${cfg.display_name} <${fromAddr}>` : fromAddr;
@@ -32,7 +36,34 @@ async function sendViaResend(cfg: EmailConfig, input: SendInput): Promise<{ mess
   // Reply-To: respondemos siempre a la cuenta real (cfg.email), no a la del dominio Resend
   if (cfg.email && cfg.email !== fromAddr) headers["Reply-To"] = cfg.email;
 
-  // Attachments: Resend acepta { filename, content } donde content es base64 o url
+  // Generamos un Message-ID consistente para que aparezca igual en Resend, en el
+  // inbox del destinatario y en la copia que appendamos a "Enviados" del usuario.
+  const domain = (cfg.email.split("@")[1] || "onepulso.local").toLowerCase();
+  const messageId = `<${Date.now()}.${Math.random().toString(36).slice(2, 14)}@${domain}>`;
+  headers["Message-ID"] = messageId;
+
+  // Construir el MIME completo con MailComposer (mismo motor que usa nodemailer)
+  // — luego este buffer es el que enviamos a Resend (vía html/headers) Y el que
+  // appendamos a IMAP Sent. Así Resend, destinatario y nuestra copia local
+  // tienen exactamente el mismo Message-ID y headers.
+  const MailComposerMod = await import("nodemailer/lib/mail-composer");
+  const MailComposer: any = (MailComposerMod as any).default || MailComposerMod;
+  const mimeBuffer: Buffer = await new Promise((resolve, reject) => {
+    const mc = new MailComposer({
+      from,
+      to: input.to,
+      subject: input.subject,
+      html,
+      inReplyTo: input.in_reply_to,
+      references: input.references,
+      messageId,
+      headers: cfg.email && cfg.email !== fromAddr ? { "Reply-To": cfg.email } : undefined,
+      attachments: input.attachments,
+    });
+    mc.compile().build((err: any, buf: Buffer) => (err ? reject(err) : resolve(buf)));
+  });
+
+  // Attachments: Resend acepta { filename, content } donde content es base64
   let attachments: Array<{ filename: string; content: string }> | undefined;
   if (input.attachments && input.attachments.length > 0) {
     attachments = await Promise.all(
@@ -48,7 +79,7 @@ async function sendViaResend(cfg: EmailConfig, input: SendInput): Promise<{ mess
     to: Array.isArray(input.to) ? input.to : [input.to],
     subject: input.subject,
     html,
-    headers: Object.keys(headers).length > 0 ? headers : undefined,
+    headers,
     attachments,
   };
 
@@ -66,12 +97,13 @@ async function sendViaResend(cfg: EmailConfig, input: SendInput): Promise<{ mess
     const detail = json?.message || json?.error || JSON.stringify(json);
     throw new Error(`Resend API ${res.status}: ${detail}`);
   }
-  console.log(`[email-send] OK via Resend → id=${json.id} (${Date.now() - t0}ms)`);
-  // Resend devuelve { id: 'uuid' }. Lo usamos como messageId.
+  console.log(`[email-send] OK via Resend → resend_id=${json.id} message_id=${messageId} (${Date.now() - t0}ms)`);
+
   return {
-    messageId: `<${json.id}@resend.dev>`,
+    messageId,
     envelope: { from: fromAddr, to: body.to },
     via: "resend",
+    message: mimeBuffer, // se reutiliza en el bloque IMAP append de sendEmail
   };
 }
 
@@ -135,13 +167,74 @@ async function trySend(
   }
 }
 
+/**
+ * Sube una copia del email enviado a la carpeta "Enviados" del IMAP del usuario.
+ * - Si via=resend, SIEMPRE intentamos appendear (incluso Gmail), porque Gmail
+ *   no ve el outgoing al ir via Resend HTTPS.
+ * - Si via=smtp, sólo appendamos en NO-Gmail (Gmail lo hace solo al enviar por su SMTP).
+ *
+ * Silencioso: si falla, sólo loguea — no rompe el envío.
+ */
+async function appendToImapSent(cfg: EmailConfig, rawMime: Buffer | string, opts: { forceEvenIfGmail: boolean }) {
+  try {
+    await Promise.race([
+      (async () => {
+        const client = new ImapFlow({
+          host: cfg.imap_host,
+          port: cfg.imap_port,
+          secure: cfg.imap_secure,
+          auth: { user: cfg.imap_user, pass: cfg.imap_password },
+          logger: false,
+        });
+        await client.connect();
+        try {
+          const list = (await client.list()) as any[];
+          const isGmail = list.some((m: any) => m.path.startsWith("[Gmail]") || m.path.startsWith("[Google Mail]"));
+
+          // Buscar la carpeta Sent — preferir specialUse=\Sent, luego nombre conocido en varios idiomas
+          let sentPath: string | undefined;
+          for (const m of list) {
+            if (m.specialUse === "\\Sent") { sentPath = m.path; break; }
+          }
+          if (!sentPath) {
+            for (const m of list) {
+              const flags: string[] = m.flags ?? [];
+              if (flags.includes("\\Sent") || /\b(Sent\s?Mail|Sent|Enviados|Gesendet|Verzonden|Inviata|Envoyés|Envoyes)\b/i.test(m.path)) {
+                sentPath = m.path; break;
+              }
+            }
+          }
+          // Fallback típico Gmail
+          if (!sentPath && isGmail) sentPath = "[Gmail]/Sent Mail";
+
+          if (sentPath && (!isGmail || opts.forceEvenIfGmail)) {
+            await client.append(sentPath, rawMime, ["\\Seen"]);
+            console.log(`[email-send] IMAP append → ${sentPath}`);
+          }
+        } finally {
+          try { await client.logout(); } catch {}
+        }
+      })(),
+      new Promise((_, rej) => setTimeout(() => rej(new Error("IMAP append timeout (20s)")), 20000)),
+    ]);
+  } catch (e) {
+    console.warn("[email-send] no pude appendear a Sent:", (e as any)?.message);
+  }
+}
+
 export async function sendEmail(input: SendInput): Promise<{ messageId: string; envelope: any }> {
   const cfg = await readEmailConfig();
   if (!cfg) throw new Error("Email no conectado. Configura tu cuenta primero.");
 
   // Si hay Resend configurado, lo preferimos (egress HTTPS, nunca bloqueado por Railway)
   if (cfg.resend_api_key) {
-    return await sendViaResend(cfg, input);
+    const r = await sendViaResend(cfg, input);
+    // IMPORTANTE: como Gmail no participa en este envío, hay que appendear
+    // manualmente a "Enviados" para que el usuario vea el mensaje en su Gmail.
+    if (r.message) {
+      await appendToImapSent(cfg, r.message, { forceEvenIfGmail: true });
+    }
+    return { messageId: r.messageId, envelope: r.envelope };
   }
 
   let html = input.body_html;
@@ -199,42 +292,11 @@ export async function sendEmail(input: SendInput): Promise<{ messageId: string; 
     throw new Error(`SMTP falló en ${attempts.length} intentos. ${errorTrail.join(" · ")}`);
   }
 
-  // Subir copia a la carpeta Sent vía IMAP — opcional y CON TIMEOUT DURO.
-  // No queremos que un IMAP lento bloquee la respuesta al usuario (el envío SMTP ya fue OK).
-  try {
-    const raw = (info as any).message ?? "";
-    if (raw) {
-      await Promise.race([
-        (async () => {
-          const client = new ImapFlow({
-            host: cfg.imap_host,
-            port: cfg.imap_port,
-            secure: cfg.imap_secure,
-            auth: { user: cfg.imap_user, pass: cfg.imap_password },
-            logger: false,
-          });
-          await client.connect();
-          const list = (await client.list()) as any[];
-          const isGmail = list.some((m: any) => m.path.startsWith("[Gmail]") || m.path.startsWith("[Google Mail]"));
-          let sentPath: string | undefined;
-          for (const m of list) {
-            const flags: string[] = m.specialUse ? [m.specialUse] : (m.flags ?? []);
-            if (flags.includes("\\Sent") || /\bSent\b|\bEnviados\b|\bGesendet\b/i.test(m.path)) {
-              if (!sentPath) sentPath = m.path;
-            }
-          }
-          // Para Gmail NO appendeamos a Sent — Gmail lo crea solo cuando el From coincide con el usuario auth.
-          if (!isGmail && sentPath) {
-            await client.append(sentPath, raw, ["\\Seen"]);
-          }
-          await client.logout();
-        })(),
-        new Promise((_, rej) => setTimeout(() => rej(new Error("IMAP append timeout (20s)")), 20000)),
-      ]);
-    }
-  } catch (e) {
-    // Silencioso: si falla el append no rompe el envío
-    console.warn("[email-send] no pude appendear a Sent:", (e as any)?.message);
+  // Subir copia a la carpeta Sent vía IMAP — pero NO para Gmail (Gmail lo hace solo
+  // cuando se envía por su propio SMTP). Para otros IMAP sí appendamos.
+  const raw = (info as any).message ?? "";
+  if (raw) {
+    await appendToImapSent(cfg, raw, { forceEvenIfGmail: false });
   }
 
   return { messageId: info.messageId, envelope: info.envelope };

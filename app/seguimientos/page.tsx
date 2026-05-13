@@ -116,7 +116,10 @@ export default function SeguimientosPage() {
   const [status, setStatus] = useState<EmailStatus | null>(null);
   const [threads, setThreads] = useState<ThreadSummary[]>([]);
   const [thread, setThread] = useState<Thread | null>(null);
-  const [view, setView] = useState<"list" | "thread" | "compose" | "connect">("list");
+  const [view, setView] = useState<"list" | "thread" | "compose" | "connect" | "inbox">("list");
+  const [inboxItems, setInboxItems] = useState<any[]>([]);
+  const [inboxLoading, setInboxLoading] = useState(false);
+  const [inboxUnreadOnly, setInboxUnreadOnly] = useState(false);
   const [tab, setTab] = useState<Tab>("han_respondido");
   const [feedback, setFeedback] = useState<string | null>(null);
   const [autopilotWizardOpen, setAutopilotWizardOpen] = useState(false);
@@ -516,6 +519,41 @@ export default function SeguimientosPage() {
       setResendModal((s) => ({ ...s, testResult: { ok: false, error: e.message } }));
     } finally {
       setResendModal((s) => ({ ...s, testing: false }));
+    }
+  }
+
+  async function loadInbox(unread = false) {
+    setInboxLoading(true);
+    try {
+      const j = await fetch(`/api/email/inbox?days=30${unread ? "&unread=1" : ""}`).then((r) => r.json());
+      setInboxItems(j.items || []);
+    } catch (e) {
+      setInboxItems([]);
+    } finally {
+      setInboxLoading(false);
+    }
+  }
+
+  async function openInbox() {
+    setView("inbox");
+    setThread(null);
+    await loadInbox(inboxUnreadOnly);
+  }
+
+  async function runImapDiag() {
+    setSmtpDiagLoading(true);
+    setSmtpDiag({ loading: true, message: "Conectando a IMAP, listando carpetas y haciendo APPEND de prueba a Sent…" });
+    const controller = new AbortController();
+    const hardTimeout = setTimeout(() => controller.abort(), 45000);
+    try {
+      const r = await fetch("/api/email/imap-test", { cache: "no-store", signal: controller.signal });
+      const j = await r.json();
+      setSmtpDiag(j);
+    } catch (e: any) {
+      setSmtpDiag({ error: e.name === "AbortError" ? "Timeout 45s — IMAP no respondió" : e.message });
+    } finally {
+      clearTimeout(hardTimeout);
+      setSmtpDiagLoading(false);
     }
   }
 
@@ -1321,6 +1359,26 @@ export default function SeguimientosPage() {
                 🚀 Enviar ahora
               </button>
               <button
+                onClick={openInbox}
+                title="Bandeja unificada: todas las respuestas recientes de prospects"
+                style={{
+                  padding: "7px 14px",
+                  background: view === "inbox"
+                    ? "linear-gradient(135deg, #16a34a, #15803d)"
+                    : "linear-gradient(135deg, #22c55e, #16a34a)",
+                  color: "#fff",
+                  border: "none",
+                  borderRadius: 9,
+                  fontSize: 12.5,
+                  fontWeight: 700,
+                  cursor: "pointer",
+                  fontFamily: "inherit",
+                  boxShadow: "0 2px 8px rgba(34,197,94,0.3)",
+                }}
+              >
+                📬 Bandeja
+              </button>
+              <button
                 onClick={openResendModal}
                 title="Configurar Resend como relay SMTP (Railway tiene Gmail SMTP bloqueado)"
                 style={{
@@ -1337,6 +1395,24 @@ export default function SeguimientosPage() {
                 }}
               >
                 📡 Resend
+              </button>
+              <button
+                onClick={runImapDiag}
+                title="Diagnóstico IMAP: lista carpetas y prueba un APPEND a Sent"
+                style={{
+                  padding: "7px 14px",
+                  background: "linear-gradient(135deg, #14b8a6, #0f766e)",
+                  color: "#fff",
+                  border: "none",
+                  borderRadius: 9,
+                  fontSize: 12.5,
+                  fontWeight: 700,
+                  cursor: "pointer",
+                  fontFamily: "inherit",
+                  boxShadow: "0 2px 8px rgba(20,184,166,0.3)",
+                }}
+              >
+                📥 Diag IMAP
               </button>
               <button
                 onClick={runSmtpDiag}
@@ -1586,6 +1662,105 @@ export default function SeguimientosPage() {
                   <div style={{ color: "var(--text-dim)", maxWidth: 360 }}>
                     {TAB_DEFS.find((t) => t.key === tab)?.description}. Selecciona un hilo en la izquierda para verlo.
                   </div>
+                </div>
+              )}
+
+              {view === "inbox" && (
+                <div style={{ padding: "24px 28px", overflowY: "auto", height: "100%" }}>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 18, flexWrap: "wrap", gap: 10 }}>
+                    <div>
+                      <h2 style={{ margin: 0, fontSize: 22, fontWeight: 700, letterSpacing: "-0.02em" }}>📬 Bandeja de respuestas</h2>
+                      <div style={{ fontSize: 12.5, color: "var(--text-dim)", marginTop: 4 }}>
+                        Respuestas de los últimos 30 días · {inboxItems.length} totales · {inboxItems.filter((i) => i.is_unread).length} sin responder
+                      </div>
+                    </div>
+                    <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                      <button
+                        onClick={() => { setInboxUnreadOnly(!inboxUnreadOnly); loadInbox(!inboxUnreadOnly); }}
+                        style={{
+                          padding: "7px 13px",
+                          background: inboxUnreadOnly ? "linear-gradient(135deg, #f59e0b, #d97706)" : "transparent",
+                          color: inboxUnreadOnly ? "#fff" : "var(--text-dim)",
+                          border: inboxUnreadOnly ? "none" : "1px solid var(--border)",
+                          borderRadius: 9, fontSize: 12, fontWeight: 700,
+                          cursor: "pointer", fontFamily: "inherit",
+                        }}
+                      >{inboxUnreadOnly ? "📌 Sin responder" : "Todas"}</button>
+                      <button
+                        onClick={() => loadInbox(inboxUnreadOnly)}
+                        style={{
+                          padding: "7px 13px",
+                          background: "transparent",
+                          color: "var(--text-dim)",
+                          border: "1px solid var(--border)",
+                          borderRadius: 9, fontSize: 12, fontWeight: 600,
+                          cursor: "pointer", fontFamily: "inherit",
+                        }}
+                      >↻ Refrescar</button>
+                    </div>
+                  </div>
+
+                  {inboxLoading ? (
+                    <div className="loading-pulse"><span/><span/><span/></div>
+                  ) : inboxItems.length === 0 ? (
+                    <div style={{
+                      padding: "60px 20px", textAlign: "center",
+                      color: "var(--text-dim)", fontSize: 14,
+                    }}>
+                      {inboxUnreadOnly
+                        ? "🎉 No tienes respuestas sin responder. Todo al día."
+                        : "No hay respuestas en los últimos 30 días."}
+                    </div>
+                  ) : (
+                    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                      {inboxItems.map((m: any) => (
+                        <div
+                          key={m.message_id}
+                          onClick={() => { loadThread(m.thread_id); setView("thread"); }}
+                          style={{
+                            background: "#fff",
+                            border: "1px solid var(--border)",
+                            borderLeft: m.is_unread ? "4px solid #f59e0b" : "4px solid transparent",
+                            borderRadius: 10,
+                            padding: "12px 14px",
+                            cursor: "pointer",
+                            transition: "all 0.15s",
+                            position: "relative",
+                          }}
+                          onMouseEnter={(e) => (e.currentTarget.style.background = "#fafafa")}
+                          onMouseLeave={(e) => (e.currentTarget.style.background = "#fff")}
+                        >
+                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 6, gap: 12 }}>
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                              <div style={{
+                                fontSize: 13.5, fontWeight: 700, color: "var(--text)",
+                                letterSpacing: "-0.01em", display: "flex", alignItems: "center", gap: 8,
+                              }}>
+                                {m.is_unread && (
+                                  <span style={{
+                                    background: "#f59e0b", color: "#fff",
+                                    fontSize: 9.5, fontWeight: 800, padding: "1px 6px",
+                                    borderRadius: 99, letterSpacing: "0.04em",
+                                  }}>NUEVA</span>
+                                )}
+                                <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{m.contact_name}</span>
+                                <span style={{ fontSize: 11.5, fontWeight: 400, color: "var(--text-faint)" }}>·  {m.from}</span>
+                              </div>
+                            </div>
+                            <span style={{ fontSize: 11.5, color: "var(--text-faint)", fontWeight: 600, whiteSpace: "nowrap" }}>
+                              {fmtRelative(m.date)}
+                            </span>
+                          </div>
+                          <div style={{ fontSize: 12.5, color: "var(--text-dim)", fontWeight: 600, marginBottom: 4, overflow: "hidden", whiteSpace: "nowrap", textOverflow: "ellipsis" }}>
+                            {m.subject}
+                          </div>
+                          <div style={{ fontSize: 12.5, color: "var(--text-faint)", lineHeight: 1.5, overflow: "hidden", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" as any }}>
+                            {m.preview}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
             </main>

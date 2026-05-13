@@ -109,10 +109,7 @@ async function processUids(
         if (matchAddr) thread = await findThreadBySubjectAndParticipant(subject, matchAddr);
       }
 
-      // Si llega un INBOUND a un hilo existente del usuario, cancelar los
-      // follow-ups programados de ese hilo (la conversación cambió, ya no
-      // hace falta perseguir al prospect).
-      // FILTRO ULTRA-ESTRICTO: el sync NUNCA crea hilos nuevos.
+      // FILTRO ESTRICTO: el sync NUNCA crea hilos nuevos.
       // Los hilos sólo se crean cuando el usuario hace:
       //   - "+ Nuevo" (compose) → /api/email/send crea el thread
       //   - 🔎 Buscar e importar → /api/email/import crea el thread
@@ -121,12 +118,9 @@ async function processUids(
       if (!thread) {
         continue;
       }
-      // Además, sólo procesamos mensajes en hilos marcados como watched=true.
-      // Si por algún motivo un hilo no está watched, no se le añaden mensajes nuevos
-      // (deberá ser eliminado o re-añadirse desde búsqueda).
-      if ((thread as any).watched !== true) {
-        continue;
-      }
+      // Si hicimos match con un hilo existente, aceptamos el mensaje siempre.
+      // Antes había un filtro adicional `watched !== true` que se cargaba
+      // respuestas legítimas a hilos antiguos creados sin ese flag.
 
       await appendMessage(thread.id, {
         direction,

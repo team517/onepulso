@@ -3485,59 +3485,51 @@ function ThreadView(p: any) {
         <section className="seg-card">
           <h3 className="li-h2" style={{ fontSize: 13 }}>Follow-ups</h3>
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            {t.followups.map((f: Followup) => (
-              <div key={f.id} className={`li-post li-post-${f.status}`}>
-                <div className="li-post-head">
-                  <span className={`li-badge li-badge-${f.status}`}>{f.status}</span>
-                  <span className="li-post-when">
-                    {f.status === "scheduled" ? "envío " + p.fmt(f.scheduled_at) : f.status === "sent" ? "enviado " + p.fmt(f.sent_at) : f.scheduled_at}
-                    {" · "}{f.origin}
-                  </span>
+            {t.followups.map((f: Followup) => {
+              if (f.status === "failed") {
+                return (
+                  <FailedFollowupCard
+                    key={f.id}
+                    followup={f}
+                    onReload={p.reloadThread}
+                    onCancel={() => p.cancelFollowup(f.id)}
+                  />
+                );
+              }
+              return (
+                <div key={f.id} className={`li-post li-post-${f.status}`}>
+                  <div className="li-post-head">
+                    <span className={`li-badge li-badge-${f.status}`}>{f.status}</span>
+                    <span className="li-post-when">
+                      {f.status === "scheduled" ? "envío " + p.fmt(f.scheduled_at) : f.status === "sent" ? "enviado " + p.fmt(f.sent_at) : f.scheduled_at}
+                      {" · "}{f.origin}
+                    </span>
+                  </div>
+                  <div className="li-post-text" dangerouslySetInnerHTML={{ __html: f.body_html }} />
+                  {f.error && <div className="li-post-err">{f.error}</div>}
+                  {f.status === "scheduled" && (
+                    <div className="li-post-actions" style={{ display: "flex", gap: 6, marginTop: 8 }}>
+                      <button
+                        onClick={() => p.sendNowFollowup(f.id)}
+                        style={{
+                          padding: "6px 14px",
+                          background: "linear-gradient(135deg, #f59e0b, #d97706)",
+                          color: "#fff", border: "none", borderRadius: 9,
+                          fontSize: 12, fontWeight: 700, cursor: "pointer",
+                          boxShadow: "0 2px 8px rgba(245,158,11,0.3)",
+                          fontFamily: "inherit",
+                        }}
+                      >
+                        🚀 Enviar AHORA
+                      </button>
+                      <button className="btn-ghost-sm" onClick={() => p.cancelFollowup(f.id)}>
+                        Cancelar
+                      </button>
+                    </div>
+                  )}
                 </div>
-                <div className="li-post-text" dangerouslySetInnerHTML={{ __html: f.body_html }} />
-                {f.error && <div className="li-post-err">{f.error}</div>}
-                {f.status === "scheduled" && (
-                  <div className="li-post-actions" style={{ display: "flex", gap: 6, marginTop: 8 }}>
-                    <button
-                      onClick={() => p.sendNowFollowup(f.id)}
-                      style={{
-                        padding: "6px 14px",
-                        background: "linear-gradient(135deg, #f59e0b, #d97706)",
-                        color: "#fff", border: "none", borderRadius: 9,
-                        fontSize: 12, fontWeight: 700, cursor: "pointer",
-                        boxShadow: "0 2px 8px rgba(245,158,11,0.3)",
-                        fontFamily: "inherit",
-                      }}
-                    >
-                      🚀 Enviar AHORA
-                    </button>
-                    <button className="btn-ghost-sm" onClick={() => p.cancelFollowup(f.id)}>
-                      Cancelar
-                    </button>
-                  </div>
-                )}
-                {f.status === "failed" && (
-                  <div className="li-post-actions" style={{ display: "flex", gap: 6, marginTop: 8, flexWrap: "wrap" }}>
-                    <button
-                      onClick={() => p.sendNowFollowup(f.id)}
-                      style={{
-                        padding: "6px 14px",
-                        background: "linear-gradient(135deg, #ef4444, #dc2626)",
-                        color: "#fff", border: "none", borderRadius: 9,
-                        fontSize: 12, fontWeight: 700, cursor: "pointer",
-                        boxShadow: "0 2px 8px rgba(239,68,68,0.3)",
-                        fontFamily: "inherit",
-                      }}
-                    >
-                      🔄 Reintentar envío
-                    </button>
-                    <button className="btn-ghost-sm" onClick={() => p.cancelFollowup(f.id)}>
-                      Descartar
-                    </button>
-                  </div>
-                )}
-              </div>
-            ))}
+              );
+            })}
           </div>
         </section>
       )}
@@ -3562,5 +3554,182 @@ function ThreadView(p: any) {
         </div>
       </section>
     </>
+  );
+}
+
+/**
+ * Tarjeta para un follow-up en estado "failed".
+ * Permite editar el body y reintentar el envío (POST a /approve con send_now=true,
+ * que usa el body editado y vuelve a marcar como "sent" si tiene éxito).
+ */
+function FailedFollowupCard({
+  followup,
+  onReload,
+  onCancel,
+}: {
+  followup: Followup;
+  onReload: () => void;
+  onCancel: () => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [body, setBody] = useState(followup.body_html || "");
+  const [busy, setBusy] = useState(false);
+  const [feedback, setFeedback] = useState<string | null>(null);
+
+  async function retry() {
+    if (!confirm("¿Reintentar enviar este follow-up AHORA?\n\nSe enviará por SMTP con la cuenta conectada.")) return;
+    setBusy(true);
+    setFeedback("🚀 Enviando…");
+    try {
+      const r = await fetch(`/api/email/followups/${followup.id}/approve`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ body_html: body, send_now: true }),
+      }).then((r) => r.json());
+      if (r.error) {
+        setFeedback("⚠️ " + r.error);
+        setTimeout(() => setFeedback(null), 6000);
+      } else {
+        setFeedback(`✓ Enviado a ${r.sent_to}`);
+        setTimeout(() => { setFeedback(null); onReload(); }, 1200);
+      }
+    } catch (e: any) {
+      setFeedback("⚠️ " + e.message);
+      setTimeout(() => setFeedback(null), 6000);
+    }
+    setBusy(false);
+  }
+
+  async function saveOnly() {
+    setBusy(true);
+    try {
+      // Guardar el cuerpo editado pero dejándolo programado para "ahora"
+      // (scheduler lo recogerá; o el usuario puede pulsar Reintentar enviar)
+      await fetch(`/api/email/followups/${followup.id}/approve`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          body_html: body,
+          send_now: false,
+          scheduled_at: new Date().toISOString(),
+        }),
+      });
+      setEditing(false);
+      setFeedback("💾 Guardado · listo para reintentar");
+      setTimeout(() => { setFeedback(null); onReload(); }, 1200);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="li-post li-post-failed">
+      <div className="li-post-head">
+        <span className="li-badge li-badge-failed">failed</span>
+        <span className="li-post-when">
+          {followup.scheduled_at} · {followup.origin}
+        </span>
+      </div>
+
+      {editing ? (
+        <textarea
+          value={body}
+          onChange={(e) => setBody(e.target.value)}
+          rows={10}
+          style={{
+            width: "100%",
+            padding: "10px 12px",
+            background: "#fff",
+            border: "1.5px solid #ef4444",
+            borderRadius: 9,
+            fontSize: 13,
+            lineHeight: 1.6,
+            color: "var(--text)",
+            outline: "none",
+            fontFamily: "inherit",
+            resize: "vertical",
+            boxSizing: "border-box",
+            marginBottom: 6,
+          }}
+        />
+      ) : (
+        <div className="li-post-text" dangerouslySetInnerHTML={{ __html: body }} />
+      )}
+
+      {followup.error && !editing && (
+        <div className="li-post-err">⚠ {followup.error}</div>
+      )}
+
+      {feedback && (
+        <div style={{ fontSize: 12, color: "var(--text-dim)", marginTop: 6 }}>{feedback}</div>
+      )}
+
+      <div className="li-post-actions" style={{ display: "flex", gap: 6, marginTop: 10, flexWrap: "wrap" }}>
+        <button
+          onClick={retry}
+          disabled={busy}
+          style={{
+            padding: "7px 14px",
+            background: "linear-gradient(135deg, #ef4444, #dc2626)",
+            color: "#fff", border: "none", borderRadius: 9,
+            fontSize: 12.5, fontWeight: 700, cursor: busy ? "not-allowed" : "pointer",
+            boxShadow: "0 2px 8px rgba(239,68,68,0.3)",
+            fontFamily: "inherit",
+            opacity: busy ? 0.6 : 1,
+          }}
+        >
+          {busy ? "Enviando…" : "🔄 Reintentar enviar"}
+        </button>
+
+        {editing ? (
+          <>
+            <button
+              onClick={saveOnly}
+              disabled={busy}
+              style={{
+                padding: "7px 12px",
+                background: "var(--accent)",
+                color: "#fff", border: "none", borderRadius: 9,
+                fontSize: 12.5, fontWeight: 700, cursor: "pointer",
+                fontFamily: "inherit",
+              }}
+            >
+              💾 Guardar cambios
+            </button>
+            <button
+              onClick={() => { setEditing(false); setBody(followup.body_html || ""); }}
+              style={{
+                padding: "7px 12px",
+                background: "transparent",
+                color: "var(--text-dim)",
+                border: "1px solid var(--border)",
+                borderRadius: 9, fontSize: 12.5, fontWeight: 600,
+                cursor: "pointer", fontFamily: "inherit",
+              }}
+            >
+              Cancelar edición
+            </button>
+          </>
+        ) : (
+          <button
+            onClick={() => setEditing(true)}
+            style={{
+              padding: "7px 12px",
+              background: "transparent",
+              color: "var(--text-dim)",
+              border: "1px solid var(--border)",
+              borderRadius: 9, fontSize: 12.5, fontWeight: 600,
+              cursor: "pointer", fontFamily: "inherit",
+            }}
+          >
+            ✏️ Editar mensaje
+          </button>
+        )}
+
+        <button className="btn-ghost-sm" onClick={onCancel}>
+          Descartar
+        </button>
+      </div>
+    </div>
   );
 }

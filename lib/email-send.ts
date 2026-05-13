@@ -103,7 +103,7 @@ export async function sendEmail(input: SendInput): Promise<{ messageId: string; 
     attempts.push({ port: 465, secure: true, label: "465/TLS (fallback)", wait: 1500 });
   }
 
-  let lastErr: any = null;
+  const errorTrail: string[] = [];
   let info: any = null;
   for (let i = 0; i < attempts.length; i++) {
     const a = attempts[i];
@@ -112,20 +112,21 @@ export async function sendEmail(input: SendInput): Promise<{ messageId: string; 
       info = await trySend(cfg, mailOptions, { port: a.port, secure: a.secure, label: a.label });
       break;
     } catch (e: any) {
-      lastErr = e;
-      console.warn(`[email-send] intento ${i + 1}/${attempts.length} via ${a.label} falló: ${e.message}`);
+      const trace = `[${a.label}] ${e.code ? e.code + ": " : ""}${e.message}`;
+      errorTrail.push(trace);
+      console.warn(`[email-send] intento ${i + 1}/${attempts.length} via ${a.label} falló: ${e.message} (code=${e.code})`);
       // Si no es un error de red, no tiene sentido reintentar (p.ej. auth fail)
       if (!isTransientError(e)) {
-        // Excepción: el fallback a otro puerto SÍ vale la pena aunque el error no parezca de red,
-        // porque puede ser que el puerto esté bloqueado. Pero si ya estamos en el último intento, abortamos.
-        if (i === attempts.length - 1) throw e;
-        // Si NO es transient y aún tenemos fallback de puerto, lo dejamos seguir.
-        if (a.port === undefined && attempts[i + 1]?.port !== undefined) continue;
-        throw e;
+        // Si aún tenemos fallback de puerto, lo dejamos seguir.
+        if (i < attempts.length - 1 && attempts[i + 1]?.port !== undefined && a.port === undefined) continue;
+        throw new Error(errorTrail.join(" · "));
       }
     }
   }
-  if (!info) throw lastErr || new Error("SMTP send failed sin error capturado");
+  if (!info) {
+    // Todos los intentos fallaron — lanzamos un error compuesto con el detalle
+    throw new Error(`SMTP falló en ${attempts.length} intentos. ${errorTrail.join(" · ")}`);
+  }
 
   // Subir copia a la carpeta Sent vía IMAP — opcional y CON TIMEOUT DURO.
   // No queremos que un IMAP lento bloquee la respuesta al usuario (el envío SMTP ya fue OK).

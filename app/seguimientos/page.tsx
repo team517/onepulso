@@ -3603,20 +3603,18 @@ function FailedFollowupCard({
   async function saveOnly() {
     setBusy(true);
     try {
-      // Guardar el cuerpo editado pero dejándolo programado para "ahora"
-      // (scheduler lo recogerá; o el usuario puede pulsar Reintentar enviar)
-      await fetch(`/api/email/followups/${followup.id}/approve`, {
-        method: "POST",
+      // PATCH solo del body — preservamos status "failed" para que la tarjeta
+      // siga mostrándose y se pueda editar tantas veces como haga falta.
+      await fetch(`/api/email/followups/${followup.id}`, {
+        method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          body_html: body,
-          send_now: false,
-          scheduled_at: new Date().toISOString(),
-        }),
+        body: JSON.stringify({ body_html: body }),
       });
       setEditing(false);
       setFeedback("💾 Guardado · listo para reintentar");
-      setTimeout(() => { setFeedback(null); onReload(); }, 1200);
+      setTimeout(() => setFeedback(null), 2500);
+      // No llamamos onReload() para no perder el estado local de edición
+      // si el usuario quiere seguir editando inmediatamente.
     } finally {
       setBusy(false);
     }

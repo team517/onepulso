@@ -32,6 +32,19 @@ function normMsgId(s: string | undefined | null): string {
   return String(s).trim().replace(/^<+|>+$/g, "").trim().toLowerCase();
 }
 
+/** Busca un hilo abierto donde el contacto sea participant. Si hay múltiples, devuelve el más reciente. */
+async function findThreadByParticipant(contactEmail: string, ownEmails: Set<string>): Promise<Thread | null> {
+  const all = await listThreads();
+  const addr = contactEmail.toLowerCase().trim();
+  if (!addr || ownEmails.has(addr)) return null;
+  const candidates = all.filter(
+    (t) => t.status !== "closed" && t.participants.some((p) => String(p).toLowerCase().trim() === addr)
+  );
+  if (candidates.length === 0) return null;
+  candidates.sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime());
+  return candidates[0];
+}
+
 /** Procesa un conjunto de UIDs: fetch + parse + append a thread. */
 async function processUids(
   client: ImapFlow,
@@ -94,8 +107,13 @@ async function processUids(
 
       const direction: "inbound" | "outbound" = ownEmails.has(from) ? "outbound" : "inbound";
 
-      // Match thread existente (solo hilos que el usuario ya añadió manualmente).
-      // findThreadByMessageId y findThreadBySubjectAndParticipant ya filtran por hilos existentes.
+      // Match thread existente — orden de precisión a tolerancia:
+      //   1) Message-ID exacto del In-Reply-To
+      //   2) Cualquiera de las References
+      //   3) Subject + participante
+      //   4) NUEVO: participante en cualquier hilo abierto (fallback amplio)
+      //      → cubre casos donde el cliente del prospect rompe el threading
+      //      (no manda In-Reply-To, cambia el subject, etc.)
       let thread: Thread | null = null;
       if (inReplyTo) thread = await findThreadByMessageId(inReplyTo);
       if (!thread) {
@@ -107,6 +125,27 @@ async function processUids(
       if (!thread && subject) {
         const matchAddr = direction === "inbound" ? from : (to[0] || "");
         if (matchAddr) thread = await findThreadBySubjectAndParticipant(subject, matchAddr);
+      }
+      // Fallback amplio: si es inbound, busca cualquier hilo abierto donde
+      // el remitente sea participante. Cubre clientes de correo que rompen
+      // el threading (Outlook viejo, móvil, reenvíos…).
+      if (!thread && direction === "inbound" && from) {
+        thread = await findThreadByParticipant(from, ownEmails);
+        if (thread) {
+          console.log(`[email-inbox] match por participante: ${from} → ${thread.id} (${thread.subject})`);
+        }
+      }
+      // Fallback amplio para OUTBOUND: si yo envío a alguien con quien
+      // tengo hilo abierto, lo adjuntamos (cubre cuando envío desde Gmail
+      // directamente sin pasar por la plataforma).
+      if (!thread && direction === "outbound" && to.length > 0) {
+        for (const dst of to) {
+          thread = await findThreadByParticipant(dst, ownEmails);
+          if (thread) {
+            console.log(`[email-inbox] match outbound por participante: ${dst} → ${thread.id}`);
+            break;
+          }
+        }
       }
 
       // FILTRO ESTRICTO: el sync NUNCA crea hilos nuevos.

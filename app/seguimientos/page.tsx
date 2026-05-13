@@ -3825,7 +3825,16 @@ function ThreadView(p: any) {
   async function syncNow() {
     setSyncing(true);
     try {
-      await fetch("/api/email/sync", { method: "POST" });
+      // Sync global rápido + resync agresivo de ESTE hilo (busca FROM+TO de cada
+      // participante en INBOX/Sent/All Mail/Spam de los últimos 90 días)
+      await Promise.all([
+        fetch("/api/email/sync", { method: "POST" }).catch(() => null),
+        fetch("/api/email/sync-thread", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ thread_id: t.id, days: 90 }),
+        }).catch(() => null),
+      ]);
       await p.reloadThread?.();
     } finally {
       setSyncing(false);

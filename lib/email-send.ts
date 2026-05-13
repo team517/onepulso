@@ -24,13 +24,12 @@ function buildTransporter(cfg: EmailConfig, overrides?: { port?: number; secure?
     port,
     secure,
     auth: { user: cfg.smtp_user, pass },
-    // Timeouts agresivos para que un fallo se note rápido en vez de colgarnos 2 min
-    connectionTimeout: 15000,  // 15s para abrir el socket TCP
-    greetingTimeout: 10000,    // 10s para recibir el banner SMTP
-    socketTimeout: 30000,      // 30s sin actividad → cierra
-    // Si el puerto es 587 forzamos STARTTLS; si es 465 va en TLS directo
-    requireTLS: !secure,
-    tls: { rejectUnauthorized: true, minVersion: "TLSv1.2" },
+    // Timeouts generosos — Railway a veces tarda en establecer conexión a Gmail
+    connectionTimeout: 60000,  // 60s para abrir el socket TCP
+    greetingTimeout: 30000,    // 30s para recibir el banner SMTP
+    socketTimeout: 90000,      // 90s sin actividad → cierra
+    // TLS permisivo: dejamos que nodemailer decida y aceptamos certs incluso si hay proxy intermedio
+    tls: { rejectUnauthorized: false },
   });
 }
 

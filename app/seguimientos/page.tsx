@@ -124,6 +124,8 @@ export default function SeguimientosPage() {
   const [memoryOpen, setMemoryOpen] = useState(false);
   const [pendingApprovals, setPendingApprovals] = useState<any[]>([]);
   const [storageStatus, setStorageStatus] = useState<any>(null);
+  const [smtpDiag, setSmtpDiag] = useState<any>(null);
+  const [smtpDiagLoading, setSmtpDiagLoading] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [search, setSearch] = useState("");
 
@@ -452,6 +454,20 @@ export default function SeguimientosPage() {
       setFeedback("⚠️ " + e.message);
     }
     setTimeout(() => setFeedback(null), 8000);
+  }
+
+  async function runSmtpDiag() {
+    setSmtpDiagLoading(true);
+    setSmtpDiag({ loading: true, message: "Probando TCP + verify + envío bare-bones + envío via lib (puede tardar 30-60s)…" });
+    try {
+      const r = await fetch("/api/email/smtp-test", { cache: "no-store" });
+      const j = await r.json();
+      setSmtpDiag(j);
+    } catch (e: any) {
+      setSmtpDiag({ error: e.message });
+    } finally {
+      setSmtpDiagLoading(false);
+    }
   }
 
   async function manualSaveCheck() {
@@ -902,6 +918,93 @@ export default function SeguimientosPage() {
       <div className="dash-content seg-app">
 
       {/* Banner: aviso si Postgres no está conectado en producción */}
+      {smtpDiag && (
+        <div
+          onClick={() => !smtpDiagLoading && setSmtpDiag(null)}
+          style={{
+            position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)",
+            display: "flex", alignItems: "center", justifyContent: "center",
+            zIndex: 1000, padding: 20,
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              background: "#fff", borderRadius: 14, padding: 24,
+              maxWidth: 760, width: "100%", maxHeight: "85vh", overflowY: "auto",
+              boxShadow: "0 20px 60px rgba(0,0,0,0.3)",
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
+              <h3 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>🔧 Diagnóstico SMTP</h3>
+              <button
+                onClick={() => !smtpDiagLoading && setSmtpDiag(null)}
+                disabled={smtpDiagLoading}
+                style={{ background: "transparent", border: "none", fontSize: 22, cursor: smtpDiagLoading ? "not-allowed" : "pointer", opacity: smtpDiagLoading ? 0.4 : 1 }}
+              >×</button>
+            </div>
+            {smtpDiag.loading ? (
+              <div style={{ padding: "30px 0", textAlign: "center" }}>
+                <div className="loading-pulse" style={{ display: "inline-flex", marginBottom: 12 }}><span/><span/><span/></div>
+                <div style={{ fontSize: 13.5, color: "var(--text-dim)" }}>{smtpDiag.message}</div>
+              </div>
+            ) : (
+              <>
+                {smtpDiag.diagnosis && (
+                  <div style={{
+                    background: smtpDiag.diagnosis.startsWith("✅") ? "rgba(16,185,129,0.1)" :
+                               smtpDiag.diagnosis.startsWith("🚨") || smtpDiag.diagnosis.startsWith("❌") ? "rgba(239,68,68,0.1)" :
+                               "rgba(245,158,11,0.1)",
+                    border: "1px solid",
+                    borderColor: smtpDiag.diagnosis.startsWith("✅") ? "rgba(16,185,129,0.3)" :
+                                 smtpDiag.diagnosis.startsWith("🚨") || smtpDiag.diagnosis.startsWith("❌") ? "rgba(239,68,68,0.3)" :
+                                 "rgba(245,158,11,0.3)",
+                    padding: "12px 14px", borderRadius: 10,
+                    fontSize: 13, lineHeight: 1.5, marginBottom: 14,
+                    color: "var(--text)",
+                  }}>
+                    {smtpDiag.diagnosis}
+                  </div>
+                )}
+                <pre style={{
+                  background: "#0f172a", color: "#e2e8f0",
+                  padding: 14, borderRadius: 10,
+                  fontSize: 11.5, lineHeight: 1.55,
+                  overflowX: "auto",
+                  fontFamily: "ui-monospace, SFMono-Regular, Consolas, monospace",
+                  whiteSpace: "pre-wrap", wordBreak: "break-word",
+                }}>
+                  {JSON.stringify(smtpDiag, null, 2)}
+                </pre>
+                <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
+                  <button
+                    onClick={runSmtpDiag}
+                    disabled={smtpDiagLoading}
+                    style={{
+                      flex: 1, padding: "10px 14px",
+                      background: "linear-gradient(135deg, #8b5cf6, #6d28d9)",
+                      color: "#fff", border: "none", borderRadius: 10,
+                      fontSize: 13, fontWeight: 700, cursor: "pointer",
+                      fontFamily: "inherit",
+                    }}
+                  >🔁 Re-ejecutar</button>
+                  <button
+                    onClick={() => { navigator.clipboard.writeText(JSON.stringify(smtpDiag, null, 2)); setFeedback("📋 JSON copiado al portapapeles"); setTimeout(() => setFeedback(null), 2500); }}
+                    style={{
+                      flex: 1, padding: "10px 14px",
+                      background: "var(--accent)",
+                      color: "#fff", border: "none", borderRadius: 10,
+                      fontSize: 13, fontWeight: 700, cursor: "pointer",
+                      fontFamily: "inherit",
+                    }}
+                  >📋 Copiar JSON</button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
       {storageStatus && (!storageStatus.has_database_url || (storageStatus.postgres && !storageStatus.postgres.connected)) && (
         <div style={{
           background: "linear-gradient(135deg, #fef2f2, #fee2e2)",
@@ -991,6 +1094,24 @@ export default function SeguimientosPage() {
                 }}
               >
                 🚀 Enviar ahora
+              </button>
+              <button
+                onClick={runSmtpDiag}
+                title="Diagnóstico SMTP: probará envío bare-bones + lib y mostrará el JSON"
+                style={{
+                  padding: "7px 14px",
+                  background: "linear-gradient(135deg, #8b5cf6, #6d28d9)",
+                  color: "#fff",
+                  border: "none",
+                  borderRadius: 9,
+                  fontSize: 12.5,
+                  fontWeight: 700,
+                  cursor: "pointer",
+                  fontFamily: "inherit",
+                  boxShadow: "0 2px 8px rgba(139,92,246,0.3)",
+                }}
+              >
+                🔧 Diag SMTP
               </button>
               <button
                 onClick={manualSaveCheck}

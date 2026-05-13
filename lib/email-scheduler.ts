@@ -1,7 +1,7 @@
 import { listAllScheduledFollowups, getThread, updateFollowup, appendMessage } from "./email-threads";
 import { sendEmail } from "./email-send";
 import { readEmailConfig } from "./email-config";
-import { syncInbox } from "./email-inbox";
+import { syncInbox, deepRefreshAllThreads } from "./email-inbox";
 import { isSendIfNoReply, stripConditionMarkers } from "./email-sequences";
 import { runAutopilot } from "./email-autopilot";
 
@@ -20,20 +20,21 @@ export function startEmailScheduler() {
 }
 
 let lastInboxSync = 0;
-const INBOX_SYNC_MS = 30_000; // sync inbox cada 30s (cada tick) para máxima reactividad
+let lastDeepRefresh = 0;
+const INBOX_SYNC_MS = 30_000;      // sync incremental cada 30s
+const DEEP_REFRESH_MS = 2 * 60_000; // deep refresh cada 2 minutos
 
 export async function tick() {
   // 1. Enviar follow-ups vencidos
   const dueResults = await sendDueFollowups();
 
-  // 2. Sync inbox cada 30s (= cada tick prácticamente)
+  // 2. Sync incremental (rápido, cada 30s)
   if (Date.now() - lastInboxSync > INBOX_SYNC_MS) {
     lastInboxSync = Date.now();
     try {
       const r = await syncInbox({ days: 14, max: 150 });
       if (r.new_messages > 0) {
         console.log(`[email-scheduler] inbox sync: ${r.new_messages} new in ${r.threads_touched.length} threads`);
-        // Después de sync, correr autopilot por si hay nuevas inbounds
         try {
           const ap = await runAutopilot();
           if (ap.scheduled > 0) {
@@ -47,6 +48,26 @@ export async function tick() {
       console.error("[email-scheduler] inbox sync error", e);
     }
   }
+
+  // 3. DEEP REFRESH (cada 2 min): para CADA hilo abierto, escanea Gmail
+  //    buscando todos los mensajes intercambiados con cada participante en
+  //    los últimos 60 días, en todas las carpetas. Garantiza que cualquier
+  //    respuesta (en cualquier dirección) acabe en la plataforma aunque
+  //    se haya perdido en el sync incremental por threading roto, etc.
+  if (Date.now() - lastDeepRefresh > DEEP_REFRESH_MS) {
+    lastDeepRefresh = Date.now();
+    try {
+      const r = await deepRefreshAllThreads({ days: 60, maxThreads: 100 });
+      if (r.new_messages > 0) {
+        console.log(`[email-scheduler] deep refresh: ${r.new_messages} mensajes nuevos en ${r.threads_refreshed} hilos`);
+        // Si encontramos algo, dispara autopilot por si toca responder
+        try { await runAutopilot(); } catch (e) {}
+      }
+    } catch (e: any) {
+      console.error("[email-scheduler] deep refresh error", e.message);
+    }
+  }
+
   return dueResults;
 }
 

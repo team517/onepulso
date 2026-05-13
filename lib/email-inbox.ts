@@ -398,6 +398,223 @@ export async function syncInbox(opts: { days?: number; max?: number } = {}): Pro
   return { fetched: totalFetched, new_messages: totalNew, threads_touched: [...threadsTouched], error };
 }
 
+/**
+ * DEEP REFRESH: para cada hilo abierto, busca en IMAP todos los mensajes
+ * intercambiados con los participantes (FROM ellos + TO ellos, todas las
+ * carpetas) y adjunta los que falten al hilo correspondiente. Reusa una sola
+ * conexión IMAP para todos los hilos para ser eficiente.
+ *
+ * Esto es el equivalente a llamar /api/email/sync-thread para cada hilo, pero
+ * más eficiente porque comparte la conexión.
+ */
+export async function deepRefreshAllThreads(opts: {
+  days?: number;
+  maxThreads?: number;
+} = {}): Promise<{ threads_refreshed: number; new_messages: number; errors: number }> {
+  const days = opts.days ?? 60;
+  const maxThreads = opts.maxThreads ?? 100;
+
+  const cfg = await readEmailConfig();
+  if (!cfg) return { threads_refreshed: 0, new_messages: 0, errors: 0 };
+
+  const allThreads = await listThreads();
+  const openThreads = allThreads
+    .filter((t) => t.status !== "closed")
+    .sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime())
+    .slice(0, maxThreads);
+
+  if (openThreads.length === 0) return { threads_refreshed: 0, new_messages: 0, errors: 0 };
+
+  const ownEmails = new Set<string>([
+    cfg.email.toLowerCase(),
+    ...((cfg as any).send_aliases ?? []).map((a: string) => String(a).toLowerCase()),
+  ]);
+
+  // Mapa: address normalizada → array de threads que la incluyen
+  const addrToThreads = new Map<string, typeof openThreads>();
+  for (const t of openThreads) {
+    for (const p of t.participants) {
+      const addr = String(p).toLowerCase().trim();
+      if (!addr || ownEmails.has(addr)) continue;
+      if (!addrToThreads.has(addr)) addrToThreads.set(addr, []);
+      addrToThreads.get(addr)!.push(t);
+    }
+  }
+
+  // knownMsgIds globales (todos los hilos)
+  const knownMsgIds = new Set<string>();
+  for (const t of allThreads) {
+    for (const m of t.messages) {
+      const id = normMsgId(m.message_id);
+      if (id) knownMsgIds.add(id);
+    }
+  }
+
+  let totalNew = 0;
+  let errors = 0;
+
+  const client = new ImapFlow({
+    host: cfg.imap_host,
+    port: cfg.imap_port,
+    secure: cfg.imap_secure,
+    auth: { user: cfg.imap_user, pass: cfg.imap_password },
+    logger: false,
+    socketTimeout: 5 * 60 * 1000,
+    greetingTimeout: 30 * 1000,
+    connectionTimeout: 60 * 1000,
+  } as any);
+  (client as any).on?.("error", (err: any) => {
+    console.warn("[deep-refresh] imap socket error:", err?.message || err);
+  });
+
+  try {
+    await client.connect();
+    const folderList = await client.list();
+    const folders: string[] = [];
+    const inbox = folderList.find((m) => /^inbox$/i.test(m.path));
+    if (inbox) folders.push(inbox.path);
+    const sent = folderList.find((m) =>
+      m.specialUse === "\\Sent" ||
+      /\[Gmail\]\/Sent Mail/i.test(m.path) ||
+      /\[Gmail\]\/Enviados/i.test(m.path)
+    );
+    if (sent) folders.push(sent.path);
+    const allMail = folderList.find((m) =>
+      m.specialUse === "\\All" ||
+      /\[Gmail\]\/All Mail/i.test(m.path) ||
+      /\[Gmail\]\/Todos/i.test(m.path)
+    );
+    if (allMail) folders.push(allMail.path);
+    const spam = folderList.find((m) =>
+      m.specialUse === "\\Junk" ||
+      /\[Gmail\]\/Spam/i.test(m.path) ||
+      /\[Gmail\]\/Correo no deseado/i.test(m.path)
+    );
+    if (spam) folders.push(spam.path);
+
+    const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+
+    for (const folder of folders) {
+      try {
+        const lock = await client.getMailboxLock(folder);
+        try {
+          // Acumular todos los UIDs que matchean cualquier contacto
+          const uidsCollected = new Set<number>();
+          for (const addr of addrToThreads.keys()) {
+            try {
+              const fromUids = (await client.search({ from: addr, since } as any, { uid: true })) ?? [];
+              fromUids.forEach((u) => uidsCollected.add(u));
+            } catch {}
+            try {
+              const toUids = (await client.search({ to: addr, since } as any, { uid: true })) ?? [];
+              toUids.forEach((u) => uidsCollected.add(u));
+            } catch {}
+          }
+          const uids = Array.from(uidsCollected);
+          if (uids.length === 0) continue;
+
+          for (const uid of uids) {
+            try {
+              const full = await client.fetchOne(uid, { source: true, envelope: true, internalDate: true }, { uid: true });
+              if (!full) continue;
+              const parsed = _hasMailparser && full.source ? await simpleParser(full.source) : null;
+              const messageId = normMsgId(parsed?.messageId ?? (full.envelope as any)?.messageId);
+              if (!messageId || knownMsgIds.has(messageId)) continue;
+
+              const fromAddr = String(parsed?.from?.value?.[0]?.address ?? "").toLowerCase();
+              const toAddrsRaw = (parsed?.to as any)?.value ?? [];
+              const toAddrs = (Array.isArray(toAddrsRaw) ? toAddrsRaw : [])
+                .map((a: any) => String(a.address || "").toLowerCase())
+                .filter(Boolean);
+              const direction: "inbound" | "outbound" = ownEmails.has(fromAddr) ? "outbound" : "inbound";
+
+              // Determinar a qué thread asociar:
+              //   inbound: por fromAddr
+              //   outbound: por cualquier toAddr que esté en addrToThreads
+              let candidateAddrs: string[] = [];
+              if (direction === "inbound") {
+                candidateAddrs = [fromAddr];
+              } else {
+                candidateAddrs = toAddrs.filter((a) => addrToThreads.has(a));
+              }
+              if (candidateAddrs.length === 0) continue;
+
+              for (const addr of candidateAddrs) {
+                const candidates = addrToThreads.get(addr);
+                if (!candidates || candidates.length === 0) continue;
+                // Elegir el thread más reciente con este contacto
+                const t = candidates.sort(
+                  (a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()
+                )[0];
+
+                await appendMessage(t.id, {
+                  direction,
+                  from: fromAddr,
+                  to: toAddrs,
+                  subject: parsed?.subject ?? t.subject,
+                  body_html: parsed?.html || undefined,
+                  body_text: parsed?.text || undefined,
+                  message_id: messageId,
+                  in_reply_to: normMsgId(parsed?.inReplyTo) || undefined,
+                  references: parsed?.references
+                    ? (Array.isArray(parsed.references) ? parsed.references : [parsed.references])
+                        .map((r: any) => normMsgId(r))
+                        .filter(Boolean)
+                    : undefined,
+                  date: (full.internalDate ?? new Date()).toISOString(),
+                });
+                knownMsgIds.add(messageId);
+                totalNew++;
+
+                // Cancelar follow-ups si aplica
+                if (direction === "inbound") {
+                  for (const f of t.followups) {
+                    if (f.status === "scheduled" || f.status === "pending_approval") {
+                      await updateFollowup(t.id, f.id, {
+                        status: "cancelled",
+                        cancelled_reason: "prospect_replied",
+                        cancelled_at: new Date().toISOString(),
+                      });
+                    }
+                  }
+                } else if (direction === "outbound") {
+                  for (const f of t.followups) {
+                    if (f.status === "scheduled" || f.status === "pending_approval") {
+                      await updateFollowup(t.id, f.id, {
+                        status: "cancelled",
+                        cancelled_reason: "user_replied_manually",
+                        cancelled_at: new Date().toISOString(),
+                      });
+                    }
+                  }
+                }
+                break; // sólo añadir a UN thread
+              }
+            } catch (e: any) {
+              errors++;
+              console.warn(`[deep-refresh] uid ${uid} en ${folder}: ${e.message}`);
+            }
+          }
+        } finally {
+          lock.release();
+        }
+      } catch (e: any) {
+        errors++;
+        console.warn(`[deep-refresh] folder ${folder}: ${e.message}`);
+      }
+    }
+    await client.logout();
+  } catch (e: any) {
+    errors++;
+    console.error("[deep-refresh] fatal:", e.message);
+  }
+
+  if (totalNew > 0) {
+    console.log(`[deep-refresh] ✓ ${totalNew} mensajes nuevos en ${openThreads.length} hilos refrescados`);
+  }
+  return { threads_refreshed: openThreads.length, new_messages: totalNew, errors };
+}
+
 export async function verifyImap(): Promise<{ ok: boolean; error?: string }> {
   const cfg = await readEmailConfig();
   if (!cfg) return { ok: false, error: "no config" };

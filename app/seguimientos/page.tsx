@@ -540,6 +540,16 @@ export default function SeguimientosPage() {
     await loadInbox(inboxUnreadOnly);
   }
 
+  // Auto-refresh de la Bandeja cada 30s cuando está abierta
+  useEffect(() => {
+    if (view !== "inbox") return;
+    const t = setInterval(() => {
+      loadInbox(inboxUnreadOnly);
+    }, 30_000);
+    return () => clearInterval(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [view, inboxUnreadOnly]);
+
   async function runImapDiag() {
     setSmtpDiagLoading(true);
     setSmtpDiag({ loading: true, message: "Conectando a IMAP, listando carpetas y haciendo APPEND de prueba a Sent…" });

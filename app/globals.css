@@ -7,6 +7,134 @@
   to   { transform: rotate(360deg); }
 }
 
+/* =========================================================
+   onepulso · Toolbar compacto seguimientos
+   ========================================================= */
+.seg-tb-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 10px;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  font-size: 11.5px;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+  letter-spacing: -0.005em;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+  line-height: 1.3;
+  height: 28px;
+}
+.seg-tb-btn:disabled { opacity: 0.55; cursor: wait; }
+.seg-tb-icon { font-size: 12px; line-height: 1; display: inline-block; }
+
+/* Ghost: gris claro, texto medio */
+.seg-tb-ghost {
+  background: #fff;
+  color: #475569;
+  border-color: #e2e8f0;
+}
+.seg-tb-ghost:hover:not(:disabled) {
+  background: #f8fafc;
+  border-color: #cbd5e1;
+  color: #1e293b;
+}
+
+/* Accent (cyan) — sync */
+.seg-tb-accent {
+  background: #ecfeff;
+  color: #0e7490;
+  border-color: #a5f3fc;
+}
+.seg-tb-accent:hover:not(:disabled) {
+  background: #cffafe;
+  border-color: #67e8f9;
+}
+
+/* Success — bandeja */
+.seg-tb-success {
+  background: #f0fdf4;
+  color: #15803d;
+  border-color: #bbf7d0;
+}
+.seg-tb-success:hover:not(:disabled) {
+  background: #dcfce7;
+  border-color: #86efac;
+}
+.seg-tb-success-active {
+  background: linear-gradient(135deg, #22c55e, #16a34a);
+  color: #fff;
+  border-color: transparent;
+}
+
+/* Amber — enviar ahora */
+.seg-tb-amber {
+  background: #fffbeb;
+  color: #b45309;
+  border-color: #fde68a;
+}
+.seg-tb-amber:hover:not(:disabled) {
+  background: #fef3c7;
+  border-color: #fcd34d;
+}
+
+/* Primary — Nuevo */
+.seg-tb-primary {
+  background: linear-gradient(135deg, #0071e3, #1d4ed8);
+  color: #fff;
+  border-color: transparent;
+  font-weight: 700;
+  box-shadow: 0 1px 3px rgba(0, 113, 227, 0.25);
+}
+.seg-tb-primary:hover:not(:disabled) {
+  filter: brightness(1.08);
+  box-shadow: 0 2px 6px rgba(0, 113, 227, 0.32);
+}
+
+/* Icon-only mini button — utilitarios */
+.seg-tb-icon-btn {
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 7px;
+  font-size: 13px;
+  cursor: pointer;
+  font-family: inherit;
+  color: #64748b;
+  transition: all 0.15s ease;
+  padding: 0;
+}
+.seg-tb-icon-btn:hover {
+  background: #f1f5f9;
+  border-color: #cbd5e1;
+  color: #334155;
+}
+.seg-tb-icon-btn.ok {
+  background: #f0fdf4;
+  color: #15803d;
+  border-color: #bbf7d0;
+}
+.seg-tb-icon-btn.err {
+  background: #fef2f2;
+  color: #b91c1c;
+  border-color: #fecaca;
+}
+
+/* Separador vertical */
+.seg-tb-sep {
+  display: inline-block;
+  width: 1px;
+  height: 18px;
+  background: #e2e8f0;
+  margin: 0 2px;
+}
+
 :root {
   /* Page backgrounds */
   --bg:          #f0f4f8;

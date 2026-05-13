@@ -1411,176 +1411,60 @@ export default function SeguimientosPage() {
               <button className="btn-ghost" onClick={() => setMemoryOpen(true)} title="Memoria que el autopilot usa al redactar">
                 🧠 Memoria
               </button>
-              <button className="btn-ghost" onClick={() => setSearchOpen(true)} title="Buscar en Gmail (inbox + enviados)">
-                🔎 Buscar
-              </button>
-              <button
-                className="btn-ghost"
-                onClick={() => {
-                  setAliasesInput((status?.send_aliases ?? []).join(", "));
-                  setAliasesOpen(true);
-                }}
-                title="Alias desde los que envías emails"
-              >
-                ⚙️ Alias
-              </button>
-              <button className="btn-ghost" onClick={syncInboxNow} disabled={syncing} title="Sincronizar inbox">
-                {syncing ? "..." : "↻"}
-              </button>
-              <button
-                onClick={forceSendNow}
-                title="Forzar envío de follow-ups vencidos ahora"
-                style={{
-                  padding: "7px 14px",
-                  background: "linear-gradient(135deg, #f59e0b, #d97706)",
-                  color: "#fff",
-                  border: "none",
-                  borderRadius: 9,
-                  fontSize: 12.5,
-                  fontWeight: 700,
-                  cursor: "pointer",
-                  fontFamily: "inherit",
-                  boxShadow: "0 2px 8px rgba(245,158,11,0.3)",
-                }}
-              >
-                🚀 Enviar ahora
+              {/* Acciones primarias visibles con texto */}
+              <button onClick={() => setSearchOpen(true)} className="seg-tb-btn seg-tb-ghost" title="Buscar en Gmail (inbox + enviados)">
+                <span className="seg-tb-icon">🔎</span><span>Buscar</span>
               </button>
               <button
                 onClick={runDeepRefresh}
                 disabled={deepRefreshing}
-                title={lastDeepRefresh ? `Último refresh: ${lastDeepRefresh.toLocaleTimeString("es-ES")}` : "Escanea Gmail buscando mensajes nuevos en todos los hilos"}
-                style={{
-                  padding: "7px 14px",
-                  background: deepRefreshing
-                    ? "linear-gradient(135deg, #94a3b8, #64748b)"
-                    : "linear-gradient(135deg, #06b6d4, #0e7490)",
-                  color: "#fff",
-                  border: "none",
-                  borderRadius: 9,
-                  fontSize: 12.5,
-                  fontWeight: 700,
-                  cursor: deepRefreshing ? "wait" : "pointer",
-                  fontFamily: "inherit",
-                  boxShadow: "0 2px 8px rgba(6,182,212,0.3)",
-                  display: "inline-flex",
-                  alignItems: "center",
-                  gap: 6,
-                }}
+                className="seg-tb-btn seg-tb-accent"
+                title={lastDeepRefresh ? `Último refresh: ${lastDeepRefresh.toLocaleTimeString("es-ES")}` : "Escanea Gmail buscando mensajes nuevos"}
               >
-                <span style={{
-                  display: "inline-block",
-                  animation: deepRefreshing ? "spin 1s linear infinite" : "none",
-                }}>🔄</span>
-                {deepRefreshing ? "Escaneando…" : "Sync todo"}
+                <span className="seg-tb-icon" style={{ animation: deepRefreshing ? "spin 1s linear infinite" : "none" }}>🔄</span>
+                <span>{deepRefreshing ? "Sync…" : "Sync"}</span>
               </button>
               <button
                 onClick={openInbox}
-                title="Bandeja unificada: todas las respuestas recientes de prospects"
-                style={{
-                  padding: "7px 14px",
-                  background: view === "inbox"
-                    ? "linear-gradient(135deg, #16a34a, #15803d)"
-                    : "linear-gradient(135deg, #22c55e, #16a34a)",
-                  color: "#fff",
-                  border: "none",
-                  borderRadius: 9,
-                  fontSize: 12.5,
-                  fontWeight: 700,
-                  cursor: "pointer",
-                  fontFamily: "inherit",
-                  boxShadow: "0 2px 8px rgba(34,197,94,0.3)",
-                }}
+                className={`seg-tb-btn ${view === "inbox" ? "seg-tb-success-active" : "seg-tb-success"}`}
+                title="Bandeja unificada de respuestas"
               >
-                📬 Bandeja
+                <span className="seg-tb-icon">📬</span><span>Bandeja</span>
               </button>
               <button
-                onClick={openResendModal}
-                title="Configurar Resend como relay SMTP (Railway tiene Gmail SMTP bloqueado)"
-                style={{
-                  padding: "7px 14px",
-                  background: "linear-gradient(135deg, #0ea5e9, #0369a1)",
-                  color: "#fff",
-                  border: "none",
-                  borderRadius: 9,
-                  fontSize: 12.5,
-                  fontWeight: 700,
-                  cursor: "pointer",
-                  fontFamily: "inherit",
-                  boxShadow: "0 2px 8px rgba(14,165,233,0.3)",
-                }}
+                onClick={forceSendNow}
+                className="seg-tb-btn seg-tb-amber"
+                title="Forzar envío de follow-ups vencidos"
               >
-                📡 Resend
+                <span className="seg-tb-icon">🚀</span><span>Enviar</span>
               </button>
-              <button
-                onClick={runImapDiag}
-                title="Diagnóstico IMAP: lista carpetas y prueba un APPEND a Sent"
-                style={{
-                  padding: "7px 14px",
-                  background: "linear-gradient(135deg, #14b8a6, #0f766e)",
-                  color: "#fff",
-                  border: "none",
-                  borderRadius: 9,
-                  fontSize: 12.5,
-                  fontWeight: 700,
-                  cursor: "pointer",
-                  fontFamily: "inherit",
-                  boxShadow: "0 2px 8px rgba(20,184,166,0.3)",
-                }}
-              >
-                📥 Diag IMAP
-              </button>
-              <button
-                onClick={runSmtpDiag}
-                title="Diagnóstico SMTP: probará envío bare-bones + lib y mostrará el JSON"
-                style={{
-                  padding: "7px 14px",
-                  background: "linear-gradient(135deg, #8b5cf6, #6d28d9)",
-                  color: "#fff",
-                  border: "none",
-                  borderRadius: 9,
-                  fontSize: 12.5,
-                  fontWeight: 700,
-                  cursor: "pointer",
-                  fontFamily: "inherit",
-                  boxShadow: "0 2px 8px rgba(139,92,246,0.3)",
-                }}
-              >
-                🔧 Diag SMTP
-              </button>
+
+              {/* Separador */}
+              <span className="seg-tb-sep" />
+
+              {/* Utilitarios — icon-only */}
+              <button onClick={() => { setAliasesInput((status?.send_aliases ?? []).join(", ")); setAliasesOpen(true); }} className="seg-tb-icon-btn" title="Alias de envío">⚙️</button>
+              <button onClick={openResendModal} className="seg-tb-icon-btn" title="Configurar Resend (relay SMTP)">📡</button>
+              <button onClick={runImapDiag} className="seg-tb-icon-btn" title="Diagnóstico IMAP">📥</button>
+              <button onClick={runSmtpDiag} className="seg-tb-icon-btn" title="Diagnóstico SMTP">🔧</button>
               <button
                 onClick={manualSaveCheck}
-                title="Verificar que todo está guardado en Postgres"
-                style={{
-                  padding: "7px 14px",
-                  background: storageStatus?.postgres?.connected
-                    ? "linear-gradient(135deg, #10b981, #059669)"
-                    : storageStatus?.has_database_url === false
-                      ? "linear-gradient(135deg, #ef4444, #dc2626)"
-                      : "linear-gradient(135deg, #0071e3, #1d4ed8)",
-                  color: "#fff",
-                  border: "none",
-                  borderRadius: 9,
-                  fontSize: 12.5,
-                  fontWeight: 700,
-                  cursor: "pointer",
-                  fontFamily: "inherit",
-                  boxShadow: "0 2px 8px rgba(15,23,42,0.15)",
-                }}
+                className={`seg-tb-icon-btn ${storageStatus?.postgres?.connected ? "ok" : storageStatus?.has_database_url === false ? "err" : ""}`}
+                title={storageStatus?.postgres?.connected ? "Postgres conectado · click para verificar" : storageStatus?.has_database_url === false ? "DATABASE_URL no configurado" : "Verificar guardado"}
               >
-                {storageStatus?.postgres?.connected ? "✓ Guardado" :
-                 storageStatus?.has_database_url === false ? "⚠ Sin DB" :
-                 "💾 Guardar"}
+                {storageStatus?.postgres?.connected ? "✓" : storageStatus?.has_database_url === false ? "⚠" : "💾"}
               </button>
+
+              {/* Separador */}
+              <span className="seg-tb-sep" />
+
               <button
-                className="btn-primary"
-                onClick={() => {
-                  setView("compose");
-                  setThread(null);
-                }}
+                className="seg-tb-btn seg-tb-primary"
+                onClick={() => { setView("compose"); setThread(null); }}
               >
-                + Nuevo
+                <span className="seg-tb-icon">+</span><span>Nuevo</span>
               </button>
-              <button className="btn-ghost" onClick={disconnect}>Desconectar</button>
+              <button className="seg-tb-icon-btn" onClick={disconnect} title="Desconectar cuenta">⏏</button>
             </>
           ) : (
             <button className="btn-primary" onClick={() => setView("connect")}>Conectar Gmail</button>

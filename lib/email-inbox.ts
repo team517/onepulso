@@ -192,33 +192,39 @@ async function processUids(
         }
       }
 
-      // Si fue un OUTBOUND nuevo (= el usuario respondió manualmente desde su
-      // cliente de correo, NO desde la plataforma), cancelar TODOS los borradores
-      // pendientes y follow-ups programados del autopilot — el humano ya respondió,
-      // que el bot no le pise.
-      // Detección: el message_id no estaba en knownMsgIds antes de procesarse
-      // (= no fue enviado por la plataforma). Como ya llegamos aquí pasando el
-      // chequeo `knownMsgIds.has(messageId)` de arriba, sabemos que es nuevo.
+      // Si fue un OUTBOUND nuevo descubierto en Sent (= el usuario podría haber
+      // respondido manualmente desde su cliente de correo), CUIDADO con cancelar.
+      //
+      // REGLA CONSERVADORA (evita destruir follow-ups programados deliberadamente):
+      //   - SÓLO cancelar follow-ups con status='pending_approval' Y origin='ai_auto'
+      //     (= borradores que el autopilot generó esperando aprobación;
+      //      el usuario ya respondió, así que esos drafts son obsoletos).
+      //   - NUNCA cancelar status='scheduled' aquí. Los scheduled fueron
+      //     programados deliberadamente por el usuario (drip secuencial),
+      //     y deben respetarse aunque el usuario haya respondido manualmente
+      //     a un mensaje intermedio. Sólo se cancelan si el PROSPECT responde.
       if (direction === "outbound") {
         for (const f of thread.followups) {
-          if (f.status === "scheduled" || f.status === "pending_approval") {
+          if (f.status === "pending_approval" && f.origin === "ai_auto") {
             await updateFollowup(thread.id, f.id, {
               status: "cancelled",
               cancelled_reason: "user_replied_manually",
               cancelled_at: new Date().toISOString(),
             });
-            console.log(`[email-inbox] cancelado follow-up ${f.id} (origin=${f.origin}) — respuesta manual del usuario`);
+            console.log(`[email-inbox] cancelado autopilot draft ${f.id} — respuesta manual del usuario`);
           }
         }
-        // También marcar como "procesado" para el autopilot, así no procesa el
-        // último inbound otra vez (porque ya hay respuesta).
+        // Marcar inbounds como "procesados" por el autopilot para que no
+        // genere borradores duplicados sobre algo que ya respondiste.
         const ids = [...(thread.auto_pilot_processed_msg_ids ?? [])];
+        let changed = false;
         for (const m of thread.messages) {
           if (m.direction === "inbound" && m.message_id && !ids.includes(m.message_id)) {
             ids.push(m.message_id);
+            changed = true;
           }
         }
-        if (ids.length !== (thread.auto_pilot_processed_msg_ids?.length ?? 0)) {
+        if (changed) {
           await import("./email-threads").then(({ updateThread }) =>
             updateThread(thread!.id, { auto_pilot_processed_msg_ids: ids })
           );
@@ -579,8 +585,11 @@ export async function deepRefreshAllThreads(opts: {
                     }
                   }
                 } else if (direction === "outbound") {
+                  // Usuario respondió manualmente -> cancelar SOLO borradores
+                  // del autopilot (pending_approval ai_auto). Los drips
+                  // programados explícitamente se respetan.
                   for (const f of t.followups) {
-                    if (f.status === "scheduled" || f.status === "pending_approval") {
+                    if (f.status === "pending_approval" && f.origin === "ai_auto") {
                       await updateFollowup(t.id, f.id, {
                         status: "cancelled",
                         cancelled_reason: "user_replied_manually",

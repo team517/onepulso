@@ -4074,6 +4074,37 @@ function ThreadView(p: any) {
                       </button>
                     </div>
                   )}
+                  {f.status === "cancelled" && (
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 6, flexWrap: "wrap" }}>
+                      <span style={{ fontSize: 11.5, color: "var(--text-faint)" }}>
+                        {(f as any).cancelled_reason === "prospect_replied" ? "💬 cancelado: el prospect respondió"
+                         : (f as any).cancelled_reason === "user_replied_manually" ? "✋ cancelado: respondiste manualmente"
+                         : "✕ cancelado"}
+                      </span>
+                      <button
+                        onClick={async () => {
+                          if (!confirm("¿Restaurar este follow-up al estado programado?\n\nSe enviará en su fecha original si aún no ha pasado, o lo puedes cambiar de fecha después.")) return;
+                          await fetch(`/api/email/followups/${f.id}`, {
+                            method: "PATCH",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({ status: "scheduled", cancelled_reason: undefined, cancelled_at: undefined }),
+                          });
+                          p.reloadThread?.();
+                        }}
+                        style={{
+                          padding: "4px 10px",
+                          background: "transparent",
+                          color: "var(--accent)",
+                          border: "1px solid rgba(0,113,227,0.3)",
+                          borderRadius: 7,
+                          fontSize: 11, fontWeight: 600,
+                          cursor: "pointer", fontFamily: "inherit",
+                        }}
+                      >
+                        ↺ Restaurar
+                      </button>
+                    </div>
+                  )}
                 </div>
               );
             })}

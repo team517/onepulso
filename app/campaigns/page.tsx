@@ -286,15 +286,24 @@ export default function Page() {
   }
 
   async function send(text: string) {
-    if ((!text.trim() && attachments.length === 0) || busy) return;
+    // Solo contar adjuntos "ready" para validar
+    const readyAttachments = (attachments as any[]).filter((a) => a.status === "ready" || (!a.status && a.text));
+    if ((!text.trim() && readyAttachments.length === 0) || busy) return;
 
-    const attachBlock = attachments.length
-      ? attachments
+    // Avisar si hay adjuntos en error o aún subiendo
+    const uploading = (attachments as any[]).filter((a) => a.status === "uploading");
+    if (uploading.length > 0) {
+      alert(`Espera, aún se están subiendo ${uploading.length} archivo(s)…`);
+      return;
+    }
+
+    const attachBlock = readyAttachments.length
+      ? readyAttachments
           .map((a) => `[ARCHIVO ADJUNTO: ${a.name}]\n${a.text}\n[FIN ARCHIVO]`)
           .join("\n\n")
       : "";
-    const userVisible = attachments.length
-      ? `${text}${text ? "\n\n" : ""}📎 ${attachments.map((a) => a.name).join(", ")}`
+    const userVisible = readyAttachments.length
+      ? `${text}${text ? "\n\n" : ""}📎 ${readyAttachments.map((a) => a.name).join(", ")}`
       : text;
     const userForApi = attachBlock ? `${attachBlock}\n\n${text}` : text;
 
@@ -391,20 +400,65 @@ export default function Page() {
   async function attachFiles(files: FileList | null) {
     if (!files || files.length === 0) return;
     setAttaching(true);
-    const added: Array<{ name: string; text: string; size: number }> = [];
-    for (const file of Array.from(files)) {
-      const fd = new FormData();
-      fd.append("file", file);
-      try {
-        const res = await fetch("/api/chat/attach", { method: "POST", body: fd });
-        const data = await res.json();
-        if (data.name) added.push({ name: data.name, text: data.text, size: data.size });
-      } catch {
-        /* skip */
-      }
-    }
-    setAttachments((prev) => [...prev, ...added]);
+    // 1. Crear chips optimistas (uploading) inmediatamente
+    const pending = Array.from(files).map((f) => ({
+      id: Math.random().toString(36).slice(2),
+      name: f.name,
+      size: f.size,
+      text: "",
+      status: "uploading" as const,
+      error: undefined as string | undefined,
+      rowCount: undefined as number | undefined,
+      _file: f,
+    }));
+    setAttachments((prev) => [...prev, ...pending.map(({ _file, ...rest }) => rest)]);
+
+    // 2. Subir cada uno en paralelo y actualizar su chip
+    await Promise.all(
+      pending.map(async (p) => {
+        const fd = new FormData();
+        fd.append("file", p._file);
+        try {
+          const res = await fetch("/api/chat/attach", { method: "POST", body: fd });
+          if (!res.ok) {
+            const j = await res.json().catch(() => ({}));
+            throw new Error(j?.error || `HTTP ${res.status}`);
+          }
+          const data = await res.json();
+          if (!data?.name) throw new Error("Respuesta inválida del servidor");
+          setAttachments((prev) =>
+            prev.map((a: any) =>
+              a.id === p.id
+                ? {
+                    ...a,
+                    name: data.name,
+                    text: data.text,
+                    size: data.size,
+                    status: "ready" as const,
+                    rowCount: data.row_count,
+                    columns: data.columns,
+                    fileId: data.file_id,
+                    kind: data.kind,
+                  }
+                : a
+            )
+          );
+        } catch (e: any) {
+          setAttachments((prev) =>
+            prev.map((a: any) =>
+              a.id === p.id
+                ? { ...a, status: "error" as const, error: e?.message || "Error al subir" }
+                : a
+            )
+          );
+        }
+      })
+    );
     setAttaching(false);
+  }
+
+  function removeAttachment(id: string) {
+    setAttachments((prev) => prev.filter((a: any) => a.id !== id));
   }
 
   function onComposerDrop(e: React.DragEvent) {
@@ -674,21 +728,57 @@ export default function Page() {
           >
             {attachments.length > 0 && (
               <div className="attach-chips">
-                {attachments.map((a, i) => (
-                  <div key={i} className="attach-chip">
-                    <span className="attach-icon">📎</span>
-                    <span className="attach-name">{a.name}</span>
-                    <span className="attach-size">{formatSize(a.size)}</span>
-                    <button
-                      className="attach-remove"
-                      onClick={() => setAttachments((prev) => prev.filter((_, j) => j !== i))}
-                      aria-label="Quitar"
+                {(attachments as any[]).map((a) => {
+                  const status = a.status ?? (a.text ? "ready" : "ready");
+                  const isUploading = status === "uploading";
+                  const isError = status === "error";
+                  const isCsv = a.kind === "csv" || a.name?.toLowerCase().endsWith(".csv") || a.name?.toLowerCase().endsWith(".tsv");
+                  return (
+                    <div
+                      key={a.id || a.name}
+                      className="attach-chip"
+                      style={{
+                        background: isError ? "rgba(239,68,68,0.08)" :
+                                    isUploading ? "rgba(245,158,11,0.08)" :
+                                    isCsv ? "rgba(16,185,129,0.08)" : undefined,
+                        border: `1px solid ${
+                          isError ? "rgba(239,68,68,0.35)" :
+                          isUploading ? "rgba(245,158,11,0.35)" :
+                          isCsv ? "rgba(16,185,129,0.35)" : "var(--border)"
+                        }`,
+                        color: isError ? "#b91c1c" :
+                               isUploading ? "#b45309" :
+                               isCsv ? "#047857" : undefined,
+                      }}
+                      title={isError ? a.error : isCsv ? `${a.rowCount ?? "?"} filas · ${(a.columns ?? []).join(", ")}` : a.name}
                     >
-                      ×
-                    </button>
-                  </div>
-                ))}
-                {attaching && <span className="attach-loading">subiendo…</span>}
+                      <span className="attach-icon" style={{
+                        display: "inline-block",
+                        animation: isUploading ? "spin 1s linear infinite" : "none",
+                      }}>
+                        {isError ? "⚠" : isUploading ? "⏳" : isCsv ? "📊" : "📎"}
+                      </span>
+                      <span className="attach-name" style={{ fontWeight: 600 }}>{a.name}</span>
+                      {isUploading ? (
+                        <span className="attach-size" style={{ fontStyle: "italic" }}>subiendo… ({formatSize(a.size)})</span>
+                      ) : isError ? (
+                        <span className="attach-size" style={{ color: "#b91c1c", fontWeight: 600 }}>error: {a.error}</span>
+                      ) : isCsv && typeof a.rowCount === "number" ? (
+                        <span className="attach-size" style={{ fontWeight: 600 }}>{a.rowCount.toLocaleString()} leads · {formatSize(a.size)}</span>
+                      ) : (
+                        <span className="attach-size">{formatSize(a.size)}</span>
+                      )}
+                      <button
+                        className="attach-remove"
+                        onClick={() => removeAttachment(a.id)}
+                        aria-label="Quitar"
+                        title="Quitar"
+                      >
+                        ×
+                      </button>
+                    </div>
+                  );
+                })}
               </div>
             )}
             <textarea

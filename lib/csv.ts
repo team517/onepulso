@@ -1,9 +1,8 @@
-import { promises as fs } from "fs";
-import path from "path";
 import { randomUUID } from "crypto";
-import { dataPath } from "./data-dir";
+import { readBlob, writeBlob, readJson, writeJson } from "./storage";
 
-const UPLOADS_DIR = dataPath("uploads");
+const CSV_BLOB_PREFIX = "csv/";
+const CSV_META_PREFIX = "csv-meta/";
 
 export type CSVMetadata = {
   file_id: string;
@@ -13,13 +12,14 @@ export type CSVMetadata = {
   preview: Array<Record<string, string>>;
 };
 
+/**
+ * Guarda un CSV en Postgres (blob_store) en lugar del filesystem local.
+ * Crucial en Railway: el filesystem es efímero y se pierde en cada deploy/restart.
+ */
 export async function saveCSV(filename: string, buffer: Buffer): Promise<CSVMetadata> {
-  await fs.mkdir(UPLOADS_DIR, { recursive: true });
   const file_id = randomUUID();
-  const safeName = filename.replace(/[^a-zA-Z0-9._-]/g, "_");
-  const stored = `${file_id}__${safeName}`;
-  const fullPath = path.join(UPLOADS_DIR, stored);
-  await fs.writeFile(fullPath, buffer);
+  // 1. Persistir el archivo binario en blob_store
+  await writeBlob(`${CSV_BLOB_PREFIX}${file_id}`, buffer, "text/csv");
 
   const text = buffer.toString("utf-8");
   const rows = parseCSV(text);
@@ -33,7 +33,32 @@ export async function saveCSV(filename: string, buffer: Buffer): Promise<CSVMeta
     preview.push(obj);
   }
 
-  return { file_id, filename, columns, row_count: dataRows.length, preview };
+  const meta: CSVMetadata = {
+    file_id,
+    filename,
+    columns,
+    row_count: dataRows.length,
+    preview,
+  };
+
+  // 2. Persistir la metadata por separado para acceso rápido
+  await writeJson(`${CSV_META_PREFIX}${file_id}`, meta);
+
+  return meta;
+}
+
+async function readCSVText(file_id: string): Promise<string> {
+  const blob = await readBlob(`${CSV_BLOB_PREFIX}${file_id}`);
+  if (!blob) {
+    throw new Error(
+      `file_id ${file_id} no encontrado. Si subiste el CSV antes de un redeploy, vuélvelo a subir.`
+    );
+  }
+  return blob.data.toString("utf-8");
+}
+
+export async function getCSVMetadata(file_id: string): Promise<CSVMetadata | null> {
+  return await readJson<CSVMetadata>(`${CSV_META_PREFIX}${file_id}`);
 }
 
 export async function readCSVAsLeads(
@@ -46,17 +71,18 @@ export async function readCSVAsLeads(
     custom_variables?: Record<string, string>;
   }
 ): Promise<Array<Record<string, any>>> {
-  const files = await fs.readdir(UPLOADS_DIR);
-  const match = files.find((f) => f.startsWith(file_id + "__"));
-  if (!match) throw new Error(`file_id ${file_id} no encontrado`);
-  const text = await fs.readFile(path.join(UPLOADS_DIR, match), "utf-8");
+  const text = await readCSVText(file_id);
   const rows = parseCSV(text);
   const columns = rows[0];
   const dataRows = rows.slice(1);
   const idx = (col: string | undefined) => (col ? columns.indexOf(col) : -1);
 
   const emailIdx = idx(mapping.email);
-  if (emailIdx === -1) throw new Error(`columna email '${mapping.email}' no existe`);
+  if (emailIdx === -1) {
+    throw new Error(
+      `Columna email '${mapping.email}' no existe. Columnas disponibles: ${columns.join(", ")}`
+    );
+  }
 
   const firstIdx = idx(mapping.first_name);
   const lastIdx = idx(mapping.last_name);
@@ -112,10 +138,7 @@ export async function readCSVAsAccounts(
   file_id: string,
   mapping: AccountColumnMapping
 ): Promise<Array<Record<string, any>>> {
-  const files = await fs.readdir(UPLOADS_DIR);
-  const match = files.find((f) => f.startsWith(file_id + "__"));
-  if (!match) throw new Error(`file_id ${file_id} no encontrado`);
-  const text = await fs.readFile(path.join(UPLOADS_DIR, match), "utf-8");
+  const text = await readCSVText(file_id);
   const rows = parseCSV(text);
   if (rows.length < 2) return [];
   const columns = rows[0];
@@ -134,7 +157,8 @@ export async function readCSVAsAccounts(
   for (const k of required) {
     const colName = (mapping as any)[k];
     if (!colName) throw new Error(`Falta mapping para campo requerido: ${k}`);
-    if (columns.indexOf(colName) === -1) throw new Error(`Columna '${colName}' (${k}) no existe en el CSV`);
+    if (columns.indexOf(colName) === -1)
+      throw new Error(`Columna '${colName}' (${k}) no existe en el CSV. Disponibles: ${columns.join(", ")}`);
   }
 
   const out: Array<Record<string, any>> = [];
@@ -162,6 +186,17 @@ export async function readCSVAsAccounts(
 
 // Minimal RFC 4180 CSV parser (handles quoted fields, embedded newlines, "")
 function parseCSV(text: string): string[][] {
+  // Detectar BOM y eliminarlo
+  if (text.charCodeAt(0) === 0xfeff) text = text.slice(1);
+  // Detectar delimitador: si la primera línea tiene más punto-y-comas que comas, usar ;
+  const firstLine = text.split(/\r?\n/, 1)[0] ?? "";
+  const commaCount = (firstLine.match(/,/g) ?? []).length;
+  const semicolonCount = (firstLine.match(/;/g) ?? []).length;
+  const tabCount = (firstLine.match(/\t/g) ?? []).length;
+  let delim = ",";
+  if (semicolonCount > commaCount && semicolonCount >= tabCount) delim = ";";
+  else if (tabCount > commaCount && tabCount > semicolonCount) delim = "\t";
+
   const rows: string[][] = [];
   let cur: string[] = [];
   let field = "";
@@ -190,7 +225,7 @@ function parseCSV(text: string): string[][] {
       i++;
       continue;
     }
-    if (ch === ",") {
+    if (ch === delim) {
       cur.push(field);
       field = "";
       i++;
@@ -215,5 +250,7 @@ function parseCSV(text: string): string[][] {
     cur.push(field);
     rows.push(cur);
   }
+  // Filtrar filas vacías al final del archivo
+  while (rows.length > 0 && rows[rows.length - 1].every((c) => !c.trim())) rows.pop();
   return rows;
 }

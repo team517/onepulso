@@ -4,6 +4,7 @@ import { listMemory, saveMemory, memoryAsContext, deleteMemory } from "./memory"
 import { addCampaignRecord, listCampaignRecords, updateCampaignRecord } from "./campaigns-store";
 import { readCSVAsLeads, readCSVAsAccounts } from "./csv";
 import { listSkills, getSkill, skillsCatalogForPrompt } from "./skills";
+import { fetchSite, fetchSiteEnriched, scrapedToContext } from "./web-scraper";
 
 export const tools: Anthropic.Messages.Tool[] = [
   {
@@ -49,6 +50,33 @@ export const tools: Anthropic.Messages.Tool[] = [
       type: "object",
       properties: { slug: { type: "string" } },
       required: ["slug"],
+    },
+  },
+  {
+    name: "fetch_website",
+    description:
+      `Descarga una página web (URL) y extrae su contenido: título, descripción, headings (H1/H2/H3), texto principal, emails/teléfonos visibles, redes sociales, y links internos. Soporta navegación a subpáginas relevantes (about, servicios, productos) si enriched=true.
+
+ÚSALO cuando el usuario:
+  - pegue una URL en la conversación
+  - mencione una empresa y pida que mires su web
+  - quiera personalizar copy basándose en lo que hace una empresa concreta
+
+Lee la web ANTES de redactar la campaña. Extrae:
+  - qué hace la empresa / propuesta de valor
+  - sector / nicho
+  - tono que usan en su comunicación
+  - clientes que mencionan (casos de éxito)
+  - servicios o productos concretos
+
+Luego usa esa info para que el copy sea hiper-específico, no genérico.`,
+    input_schema: {
+      type: "object",
+      properties: {
+        url: { type: "string", description: "URL completa (https://...) o dominio (ejemplo.com)" },
+        enriched: { type: "boolean", description: "Si true, también descarga páginas internas relevantes (about, servicios). Default false." },
+      },
+      required: ["url"],
     },
   },
   {
@@ -233,6 +261,20 @@ export async function executeTool(
         await deleteMemory(input.slug);
         return `Borrado: ${input.slug}`;
       }
+      case "fetch_website": {
+        const url = String(input.url || "").trim();
+        if (!url) return "Falta el parámetro url.";
+        const enriched = input.enriched === true;
+        try {
+          const site = enriched ? await fetchSiteEnriched(url) : await fetchSite(url);
+          if (site.error) {
+            return `No pude descargar ${url}: ${site.error}`;
+          }
+          return scrapedToContext(site);
+        } catch (e: any) {
+          return `Error scrapeando ${url}: ${e.message ?? String(e)}`;
+        }
+      }
       case "list_campaigns_local": {
         const recs = await listCampaignRecords();
         return JSON.stringify(recs, null, 2);
@@ -385,6 +427,16 @@ export const SYSTEM_PROMPT = `Eres el copiloto de cold email de Xavi, dueño de 
 1. Si la pregunta implica redactar copy o crear campaña → SIEMPRE llama PRIMERO a read_memory. Sin excepción.
 2. Lee con atención las entradas de category 'examples-good' y 'framework' — son la guía definitiva de tono, estructura y nivel de detalle. Imita ese estilo.
 3. Si Xavi te da info nueva sobre negocio, ICPs, tono o ejemplos ganadores → llama a save_memory.
+
+## EXTRAER INFO DE WEBS (regla nueva)
+
+Si Xavi menciona una URL (https://..., dominio.com, etc.) en su mensaje, o te pide "mira la web de X", "extrae info de esta empresa", "personaliza para este cliente: <url>", o cualquier referencia a una web concreta:
+
+- OBLIGATORIO llamar a fetch_website ANTES de redactar copy.
+- Usa enriched=true cuando la URL es la home de una empresa (descarga también /about, /servicios, /products).
+- Extrae de la respuesta: qué hace la empresa, sector, propuesta de valor, casos/clientes que mencionan, servicios concretos, tono que usan.
+- Usa esos datos REALES en el copy. Cero genérico. Si la web habla de "SaaS para retail", el copy debe mencionar retail específicamente. Si tienen clientes nombrados, úsalos.
+- Si fetch_website devuelve error o web caída, dile a Xavi y pídele que confirme la URL o te dé info manualmente.
 
 ## CREAR CAMPAÑAS (regla estricta)
 

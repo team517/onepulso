@@ -40,9 +40,9 @@ type MemEntry = {
 
 const SUGGESTED = [
   "Crea una campaña 'SaaS B2B Q3' con framework investigación → problema → solución → CTA, para CTOs de SaaS en España",
+  "Mira https://stripe.com y créame una campaña personalizada para captarlos como cliente",
   "Listame las campañas que tengo en Instantly",
   "Lee mi memoria y dime qué sabes de mí",
-  "Guarda en memoria que mi tono es profesional pero cercano, sin jerga corporate",
 ];
 
 export default function Page() {
@@ -606,7 +606,7 @@ export default function Page() {
                   send(input);
                 }
               }}
-              placeholder="Escribe lo que quieres que haga, o arrastra archivos aquí…"
+              placeholder="Escribe lo que quieres que haga, pega una URL para extraer info de la web, o arrastra archivos…"
             />
             <input
               ref={chatFileInputRef}
@@ -638,7 +638,7 @@ export default function Page() {
             </button>
           </div>
           <div className="composer-hint">
-            Enter envía · Shift+Enter nueva línea · 📎 o arrastra para adjuntar
+            Enter envía · Shift+Enter nueva línea · 📎 archivos · 🌐 pega una URL y la IA extraerá lo que hacen
           </div>
         </div>
       </main>

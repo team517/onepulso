@@ -4,6 +4,7 @@ import { readEmailConfig } from "./email-config";
 import { syncInbox, deepRefreshAllThreads } from "./email-inbox";
 import { isSendIfNoReply, stripConditionMarkers } from "./email-sequences";
 import { runAutopilot } from "./email-autopilot";
+import { processTaskReminders } from "./tasks-reminder";
 
 declare global {
   // eslint-disable-next-line no-var
@@ -66,6 +67,16 @@ export async function tick() {
     } catch (e: any) {
       console.error("[email-scheduler] deep refresh error", e.message);
     }
+  }
+
+  // 4. Recordatorios de tareas (cada tick — fn interna decide qué notificar)
+  try {
+    const tr = await processTaskReminders();
+    if (tr.sent > 0) {
+      console.log(`[email-scheduler] task reminders: ${tr.sent} enviados (${tr.checked} revisadas)`);
+    }
+  } catch (e: any) {
+    console.error("[email-scheduler] task reminders error", e.message);
   }
 
   return dueResults;

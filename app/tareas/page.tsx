@@ -43,6 +43,7 @@ export default function TareasPage() {
   const [fPriority, setFPriority] = useState<"low" | "medium" | "high">("medium");
   const [fClientThreadId, setFClientThreadId] = useState<string>("");
   const [fSaving, setFSaving] = useState(false);
+  const [fError, setFError] = useState<string | null>(null);
 
   async function load() {
     setLoading(true);
@@ -79,6 +80,7 @@ export default function TareasPage() {
     setFDueTime("10:00");
     setFPriority("medium");
     setFClientThreadId("");
+    setFError(null);
     setModalOpen(true);
   }
 
@@ -96,14 +98,47 @@ export default function TareasPage() {
     }
     setFPriority(t.priority);
     setFClientThreadId(t.client_thread_id || "");
+    setFError(null);
     setModalOpen(true);
   }
 
   async function saveTask() {
-    if (!fTitle.trim()) return;
+    setFError(null);
+    if (!fTitle.trim()) {
+      setFError("El título es obligatorio.");
+      return;
+    }
+
+    // Validar fecha si la hay
+    let due_at: string | undefined;
+    if (fDueDate) {
+      // El input date devuelve YYYY-MM-DD; validamos rango de año razonable
+      const yearMatch = fDueDate.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+      if (!yearMatch) {
+        setFError(`Fecha inválida: "${fDueDate}". Usa el formato dd/mm/yyyy con año de 4 dígitos.`);
+        return;
+      }
+      const year = parseInt(yearMatch[1], 10);
+      const nowYear = new Date().getFullYear();
+      if (year < nowYear - 1 || year > nowYear + 10) {
+        setFError(`El año ${year} no es razonable. Usa entre ${nowYear - 1} y ${nowYear + 10}.`);
+        return;
+      }
+      const d = new Date(`${fDueDate}T${fDueTime || "10:00"}:00`);
+      if (isNaN(d.getTime())) {
+        setFError(`No pude interpretar la fecha "${fDueDate} ${fDueTime}". Vuelve a seleccionarla.`);
+        return;
+      }
+      try {
+        due_at = d.toISOString();
+      } catch (e: any) {
+        setFError(`Fecha fuera de rango: ${e.message || "error desconocido"}`);
+        return;
+      }
+    }
+
     setFSaving(true);
     try {
-      const due_at = fDueDate ? new Date(`${fDueDate}T${fDueTime}:00`).toISOString() : undefined;
       const client = threads.find((th) => th.id === fClientThreadId);
       const payload = {
         title: fTitle.trim(),
@@ -114,25 +149,35 @@ export default function TareasPage() {
         client_email: client?.contact_email,
         client_name: client?.contact_name,
       };
+
+      let res: Response;
       if (editing) {
-        await fetch(`/api/tasks/${editing.id}`, {
+        res = await fetch(`/api/tasks/${editing.id}`, {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             ...payload,
-            // Si cambia la fecha, resetear el reminder para que se envíe otra vez
             reminder_sent_at: editing.due_at !== due_at ? undefined : editing.reminder_sent_at,
           }),
         });
       } else {
-        await fetch("/api/tasks", {
+        res = await fetch("/api/tasks", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload),
         });
       }
+
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}));
+        setFError(j?.error || `Error del servidor: ${res.status} ${res.statusText}`);
+        return;
+      }
+
       setModalOpen(false);
       await load();
+    } catch (e: any) {
+      setFError(`Error: ${e?.message || String(e)}`);
     } finally {
       setFSaving(false);
     }
@@ -280,7 +325,9 @@ export default function TareasPage() {
                   type="date"
                   className="t-input"
                   value={fDueDate}
-                  onChange={(e) => setFDueDate(e.target.value)}
+                  min={new Date().toISOString().slice(0, 10)}
+                  max={(() => { const d = new Date(); d.setFullYear(d.getFullYear() + 10); return d.toISOString().slice(0, 10); })()}
+                  onChange={(e) => { setFDueDate(e.target.value); setFError(null); }}
                 />
               </div>
               <div>
@@ -289,7 +336,7 @@ export default function TareasPage() {
                   type="time"
                   className="t-input"
                   value={fDueTime}
-                  onChange={(e) => setFDueTime(e.target.value)}
+                  onChange={(e) => { setFDueTime(e.target.value); setFError(null); }}
                   disabled={!fDueDate}
                 />
               </div>
@@ -324,6 +371,21 @@ export default function TareasPage() {
                 </option>
               ))}
             </select>
+
+            {fError && (
+              <div style={{
+                marginTop: 14,
+                padding: "10px 12px",
+                background: "rgba(239,68,68,0.08)",
+                border: "1px solid rgba(239,68,68,0.3)",
+                borderRadius: 9,
+                color: "#b91c1c",
+                fontSize: 12.5,
+                lineHeight: 1.45,
+              }}>
+                ⚠ {fError}
+              </div>
+            )}
 
             <div className="t-modal-actions">
               <button className="t-btn-primary" onClick={saveTask} disabled={fSaving || !fTitle.trim()}>

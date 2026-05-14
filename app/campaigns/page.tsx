@@ -39,10 +39,10 @@ type MemEntry = {
 };
 
 const SUGGESTED = [
-  "Crea una campaña 'SaaS B2B Q3' con framework investigación → problema → solución → CTA, para CTOs de SaaS en España",
-  "Mira https://stripe.com y créame una campaña personalizada para captarlos como cliente",
-  "Listame las campañas que tengo en Instantly",
-  "Lee mi memoria y dime qué sabes de mí",
+  "Crea una campaña para captar SaaS B2B en España",
+  "Crea una campaña para mi cliente https://acme.com — quieren llegar a directores de marketing",
+  "Crea otra campaña como la última pero cambiando ángulo",
+  "Lista las campañas que tengo",
 ];
 
 export default function Page() {

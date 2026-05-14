@@ -413,13 +413,21 @@ export default function Page() {
     }));
     setAttachments((prev) => [...prev, ...pending.map(({ _file, ...rest }) => rest)]);
 
-    // 2. Subir cada uno en paralelo y actualizar su chip
+    // 2. Subir cada uno en paralelo y actualizar su chip.
+    //    Modo binario directo (x-filename header) — más fiable que multipart/FormData,
+    //    que en algunos navegadores/proxies da 'Failed to parse body as FormData'.
     await Promise.all(
       pending.map(async (p) => {
-        const fd = new FormData();
-        fd.append("file", p._file);
         try {
-          const res = await fetch("/api/chat/attach", { method: "POST", body: fd });
+          const ab = await p._file.arrayBuffer();
+          const res = await fetch("/api/chat/attach", {
+            method: "POST",
+            headers: {
+              "x-filename": encodeURIComponent(p._file.name),
+              "Content-Type": "application/octet-stream",
+            },
+            body: ab,
+          });
           if (!res.ok) {
             const j = await res.json().catch(() => ({}));
             throw new Error(j?.error || `HTTP ${res.status}`);

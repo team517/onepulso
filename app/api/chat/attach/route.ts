@@ -4,36 +4,70 @@ import { saveCSV } from "@/lib/csv";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
+export const dynamic = "force-dynamic";
 
 const MAX_FILE_SIZE = 20 * 1024 * 1024; // 20 MB
 
+/**
+ * Acepta dos formatos de subida:
+ *  A) Binario crudo + cabecera x-filename: más fiable, sin issues de multipart
+ *  B) FormData multipart (fallback histórico para drag-drop legacy)
+ *
+ * En producción usamos exclusivamente A desde el frontend (chat composer).
+ */
 export async function POST(req: NextRequest) {
-  let formData: FormData;
-  try {
-    formData = await req.formData();
-  } catch (e: any) {
-    return NextResponse.json(
-      { error: `No pude leer el archivo: ${e?.message || "formato no válido"}` },
-      { status: 400 }
-    );
+  let buffer: Buffer;
+  let fileName: string;
+
+  const xFilename = req.headers.get("x-filename");
+  if (xFilename) {
+    // Modo A: binario crudo
+    try {
+      fileName = decodeURIComponent(xFilename);
+      const ab = await req.arrayBuffer();
+      buffer = Buffer.from(ab);
+    } catch (e: any) {
+      return NextResponse.json(
+        { error: `No pude leer el archivo (binario): ${e?.message || "error desconocido"}` },
+        { status: 400 }
+      );
+    }
+  } else {
+    // Modo B (fallback): multipart/form-data
+    let formData: FormData;
+    try {
+      formData = await req.formData();
+    } catch (e: any) {
+      return NextResponse.json(
+        { error: `No pude leer el archivo: ${e?.message || "formato no válido"}. Intenta usar otro navegador o cierra y vuelve a abrir la pestaña.` },
+        { status: 400 }
+      );
+    }
+    const file = formData.get("file");
+    if (!file || typeof file === "string") {
+      return NextResponse.json({ error: "No se adjuntó ningún archivo" }, { status: 400 });
+    }
+    if (file.size > MAX_FILE_SIZE) {
+      return NextResponse.json(
+        { error: `Archivo demasiado grande (${(file.size / 1024 / 1024).toFixed(1)} MB). Máximo: 20 MB.` },
+        { status: 413 }
+      );
+    }
+    fileName = file.name;
+    buffer = Buffer.from(await file.arrayBuffer());
   }
 
-  const file = formData.get("file");
-  if (!file || typeof file === "string") {
-    return NextResponse.json({ error: "No se adjuntó ningún archivo" }, { status: 400 });
-  }
-
-  if (file.size > MAX_FILE_SIZE) {
-    return NextResponse.json(
-      { error: `Archivo demasiado grande (${(file.size / 1024 / 1024).toFixed(1)} MB). Máximo: 20 MB.` },
-      { status: 413 }
-    );
-  }
-
-  const buffer = Buffer.from(await file.arrayBuffer());
   if (buffer.length === 0) {
     return NextResponse.json({ error: "El archivo está vacío" }, { status: 400 });
   }
+  if (buffer.length > MAX_FILE_SIZE) {
+    return NextResponse.json(
+      { error: `Archivo demasiado grande (${(buffer.length / 1024 / 1024).toFixed(1)} MB). Máximo: 20 MB.` },
+      { status: 413 }
+    );
+  }
+  if (!fileName) fileName = "archivo";
+  const file = { name: fileName, size: buffer.length };
 
   const ext = (file.name.split(".").pop() ?? "").toLowerCase();
 

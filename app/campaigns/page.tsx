@@ -74,6 +74,9 @@ export default function Page() {
   const [newAcctKey, setNewAcctKey] = useState("");
   const [newAcctRenews, setNewAcctRenews] = useState("");
   const [newAcctPlan, setNewAcctPlan] = useState("");
+  const [newAcctIsOwner, setNewAcctIsOwner] = useState(false);
+  const [newAcctClientCompany, setNewAcctClientCompany] = useState("");
+  const [newAcctClientContact, setNewAcctClientContact] = useState("");
   const [savingAcct, setSavingAcct] = useState(false);
   const [editingAcctId, setEditingAcctId] = useState<string | null>(null);
   const [editAcctRenews, setEditAcctRenews] = useState("");
@@ -98,6 +101,9 @@ export default function Page() {
           api_key: newAcctKey,
           renews_at: newAcctRenews ? new Date(newAcctRenews).toISOString() : undefined,
           plan_label: newAcctPlan.trim() || undefined,
+          is_owner: newAcctIsOwner,
+          client_company: newAcctClientCompany.trim() || undefined,
+          client_contact: newAcctClientContact.trim() || undefined,
         }),
       }).then(r => r.json());
       if (r.error) {
@@ -107,10 +113,33 @@ export default function Page() {
         setNewAcctKey("");
         setNewAcctRenews("");
         setNewAcctPlan("");
+        setNewAcctIsOwner(false);
+        setNewAcctClientCompany("");
+        setNewAcctClientContact("");
         await loadInstantlyAccounts();
         await fetch("/api/instantly/status").then(r => r.json()).then(setInstantlyStatus);
       }
     } finally { setSavingAcct(false); }
+  }
+
+  async function markAsOwner(id: string, title: string) {
+    if (!confirm(`¿Marcar "${title}" como TU cuenta principal (onepulso)?\n\nSerá la cuenta por defecto cada vez que vuelvas a la app.`)) return;
+    await fetch(`/api/instantly/accounts/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ is_owner: true }),
+    });
+    await loadInstantlyAccounts();
+  }
+
+  async function backToOwner() {
+    await fetch("/api/instantly/accounts", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "activate_owner" }),
+    });
+    await loadInstantlyAccounts();
+    await fetch("/api/instantly/status").then(r => r.json()).then(setInstantlyStatus);
   }
 
   function startEditAccount(a: any) {
@@ -164,6 +193,7 @@ export default function Page() {
       .then((r) => r.json())
       .then((d) => setInstantlyStatus({ connected: d.connected, count: d.campaigns_count }))
       .catch(() => setInstantlyStatus({ connected: false }));
+    loadInstantlyAccounts(); // cargar también las cuentas al inicio para el switcher
   }, []);
 
   useEffect(() => {
@@ -463,59 +493,124 @@ export default function Page() {
 
       {/* Main — chat */}
       <main className="main">
-        <div className="chat-header">
-          <div>
-            <div className="chat-title">Copiloto</div>
-            <div className="chat-subtitle">
-              {instantlyStatus?.connected ? (
-                <>
-                  <span style={{ color: "#22c55e" }}>● </span>
-                  Instantly{instantlyStatus.active_title ? ` (${instantlyStatus.active_title})` : ""} conectado
-                  {" · "}{instantlyStatus.count} campañas
-                  {instantlyStatus.plan_label && (
-                    <>{" · "}<span style={{ fontWeight: 600 }}>{instantlyStatus.plan_label}</span></>
-                  )}
-                  {typeof instantlyStatus.days_remaining === "number" && (
-                    <>
-                      {" · "}
-                      <span style={{
-                        color:
-                          instantlyStatus.days_remaining <= 3 ? "#dc2626" :
-                          instantlyStatus.days_remaining <= 10 ? "#b45309" :
-                          "#15803d",
-                        fontWeight: 600,
-                      }}>
-                        ⏳ {instantlyStatus.days_remaining} día{instantlyStatus.days_remaining !== 1 ? "s" : ""} restantes
-                      </span>
-                    </>
-                  )}
-                </>
-              ) : instantlyStatus ? (
-                <span style={{ color: "var(--error)" }}>● Instantly: error de conexión</span>
-              ) : (
-                <span>● comprobando…</span>
-              )}
-              {" · "}
-              {memory.length} notas en memoria
+        <div className="chat-header" style={{ flexDirection: "column", alignItems: "stretch", gap: 10 }}>
+          <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 10 }}>
+            <div>
+              <div className="chat-title">Copiloto</div>
+              <div className="chat-subtitle">
+                {instantlyStatus?.connected ? (
+                  <>
+                    <span style={{ color: "#22c55e" }}>● </span>
+                    Trabajando con <strong>{instantlyStatus.active_title || "(sin cuenta)"}</strong>
+                    {" · "}{instantlyStatus.count} campañas
+                  </>
+                ) : instantlyStatus ? (
+                  <span style={{ color: "var(--error)" }}>● Instantly: error de conexión</span>
+                ) : (
+                  <span>● comprobando…</span>
+                )}
+                {" · "}{memory.length} notas
+              </div>
             </div>
+            <button
+              onClick={() => { setInstantlyModalOpen(true); loadInstantlyAccounts(); }}
+              style={{
+                padding: "7px 13px",
+                background: "#fff",
+                border: "1px solid var(--border)",
+                borderRadius: 9,
+                fontSize: 12.5,
+                fontWeight: 600,
+                color: "var(--text-dim)",
+                cursor: "pointer",
+                fontFamily: "inherit",
+                whiteSpace: "nowrap",
+              }}
+              title="Gestionar cuentas de Instantly"
+            >
+              ⚙️ Gestionar cuentas
+            </button>
           </div>
-          <button
-            onClick={() => { setInstantlyModalOpen(true); loadInstantlyAccounts(); }}
-            style={{
-              padding: "7px 13px",
-              background: "#fff",
-              border: "1px solid var(--border)",
-              borderRadius: 9,
-              fontSize: 12.5,
-              fontWeight: 600,
-              color: "var(--text-dim)",
-              cursor: "pointer",
-              fontFamily: "inherit",
-            }}
-            title="Gestionar cuentas de Instantly"
-          >
-            ⚙️ Gestionar Instantly
-          </button>
+
+          {/* Quick switcher: chips owner + clientes */}
+          {instantlyAccounts.length > 0 && (
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
+              {instantlyAccounts.map((a) => {
+                const isActive = a.active;
+                const isOwner = a.is_owner;
+                return (
+                  <button
+                    key={a.id}
+                    onClick={() => !isActive && setActiveInstantly(a.id)}
+                    title={
+                      isOwner
+                        ? `Tu cuenta principal (onepulso)${a.plan_label ? " · " + a.plan_label : ""}`
+                        : `Cuenta de cliente${a.client_company ? " · " + a.client_company : ""}${a.plan_label ? " · " + a.plan_label : ""}`
+                    }
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 5,
+                      padding: "5px 11px",
+                      background: isActive
+                        ? (isOwner ? "linear-gradient(135deg, #0071e3, #1d4ed8)" : "linear-gradient(135deg, #8b5cf6, #6d28d9)")
+                        : "#fff",
+                      color: isActive ? "#fff" : "var(--text-dim)",
+                      border: `1px solid ${isActive ? "transparent" : "var(--border)"}`,
+                      borderRadius: 99,
+                      fontSize: 11.5,
+                      fontWeight: isActive ? 700 : 600,
+                      cursor: isActive ? "default" : "pointer",
+                      fontFamily: "inherit",
+                      transition: "all 0.15s",
+                      maxWidth: 220,
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    <span style={{ fontSize: 13 }}>{isOwner ? "🏠" : "👤"}</span>
+                    <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{a.title}</span>
+                    {typeof a.days_remaining === "number" && a.days_remaining <= 7 && (
+                      <span style={{
+                        fontSize: 9.5,
+                        padding: "1px 5px",
+                        borderRadius: 99,
+                        background: isActive ? "rgba(255,255,255,0.2)" : "rgba(239,68,68,0.15)",
+                        color: isActive ? "#fff" : "#dc2626",
+                        fontWeight: 700,
+                      }}>{a.days_remaining}d</span>
+                    )}
+                  </button>
+                );
+              })}
+              {/* Botón "← onepulso" cuando estás en cliente */}
+              {(() => {
+                const active = instantlyAccounts.find((a) => a.active);
+                const owner = instantlyAccounts.find((a) => a.is_owner);
+                if (!owner || active?.is_owner) return null;
+                return (
+                  <button
+                    onClick={backToOwner}
+                    style={{
+                      padding: "5px 11px",
+                      background: "transparent",
+                      color: "var(--accent)",
+                      border: "1px dashed var(--accent)",
+                      borderRadius: 99,
+                      fontSize: 11,
+                      fontWeight: 700,
+                      cursor: "pointer",
+                      fontFamily: "inherit",
+                    }}
+                    title={`Volver a tu cuenta ${owner.title}`}
+                  >
+                    ← Volver a {owner.title}
+                  </button>
+                );
+              })()}
+            </div>
+          )}
         </div>
 
         <div className="chat-stream" ref={streamRef}>
@@ -896,16 +991,25 @@ export default function Page() {
                     <div key={a.id} style={{
                       display: "flex", alignItems: "center", gap: 10,
                       padding: "11px 13px",
-                      background: a.active ? "rgba(34,197,94,0.06)" : "#fff",
+                      background: a.is_owner ? "rgba(0,113,227,0.05)" : a.active ? "rgba(139,92,246,0.05)" : "#fff",
                       border: "1px solid",
-                      borderColor: a.active ? "rgba(34,197,94,0.3)" : "var(--border)",
+                      borderColor: a.is_owner ? "rgba(0,113,227,0.3)" : a.active ? "rgba(139,92,246,0.3)" : "var(--border)",
+                      borderLeft: a.is_owner ? "4px solid #0071e3" : a.active ? "4px solid #8b5cf6" : "1px solid var(--border)",
                       borderRadius: 11,
                     }}>
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                           <span style={{ fontSize: 13.5, fontWeight: 700, color: "var(--text)" }}>
-                            {a.title}
+                            {a.is_owner ? "🏠" : "👤"} {a.title}
                           </span>
+                          {a.is_owner && (
+                            <span style={{
+                              fontSize: 9.5, fontWeight: 700,
+                              padding: "2px 7px", borderRadius: 99,
+                              background: "rgba(0,113,227,0.15)", color: "#0071e3",
+                              letterSpacing: "0.04em",
+                            }}>MÍA · ONEPULSO</span>
+                          )}
                           {a.active && (
                             <span style={{
                               fontSize: 9.5, fontWeight: 700,
@@ -913,6 +1017,13 @@ export default function Page() {
                               background: "rgba(34,197,94,0.15)", color: "#15803d",
                               letterSpacing: "0.04em",
                             }}>ACTIVA</span>
+                          )}
+                          {!a.is_owner && a.client_company && (
+                            <span style={{
+                              fontSize: 10, fontWeight: 600,
+                              padding: "2px 7px", borderRadius: 99,
+                              background: "rgba(139,92,246,0.12)", color: "#7c3aed",
+                            }}>Cliente: {a.client_company}</span>
                           )}
                           {a.plan_label && (
                             <span style={{
@@ -982,25 +1093,42 @@ export default function Page() {
                           }}
                         >✏️</button>
                       )}
+                      {!a.is_owner && (
+                        <button
+                          onClick={() => markAsOwner(a.id, a.title)}
+                          title="Marcar como mi cuenta principal (onepulso)"
+                          style={{
+                            padding: "6px 9px", background: "transparent", color: "#0071e3",
+                            border: "1px solid rgba(0,113,227,0.3)", borderRadius: 8,
+                            fontSize: 11, cursor: "pointer", fontFamily: "inherit",
+                          }}
+                        >🏠</button>
+                      )}
                       {!a.active && (
                         <button
                           onClick={() => setActiveInstantly(a.id)}
                           style={{
-                            padding: "6px 11px", background: "var(--accent)", color: "#fff",
+                            padding: "6px 11px",
+                            background: a.is_owner
+                              ? "linear-gradient(135deg, #0071e3, #1d4ed8)"
+                              : "linear-gradient(135deg, #8b5cf6, #6d28d9)",
+                            color: "#fff",
                             border: "none", borderRadius: 8, fontSize: 11.5, fontWeight: 600,
                             cursor: "pointer", fontFamily: "inherit",
                           }}
                         >Usar</button>
                       )}
-                      <button
-                        onClick={() => deleteInstantlyAccount(a.id, a.title)}
-                        title="Eliminar"
-                        style={{
-                          padding: "6px 9px", background: "transparent", color: "var(--text-faint)",
-                          border: "1px solid var(--border)", borderRadius: 8,
-                          fontSize: 11, cursor: "pointer", fontFamily: "inherit",
-                        }}
-                      >🗑</button>
+                      {!a.is_owner && (
+                        <button
+                          onClick={() => deleteInstantlyAccount(a.id, a.title)}
+                          title="Eliminar"
+                          style={{
+                            padding: "6px 9px", background: "transparent", color: "var(--text-faint)",
+                            border: "1px solid var(--border)", borderRadius: 8,
+                            fontSize: 11, cursor: "pointer", fontFamily: "inherit",
+                          }}
+                        >🗑</button>
+                      )}
                     </div>
                   ))}
                 </div>
@@ -1021,10 +1149,37 @@ export default function Page() {
               }}>
                 + Añadir cuenta
               </div>
+              {/* Tipo: mía vs cliente */}
+              <div style={{ display: "flex", gap: 6, marginBottom: 10 }}>
+                <button
+                  type="button"
+                  onClick={() => setNewAcctIsOwner(true)}
+                  style={{
+                    flex: 1, padding: "8px 10px",
+                    background: newAcctIsOwner ? "linear-gradient(135deg, #0071e3, #1d4ed8)" : "#fff",
+                    color: newAcctIsOwner ? "#fff" : "var(--text-dim)",
+                    border: `1.5px solid ${newAcctIsOwner ? "transparent" : "var(--border)"}`,
+                    borderRadius: 9, fontSize: 12, fontWeight: 700,
+                    cursor: "pointer", fontFamily: "inherit",
+                  }}
+                >🏠 Mía (onepulso)</button>
+                <button
+                  type="button"
+                  onClick={() => setNewAcctIsOwner(false)}
+                  style={{
+                    flex: 1, padding: "8px 10px",
+                    background: !newAcctIsOwner ? "linear-gradient(135deg, #8b5cf6, #6d28d9)" : "#fff",
+                    color: !newAcctIsOwner ? "#fff" : "var(--text-dim)",
+                    border: `1.5px solid ${!newAcctIsOwner ? "transparent" : "var(--border)"}`,
+                    borderRadius: 9, fontSize: 12, fontWeight: 700,
+                    cursor: "pointer", fontFamily: "inherit",
+                  }}
+                >👤 Cliente</button>
+              </div>
               <input
                 value={newAcctTitle}
                 onChange={(e) => setNewAcctTitle(e.target.value)}
-                placeholder='Título: ej "Cuenta cliente Acme"'
+                placeholder={newAcctIsOwner ? "Título: ej. onepulso" : "Título: ej. cliente Acme"}
                 style={{
                   width: "100%", padding: "9px 11px",
                   background: "#fff", border: "1px solid var(--border)",
@@ -1046,6 +1201,32 @@ export default function Page() {
                   fontFamily: "var(--font-mono)",
                 }}
               />
+              {!newAcctIsOwner && (
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 8 }}>
+                  <input
+                    value={newAcctClientCompany}
+                    onChange={(e) => setNewAcctClientCompany(e.target.value)}
+                    placeholder="Empresa del cliente"
+                    style={{
+                      width: "100%", padding: "8px 10px",
+                      background: "#fff", border: "1px solid var(--border)",
+                      borderRadius: 8, fontSize: 12.5, color: "var(--text)",
+                      outline: "none", boxSizing: "border-box", fontFamily: "inherit",
+                    }}
+                  />
+                  <input
+                    value={newAcctClientContact}
+                    onChange={(e) => setNewAcctClientContact(e.target.value)}
+                    placeholder="Contacto"
+                    style={{
+                      width: "100%", padding: "8px 10px",
+                      background: "#fff", border: "1px solid var(--border)",
+                      borderRadius: 8, fontSize: 12.5, color: "var(--text)",
+                      outline: "none", boxSizing: "border-box", fontFamily: "inherit",
+                    }}
+                  />
+                </div>
+              )}
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 10 }}>
                 <div>
                   <label style={{ display: "block", fontSize: 10, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: "var(--text-dim)", marginBottom: 4 }}>Plan (opcional)</label>

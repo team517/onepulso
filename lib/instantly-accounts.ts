@@ -9,10 +9,15 @@ export type InstantlyAccount = {
   title: string;
   api_key: string;
   active: boolean;
+  /** TRUE = es la cuenta del propio Xavi (onepulso). Sólo UNA puede ser owner. */
+  is_owner?: boolean;
   created_at: string;
   // Fecha de renovación manual (la API de Instantly no la expone)
   renews_at?: string; // ISO date — tú la pones manualmente
   plan_label?: string; // ej "Pro", "Growth" — etiqueta libre opcional
+  /** Si pertenece a un cliente, podemos guardar metadatos suyos */
+  client_company?: string;
+  client_contact?: string;
   // Subscripción (legacy, ya no se rellena automáticamente — se mantiene para retrocompat)
   subscription?: {
     plan?: string;
@@ -28,11 +33,14 @@ export type InstantlyAccountPublic = {
   id: string;
   title: string;
   active: boolean;
+  is_owner: boolean;
   created_at: string;
   api_key_masked: string;
   renews_at?: string;
   plan_label?: string;
   days_remaining?: number;
+  client_company?: string;
+  client_contact?: string;
 };
 
 const SUBSCRIPTION_TTL_MS = 30 * 60 * 1000;
@@ -115,8 +123,18 @@ function mask(s: string): string {
 
 export async function listAccounts(): Promise<InstantlyAccountPublic[]> {
   const all = await readAll();
+  // Auto-migración: si no hay ninguna marcada is_owner, marcar la primera (compat con datos viejos)
+  if (all.length > 0 && !all.some((a) => a.is_owner)) {
+    all[0].is_owner = true;
+    await writeAll(all);
+  }
+  // Orden: owner primero, luego por created_at desc
+  all.sort((a, b) => {
+    if (a.is_owner && !b.is_owner) return -1;
+    if (!a.is_owner && b.is_owner) return 1;
+    return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+  });
   return all.map((a) => {
-    // Calcular días restantes desde renews_at (fecha manual)
     let daysRemaining: number | undefined;
     if (a.renews_at) {
       const ms = new Date(a.renews_at).getTime() - Date.now();
@@ -126,13 +144,29 @@ export async function listAccounts(): Promise<InstantlyAccountPublic[]> {
       id: a.id,
       title: a.title,
       active: a.active,
+      is_owner: !!a.is_owner,
       created_at: a.created_at,
       api_key_masked: mask(a.api_key),
       renews_at: a.renews_at,
       plan_label: a.plan_label,
       days_remaining: daysRemaining,
+      client_company: a.client_company,
+      client_contact: a.client_contact,
     };
   });
+}
+
+/** Devuelve la cuenta owner (la propia de Xavi) si existe */
+export async function getOwnerAccount(): Promise<InstantlyAccount | null> {
+  const all = await readAll();
+  return all.find((a) => a.is_owner) ?? null;
+}
+
+/** Marca una cuenta como owner. Sólo una puede ser owner — desmarca las demás. */
+export async function setOwner(id: string): Promise<void> {
+  const all = await readAll();
+  for (const a of all) a.is_owner = a.id === id;
+  await writeAll(all);
 }
 
 export async function getActiveAccount(): Promise<InstantlyAccount | null> {
@@ -153,16 +187,28 @@ export async function addAccount(input: {
   api_key: string;
   renews_at?: string;
   plan_label?: string;
+  is_owner?: boolean;
+  client_company?: string;
+  client_contact?: string;
 }): Promise<InstantlyAccountPublic> {
   const all = await readAll();
+  const willBeOwner = !!input.is_owner;
+  // Si se marca como owner, desmarcar otras
+  if (willBeOwner) {
+    for (const a of all) a.is_owner = false;
+  }
   const account: InstantlyAccount = {
     id: randomUUID(),
     title: input.title.trim(),
     api_key: input.api_key.trim(),
-    active: all.length === 0,
+    // active: si es owner Y no hay activa, se activa; si no hay ninguna cuenta, también
+    active: all.length === 0 || (willBeOwner && !all.some((a) => a.active)),
+    is_owner: willBeOwner,
     created_at: new Date().toISOString(),
     renews_at: input.renews_at,
     plan_label: input.plan_label?.trim() || undefined,
+    client_company: input.client_company?.trim() || undefined,
+    client_contact: input.client_contact?.trim() || undefined,
   };
   all.push(account);
   await writeAll(all);
@@ -173,11 +219,14 @@ export async function addAccount(input: {
     id: account.id,
     title: account.title,
     active: account.active,
+    is_owner: !!account.is_owner,
     created_at: account.created_at,
     api_key_masked: mask(account.api_key),
     renews_at: account.renews_at,
     plan_label: account.plan_label,
     days_remaining: daysRemaining,
+    client_company: account.client_company,
+    client_contact: account.client_contact,
   };
 }
 
@@ -185,6 +234,8 @@ export async function updateAccountMeta(id: string, patch: {
   title?: string;
   renews_at?: string | null;
   plan_label?: string | null;
+  client_company?: string | null;
+  client_contact?: string | null;
 }): Promise<void> {
   const all = await readAll();
   const a = all.find((x) => x.id === id);
@@ -194,17 +245,37 @@ export async function updateAccountMeta(id: string, patch: {
   else if (typeof patch.renews_at === "string") a.renews_at = patch.renews_at;
   if (patch.plan_label === null) delete a.plan_label;
   else if (typeof patch.plan_label === "string") a.plan_label = patch.plan_label.trim() || undefined;
+  if (patch.client_company === null) delete a.client_company;
+  else if (typeof patch.client_company === "string") a.client_company = patch.client_company.trim() || undefined;
+  if (patch.client_contact === null) delete a.client_contact;
+  else if (typeof patch.client_contact === "string") a.client_contact = patch.client_contact.trim() || undefined;
   await writeAll(all);
 }
 
 export async function deleteAccount(id: string) {
   const all = await readAll();
+  const target = all.find((a) => a.id === id);
+  if (target?.is_owner) {
+    throw new Error("No se puede eliminar la cuenta propia (owner). Marca primero otra como tuya.");
+  }
   const filtered = all.filter((a) => a.id !== id);
-  // Si borramos la activa, activar la primera disponible
+  // Si borramos la activa, reactivar la owner (o la primera disponible)
   if (filtered.length > 0 && !filtered.some((a) => a.active)) {
-    filtered[0].active = true;
+    const owner = filtered.find((a) => a.is_owner);
+    if (owner) owner.active = true;
+    else filtered[0].active = true;
   }
   await writeAll(filtered);
+}
+
+/** Vuelve a activar la cuenta owner. Útil para "volver a mi cuenta" tras trabajar con cliente. */
+export async function activateOwner(): Promise<boolean> {
+  const all = await readAll();
+  const owner = all.find((a) => a.is_owner);
+  if (!owner) return false;
+  for (const a of all) a.active = a.id === owner.id;
+  await writeAll(all);
+  return true;
 }
 
 export async function setActive(id: string): Promise<void> {

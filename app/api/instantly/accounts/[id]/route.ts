@@ -13,13 +13,22 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
     await setOwner(id);
   }
   // Editar metadata
-  if ("title" in body || "renews_at" in body || "plan_label" in body || "client_company" in body || "client_contact" in body) {
+  const editableKeys = [
+    "title", "renews_at", "plan_label", "client_company", "client_contact",
+    "instantly_email", "client_email", "client_phone", "notes", "api_key",
+  ];
+  if (editableKeys.some((k) => k in body)) {
     await updateAccountMeta(id, {
       title: body.title,
       renews_at: body.renews_at === "" ? null : body.renews_at,
       plan_label: body.plan_label === "" ? null : body.plan_label,
       client_company: body.client_company === "" ? null : body.client_company,
       client_contact: body.client_contact === "" ? null : body.client_contact,
+      instantly_email: body.instantly_email === "" ? null : body.instantly_email,
+      client_email: body.client_email === "" ? null : body.client_email,
+      client_phone: body.client_phone === "" ? null : body.client_phone,
+      notes: body.notes === "" ? null : body.notes,
+      api_key: body.api_key,
     });
   }
   return NextResponse.json({ ok: true });

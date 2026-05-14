@@ -18,6 +18,14 @@ export type InstantlyAccount = {
   /** Si pertenece a un cliente, podemos guardar metadatos suyos */
   client_company?: string;
   client_contact?: string;
+  /** Email con el que el cliente accede a Instantly */
+  instantly_email?: string;
+  /** Email de contacto del cliente (para nosotros) */
+  client_email?: string;
+  /** Teléfono del cliente */
+  client_phone?: string;
+  /** Notas internas */
+  notes?: string;
   // Subscripción (legacy, ya no se rellena automáticamente — se mantiene para retrocompat)
   subscription?: {
     plan?: string;
@@ -41,6 +49,10 @@ export type InstantlyAccountPublic = {
   days_remaining?: number;
   client_company?: string;
   client_contact?: string;
+  instantly_email?: string;
+  client_email?: string;
+  client_phone?: string;
+  notes?: string;
 };
 
 const SUBSCRIPTION_TTL_MS = 30 * 60 * 1000;
@@ -152,6 +164,10 @@ export async function listAccounts(): Promise<InstantlyAccountPublic[]> {
       days_remaining: daysRemaining,
       client_company: a.client_company,
       client_contact: a.client_contact,
+      instantly_email: a.instantly_email,
+      client_email: a.client_email,
+      client_phone: a.client_phone,
+      notes: a.notes,
     };
   });
 }
@@ -236,6 +252,11 @@ export async function updateAccountMeta(id: string, patch: {
   plan_label?: string | null;
   client_company?: string | null;
   client_contact?: string | null;
+  instantly_email?: string | null;
+  client_email?: string | null;
+  client_phone?: string | null;
+  notes?: string | null;
+  api_key?: string;
 }): Promise<void> {
   const all = await readAll();
   const a = all.find((x) => x.id === id);
@@ -249,6 +270,15 @@ export async function updateAccountMeta(id: string, patch: {
   else if (typeof patch.client_company === "string") a.client_company = patch.client_company.trim() || undefined;
   if (patch.client_contact === null) delete a.client_contact;
   else if (typeof patch.client_contact === "string") a.client_contact = patch.client_contact.trim() || undefined;
+  if (patch.instantly_email === null) delete a.instantly_email;
+  else if (typeof patch.instantly_email === "string") a.instantly_email = patch.instantly_email.trim() || undefined;
+  if (patch.client_email === null) delete a.client_email;
+  else if (typeof patch.client_email === "string") a.client_email = patch.client_email.trim() || undefined;
+  if (patch.client_phone === null) delete a.client_phone;
+  else if (typeof patch.client_phone === "string") a.client_phone = patch.client_phone.trim() || undefined;
+  if (patch.notes === null) delete a.notes;
+  else if (typeof patch.notes === "string") a.notes = patch.notes.trim() || undefined;
+  if (typeof patch.api_key === "string" && patch.api_key.trim()) a.api_key = patch.api_key.trim();
   await writeAll(all);
 }
 

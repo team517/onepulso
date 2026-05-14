@@ -79,6 +79,51 @@ export async function createCampaign(
   throw new Error(`Instantly createCampaign ${r.status}: ${txt.slice(0, 400)}`);
 }
 
+/** Cuenta los leads reales de una campaña en Instantly (paginando si hace falta).
+ *  La API v2 no expone un endpoint simple de count → recorremos páginas hasta agotar.
+ *  Devuelve el número total. Si falla, devuelve null. */
+export async function countLeadsInCampaign(campaignId: string): Promise<number | null> {
+  try {
+    let total = 0;
+    let nextStarting: string | undefined;
+    let pages = 0;
+    do {
+      const params = new URLSearchParams({ limit: "100" });
+      // Endpoint v2: POST /leads/list con filtro de campaña.
+      const r = await fetch(`${BASE}/leads/list`, {
+        method: "POST",
+        headers: await authHeaders(),
+        body: JSON.stringify({
+          campaign: campaignId,
+          limit: 100,
+          ...(nextStarting ? { starting_after: nextStarting } : {}),
+        }),
+      });
+      if (!r.ok) {
+        // Algunos workspaces no tienen este endpoint; intentar GET fallback
+        const r2 = await fetch(`${BASE}/campaigns/${campaignId}/leads?limit=1`, {
+          headers: await authHeaders(),
+        });
+        if (r2.ok) {
+          const d2: any = await r2.json();
+          if (typeof d2?.total === "number") return d2.total;
+          if (typeof d2?.total_count === "number") return d2.total_count;
+        }
+        return null;
+      }
+      const d: any = await r.json();
+      const items: any[] = Array.isArray(d?.items) ? d.items : Array.isArray(d?.data) ? d.data : [];
+      total += items.length;
+      nextStarting = d?.next_starting_after ?? d?.next_starting ?? undefined;
+      pages++;
+      if (items.length === 0 || pages > 200) break; // safety
+    } while (nextStarting);
+    return total;
+  } catch {
+    return null;
+  }
+}
+
 export async function uploadLead(campaignId: string, lead: {
   email: string;
   first_name?: string;

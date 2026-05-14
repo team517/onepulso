@@ -79,8 +79,10 @@ export default function Page() {
   const [newAcctClientContact, setNewAcctClientContact] = useState("");
   const [savingAcct, setSavingAcct] = useState(false);
   const [editingAcctId, setEditingAcctId] = useState<string | null>(null);
+  const [editAcct, setEditAcct] = useState<any>({});
   const [editAcctRenews, setEditAcctRenews] = useState("");
   const [editAcctPlan, setEditAcctPlan] = useState("");
+  const [refreshingLeads, setRefreshingLeads] = useState(false);
 
   async function loadInstantlyAccounts() {
     try {
@@ -146,20 +148,57 @@ export default function Page() {
     setEditingAcctId(a.id);
     setEditAcctRenews(a.renews_at ? a.renews_at.slice(0, 10) : "");
     setEditAcctPlan(a.plan_label || "");
+    setEditAcct({
+      title: a.title || "",
+      client_company: a.client_company || "",
+      client_contact: a.client_contact || "",
+      instantly_email: a.instantly_email || "",
+      client_email: a.client_email || "",
+      client_phone: a.client_phone || "",
+      notes: a.notes || "",
+      api_key: "", // No precargar la API key (queda oculta), solo cambiar si tipean
+    });
   }
 
   async function saveEditAccount(id: string) {
+    const patch: any = {
+      title: editAcct.title || undefined,
+      renews_at: editAcctRenews ? new Date(editAcctRenews).toISOString() : "",
+      plan_label: editAcctPlan,
+      client_company: editAcct.client_company ?? "",
+      client_contact: editAcct.client_contact ?? "",
+      instantly_email: editAcct.instantly_email ?? "",
+      client_email: editAcct.client_email ?? "",
+      client_phone: editAcct.client_phone ?? "",
+      notes: editAcct.notes ?? "",
+    };
+    if (editAcct.api_key && editAcct.api_key.trim()) patch.api_key = editAcct.api_key.trim();
     await fetch(`/api/instantly/accounts/${id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        renews_at: editAcctRenews ? new Date(editAcctRenews).toISOString() : "",
-        plan_label: editAcctPlan,
-      }),
+      body: JSON.stringify(patch),
     });
     setEditingAcctId(null);
     await loadInstantlyAccounts();
     await fetch("/api/instantly/status").then(r => r.json()).then(setInstantlyStatus);
+  }
+
+  async function refreshLeadsCount() {
+    if (refreshingLeads) return;
+    setRefreshingLeads(true);
+    try {
+      const r = await fetch("/api/campaigns/refresh-leads", { method: "POST" }).then((r) => r.json());
+      if (r.ok) {
+        await refreshAll();
+        alert(`✓ Actualizado · ${r.updated} de ${r.total_campaigns_checked} campañas\n\nLos contadores ahora reflejan los leads REALES en Instantly.`);
+      } else {
+        alert("⚠️ " + (r.error || "Error desconocido"));
+      }
+    } catch (e: any) {
+      alert("⚠️ " + e.message);
+    } finally {
+      setRefreshingLeads(false);
+    }
   }
 
   async function setActiveInstantly(id: string) {
@@ -1150,32 +1189,63 @@ export default function Page() {
                         <div style={{ fontSize: 11, color: "var(--text-faint)", fontFamily: "var(--font-mono)", marginTop: 2 }}>
                           {a.api_key_masked}
                         </div>
-                        {a.renews_at && editingAcctId !== a.id && (
-                          <div style={{ fontSize: 10.5, color: "var(--text-faint)", marginTop: 2 }}>
-                            Renueva el {new Date(a.renews_at).toLocaleDateString("es-ES", { day: "numeric", month: "long", year: "numeric" })}
-                          </div>
+                        {editingAcctId !== a.id && (
+                          <>
+                            {a.renews_at && (
+                              <div style={{ fontSize: 10.5, color: "var(--text-faint)", marginTop: 2 }}>
+                                Renueva el {new Date(a.renews_at).toLocaleDateString("es-ES", { day: "numeric", month: "long", year: "numeric" })}
+                              </div>
+                            )}
+                            {(a.instantly_email || a.client_email || a.client_phone || a.client_contact) && (
+                              <div style={{ fontSize: 10.5, color: "var(--text-faint)", marginTop: 4, display: "flex", flexWrap: "wrap", gap: 8 }}>
+                                {a.instantly_email && <span>✉ Instantly: <code style={{ fontSize: 10, color: "var(--text-dim)" }}>{a.instantly_email}</code></span>}
+                                {a.client_contact && <span>👤 {a.client_contact}</span>}
+                                {a.client_email && <span>📧 {a.client_email}</span>}
+                                {a.client_phone && <span>📞 {a.client_phone}</span>}
+                              </div>
+                            )}
+                            {a.notes && (
+                              <div style={{ fontSize: 10.5, color: "var(--text-dim)", marginTop: 4, fontStyle: "italic", background: "var(--bg-elev-2)", padding: "4px 8px", borderRadius: 6 }}>
+                                📝 {a.notes}
+                              </div>
+                            )}
+                          </>
                         )}
 
-                        {/* Inline editor */}
+                        {/* Inline editor — completo */}
                         {editingAcctId === a.id && (
-                          <div style={{ marginTop: 8, padding: 10, background: "var(--bg-elev-2)", borderRadius: 8, display: "flex", flexDirection: "column", gap: 6 }}>
-                            <label style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: "var(--text-dim)" }}>Fecha de renovación</label>
-                            <input
-                              type="date"
-                              value={editAcctRenews}
-                              onChange={(e) => setEditAcctRenews(e.target.value)}
-                              style={{ padding: "6px 10px", border: "1px solid var(--border)", borderRadius: 6, fontSize: 12, fontFamily: "inherit", background: "#fff" }}
-                            />
-                            <label style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: "var(--text-dim)" }}>Plan (opcional)</label>
-                            <input
-                              value={editAcctPlan}
-                              onChange={(e) => setEditAcctPlan(e.target.value)}
-                              placeholder="Ej: Growth, Pro, Trial"
-                              style={{ padding: "6px 10px", border: "1px solid var(--border)", borderRadius: 6, fontSize: 12, fontFamily: "inherit", background: "#fff" }}
-                            />
-                            <div style={{ display: "flex", gap: 6 }}>
-                              <button onClick={() => saveEditAccount(a.id)} style={{ padding: "5px 12px", background: "var(--accent)", color: "#fff", border: "none", borderRadius: 6, fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>Guardar</button>
-                              <button onClick={() => setEditingAcctId(null)} style={{ padding: "5px 12px", background: "transparent", border: "1px solid var(--border)", borderRadius: 6, fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: "inherit", color: "var(--text-dim)" }}>Cancelar</button>
+                          <div style={{ marginTop: 10, padding: 12, background: "var(--bg-elev-2)", borderRadius: 9, display: "flex", flexDirection: "column", gap: 8 }}>
+                            <EditField label="Título" value={editAcct.title} onChange={(v) => setEditAcct({ ...editAcct, title: v })} placeholder="Ej: Cliente Acme" />
+                            {!a.is_owner && (
+                              <>
+                                <EditField label="Empresa del cliente" value={editAcct.client_company} onChange={(v) => setEditAcct({ ...editAcct, client_company: v })} placeholder="Ej: Acme S.L." />
+                                <EditField label="Persona de contacto" value={editAcct.client_contact} onChange={(v) => setEditAcct({ ...editAcct, client_contact: v })} placeholder="Ej: Juan Pérez" />
+                                <EditField label="Email del cliente (tú escribes aquí)" value={editAcct.client_email} onChange={(v) => setEditAcct({ ...editAcct, client_email: v })} placeholder="juan@acme.com" />
+                                <EditField label="Teléfono del cliente" value={editAcct.client_phone} onChange={(v) => setEditAcct({ ...editAcct, client_phone: v })} placeholder="+34 ..." />
+                              </>
+                            )}
+                            <EditField label="Email con el que entra a Instantly" value={editAcct.instantly_email} onChange={(v) => setEditAcct({ ...editAcct, instantly_email: v })} placeholder={a.is_owner ? "team@onepulso.online" : "user@cliente.com"} />
+                            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                              <div>
+                                <label style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: "var(--text-dim)" }}>Plan</label>
+                                <input value={editAcctPlan} onChange={(e) => setEditAcctPlan(e.target.value)} placeholder="Growth, Pro…" style={inputSm} />
+                              </div>
+                              <div>
+                                <label style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: "var(--text-dim)" }}>Renueva</label>
+                                <input type="date" value={editAcctRenews} onChange={(e) => setEditAcctRenews(e.target.value)} style={inputSm} />
+                              </div>
+                            </div>
+                            <div>
+                              <label style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: "var(--text-dim)" }}>API Key <span style={{ fontWeight: 400, textTransform: "none", letterSpacing: 0 }}>— vacío = no cambiar</span></label>
+                              <input type="password" value={editAcct.api_key} onChange={(e) => setEditAcct({ ...editAcct, api_key: e.target.value })} placeholder="••••••••" style={{ ...inputSm, fontFamily: "var(--font-mono)" }} />
+                            </div>
+                            <div>
+                              <label style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: "var(--text-dim)" }}>Notas</label>
+                              <textarea value={editAcct.notes} onChange={(e) => setEditAcct({ ...editAcct, notes: e.target.value })} placeholder="Cualquier nota interna sobre este cliente…" rows={2} style={{ ...inputSm, resize: "vertical", fontFamily: "inherit" }} />
+                            </div>
+                            <div style={{ display: "flex", gap: 6, marginTop: 4 }}>
+                              <button onClick={() => saveEditAccount(a.id)} style={{ padding: "7px 14px", background: "var(--accent)", color: "#fff", border: "none", borderRadius: 7, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>💾 Guardar</button>
+                              <button onClick={() => setEditingAcctId(null)} style={{ padding: "7px 14px", background: "transparent", border: "1px solid var(--border)", borderRadius: 7, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "inherit", color: "var(--text-dim)" }}>Cancelar</button>
                             </div>
                           </div>
                         )}
@@ -1375,9 +1445,60 @@ export default function Page() {
                 💡 La API key se guarda en Postgres. Tu memoria y skills se comparten entre todas las cuentas.
               </div>
             </div>
+
+            {/* Sección: sincronizar leads reales desde Instantly */}
+            <div style={{
+              marginTop: 16, padding: 14,
+              background: "linear-gradient(135deg, rgba(0,113,227,0.04), rgba(0,113,227,0.08))",
+              border: "1px solid rgba(0,113,227,0.25)",
+              borderRadius: 12,
+            }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: "var(--text)", marginBottom: 4 }}>
+                🔄 Sincronizar leads reales desde Instantly
+              </div>
+              <div style={{ fontSize: 12, color: "var(--text-dim)", lineHeight: 1.55, marginBottom: 10 }}>
+                Si subiste leads desde fuera de la plataforma (Instantly UI, CSV directo, etc.), los contadores aquí pueden estar desactualizados. Esto recorre tus campañas en la cuenta activa y trae el conteo REAL.
+              </div>
+              <button
+                onClick={refreshLeadsCount}
+                disabled={refreshingLeads}
+                style={{
+                  padding: "8px 14px",
+                  background: refreshingLeads ? "var(--bg-elev-3)" : "linear-gradient(135deg, #0071e3, #1d4ed8)",
+                  color: refreshingLeads ? "var(--text-dim)" : "#fff",
+                  border: "none", borderRadius: 9, fontSize: 12.5, fontWeight: 700,
+                  cursor: refreshingLeads ? "wait" : "pointer", fontFamily: "inherit",
+                  boxShadow: refreshingLeads ? "none" : "0 2px 8px rgba(0,113,227,0.25)",
+                }}
+              >
+                {refreshingLeads ? "Sincronizando… (puede tardar 30-60s)" : "🔄 Refrescar contadores ahora"}
+              </button>
+            </div>
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+const inputSm: React.CSSProperties = {
+  padding: "7px 10px",
+  border: "1px solid var(--border)",
+  borderRadius: 7,
+  fontSize: 12.5,
+  fontFamily: "inherit",
+  background: "#fff",
+  width: "100%",
+  outline: "none",
+  boxSizing: "border-box",
+  color: "var(--text)",
+};
+
+function EditField({ label, value, onChange, placeholder }: { label: string; value: string; onChange: (v: string) => void; placeholder?: string }) {
+  return (
+    <div>
+      <label style={{ display: "block", fontSize: 10, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: "var(--text-dim)", marginBottom: 3 }}>{label}</label>
+      <input value={value || ""} onChange={(e) => onChange(e.target.value)} placeholder={placeholder} style={inputSm} />
     </div>
   );
 }

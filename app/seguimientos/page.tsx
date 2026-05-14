@@ -1058,8 +1058,17 @@ export default function SeguimientosPage() {
   }
 
   async function cancelFollowup(id: string) {
-    if (!confirm("¿Cancelar este follow-up?")) return;
-    await fetch(`/api/email/followups/${id}`, { method: "DELETE" });
+    if (!confirm("¿Cancelar este follow-up?\n\nQuedará archivado como cancelado y podrás restaurarlo si cambias de idea.")) return;
+    // Soft-cancel: PATCH a status="cancelled" en vez de DELETE
+    await fetch(`/api/email/followups/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        status: "cancelled",
+        cancelled_reason: "manual",
+        cancelled_at: new Date().toISOString(),
+      }),
+    });
     if (thread) loadThread(thread.id);
     refreshThreads();
   }

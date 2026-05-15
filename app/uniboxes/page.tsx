@@ -74,12 +74,12 @@ export default function UniboxesAdminPage() {
   }
 
   return (
-    <>
+    <div className="dash-shell">
       <DashboardNav />
-      <main style={mainStyle}>
+      <div className="dash-content" style={contentStyle}>
         <div style={headerStyle}>
           <div>
-            <h1 style={h1Style}>Unibox</h1>
+            <h1 style={h1Style}>✉ Unibox</h1>
             <p style={subStyle}>Portales de bandeja unificada para tus clientes</p>
           </div>
           <button style={btnPrimary} onClick={() => setShowCreate(true)}>
@@ -162,16 +162,16 @@ export default function UniboxesAdminPage() {
             </div>
           </div>
         )}
-      </main>
-    </>
+      </div>
+    </div>
   );
 }
 
-// ---------- inline styles (Apple-ish, matches login look) ----------
-const mainStyle: React.CSSProperties = {
-  marginLeft: 240, padding: "40px 48px", minHeight: "100vh",
-  background: "linear-gradient(145deg, #f5f7fb 0%, #ffffff 100%)",
-  fontFamily: "-apple-system, 'SF Pro Text', 'Helvetica Neue', Arial, sans-serif",
+// ---------- inline styles ----------
+const contentStyle: React.CSSProperties = {
+  padding: "32px 40px",
+  overflowY: "auto",
+  fontFamily: "inherit",
 };
 const headerStyle: React.CSSProperties = {
   display: "flex", justifyContent: "space-between", alignItems: "flex-end", marginBottom: 28,

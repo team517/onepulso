@@ -82,15 +82,15 @@ export default function UniboxAdminDetailPage() {
     connectStream(ids);
   }
 
-  if (loading) return (<><DashboardNav /><main style={mainStyle}>Cargando…</main></>);
-  if (!unibox) return (<><DashboardNav /><main style={mainStyle}>Unibox no encontrada</main></>);
+  if (loading) return (<div className="dash-shell"><DashboardNav /><div className="dash-content" style={mainStyle}>Cargando…</div></div>);
+  if (!unibox) return (<div className="dash-shell"><DashboardNav /><div className="dash-content" style={mainStyle}>Unibox no encontrada</div></div>);
 
   const clientUrl = `${typeof window !== "undefined" ? window.location.origin : ""}/u/${id}/login`;
 
   return (
-    <>
+    <div className="dash-shell">
       <DashboardNav />
-      <main style={mainStyle}>
+      <div className="dash-content" style={mainStyle}>
         <Link href="/uniboxes" style={backStyle}>← Volver</Link>
         <div style={headerStyle}>
           <div>
@@ -218,16 +218,16 @@ export default function UniboxAdminDetailPage() {
             Abrir bandeja del cliente →
           </Link>
         </div>
-      </main>
-    </>
+      </div>
+    </div>
   );
 }
 
 // ---------- styles ----------
 const mainStyle: React.CSSProperties = {
-  marginLeft: 240, padding: "32px 48px", minHeight: "100vh",
-  background: "linear-gradient(145deg, #f5f7fb 0%, #ffffff 100%)",
-  fontFamily: "-apple-system, 'SF Pro Text', 'Helvetica Neue', Arial, sans-serif",
+  padding: "32px 40px",
+  overflowY: "auto",
+  fontFamily: "inherit",
 };
 const backStyle: React.CSSProperties = {
   color: "#0071e3", fontSize: 13, textDecoration: "none", display: "inline-block", marginBottom: 14,

@@ -186,3 +186,91 @@ export async function loadMessagesMap(uniboxId: string): Promise<Record<string, 
 export async function saveMessagesMap(uniboxId: string, m: Record<string, UniboxMessage[]>): Promise<void> {
   await writeJson(`uniboxes/${uniboxId}/messages`, m);
 }
+
+/** Borra TODOS los mensajes de una unibox (de todas sus cuentas).
+ *  El próximo sync los volverá a traer desde IMAP. */
+export async function clearAllMessages(uniboxId: string): Promise<{ accounts: number; deleted: number }> {
+  const msgs = await loadMessagesMap(uniboxId);
+  let total = 0;
+  let accountsTouched = 0;
+  for (const acctId of Object.keys(msgs)) {
+    if (msgs[acctId]?.length) {
+      total += msgs[acctId].length;
+      accountsTouched++;
+    }
+  }
+  await saveMessagesMap(uniboxId, {});
+  return { accounts: accountsTouched, deleted: total };
+}
+
+/** Detecta si un mensaje es un bounce / failure / delivery report.
+ *  Devuelve true para mensajes auto-generados de "no entregable" que NO
+ *  queremos mostrar en la bandeja del cliente. */
+export function isBounceOrFailure(m: { from?: string; fromAddress?: string; fromName?: string; subject?: string; text?: string }): boolean {
+  const from = (m.fromAddress || m.from || "").toLowerCase();
+  const fromName = (m.fromName || "").toLowerCase();
+  const subject = (m.subject || "").toLowerCase();
+  const text = (m.text || "").slice(0, 2000).toLowerCase();
+
+  // Direcciones típicas de bounce
+  if (
+    /(mailer-?daemon|postmaster|noreply|no-?reply|bounce|deliver(y|able)|failure|abuse@)/i.test(from) ||
+    /mailer-?daemon|postmaster/i.test(fromName)
+  ) {
+    return true;
+  }
+
+  // Subjects típicos de bounce/failure
+  if (
+    /^(undelivered|undeliverable|failure notice|delivery (status notification|failure|incomplete)|mail delivery (failed|failure)|returned mail|message not delivered|no se ha podido entregar|no entregado|devuelto|fallo de entrega|automatic reply|out of office)/i.test(subject) ||
+    /delivery has failed/i.test(subject)
+  ) {
+    return true;
+  }
+
+  // Contenido: combinación de palabras clave que indican bounce
+  const indicators = [
+    "address not found",
+    "user unknown",
+    "user does not exist",
+    "no such user",
+    "mailbox unavailable",
+    "mailbox is full",
+    "mailbox full",
+    "550 5.1.1",
+    "550-5.1.1",
+    "552 5.2.2",
+    "554 5.4.6",
+    "could not be delivered",
+    "permanent error",
+    "permanently rejected",
+    "domain not found",
+    "no encontramos a esta dirección",
+    "no se ha podido entregar",
+    "destinatario desconocido",
+    "el correo no existe",
+  ];
+  let matches = 0;
+  for (const ind of indicators) {
+    if (text.includes(ind)) matches++;
+    if (matches >= 1 && /^(mail delivery|delivery|failure|undelivered)/i.test(subject)) return true;
+    if (matches >= 2) return true;
+  }
+  return false;
+}
+
+/** Borra todos los bounces / fallos de entrega del histórico actual. Devuelve cuántos eliminó. */
+export async function purgeBounces(uniboxId: string): Promise<{ removed: number; kept: number }> {
+  const msgs = await loadMessagesMap(uniboxId);
+  let removed = 0;
+  let kept = 0;
+  for (const acctId of Object.keys(msgs)) {
+    const before = msgs[acctId].length;
+    msgs[acctId] = msgs[acctId].filter((m) => !isBounceOrFailure(m));
+    const diff = before - msgs[acctId].length;
+    removed += diff;
+    kept += msgs[acctId].length;
+  }
+  await saveMessagesMap(uniboxId, msgs);
+  return { removed, kept };
+}

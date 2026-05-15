@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getUnibox, loadMessagesMap } from "@/lib/unibox-store";
+import { getUnibox, loadMessagesMap, clearAllMessages, purgeBounces } from "@/lib/unibox-store";
 import { requireAdmin, requireClientForUnibox } from "@/lib/unibox-auth";
 
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -33,4 +33,27 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
   out.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
   return NextResponse.json({ messages: out.slice(0, 500), warmupCount });
+}
+
+/**
+ * DELETE /api/uniboxes/[id]/messages
+ *   ?mode=all       Borra TODOS los mensajes del histórico (default)
+ *   ?mode=bounces   Borra sólo los bounces / delivery failure
+ *
+ * Sólo admin. El próximo sync volverá a traer los mensajes válidos desde IMAP.
+ */
+export async function DELETE(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  if (!requireAdmin(req)) {
+    return NextResponse.json({ error: "No autorizado" }, { status: 401 });
+  }
+  const { id } = await params;
+  const url = new URL(req.url);
+  const mode = url.searchParams.get("mode") || "all";
+
+  if (mode === "bounces") {
+    const r = await purgeBounces(id);
+    return NextResponse.json({ ok: true, mode: "bounces", ...r });
+  }
+  const r = await clearAllMessages(id);
+  return NextResponse.json({ ok: true, mode: "all", ...r });
 }

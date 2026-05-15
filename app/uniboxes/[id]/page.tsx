@@ -105,6 +105,36 @@ export default function UniboxAdminDetailPage() {
     }
   }
 
+  async function clearHistory() {
+    if (!confirm("¿Borrar TODO el historial de mensajes de esta unibox?\n\nLas cuentas permanecen conectadas. El próximo sync volverá a traer mensajes nuevos.\nEsta acción no afecta a los emails en los servidores IMAP del cliente.")) return;
+    try {
+      const r = await fetch(`/api/uniboxes/${id}/messages?mode=all`, { method: "DELETE" }).then((r) => r.json());
+      if (r.ok) {
+        alert(`✓ Histórico borrado · ${r.deleted} mensajes eliminados de ${r.accounts} cuentas.\n\nEl próximo sync los traerá de nuevo (filtrando bounces).`);
+        await load();
+      } else {
+        alert("Error: " + (r.error || "desconocido"));
+      }
+    } catch (e: any) {
+      alert("Error: " + e.message);
+    }
+  }
+
+  async function purgeBounces() {
+    if (!confirm("¿Eliminar todos los mensajes de 'no entregable' / mailer-daemon / direcciones que no existen?\n\nMantiene el resto del histórico intacto.")) return;
+    try {
+      const r = await fetch(`/api/uniboxes/${id}/messages?mode=bounces`, { method: "DELETE" }).then((r) => r.json());
+      if (r.ok) {
+        alert(`✓ ${r.removed} bounces eliminados · ${r.kept} mensajes válidos conservados.\n\nA partir de ahora los bounces tampoco se sincronizarán (filtrados al llegar).`);
+        await load();
+      } else {
+        alert("Error: " + (r.error || "desconocido"));
+      }
+    } catch (e: any) {
+      alert("Error: " + e.message);
+    }
+  }
+
   // Filtrar cuentas
   const filteredAccounts = accounts.filter((a) => {
     if (filter) {
@@ -150,9 +180,21 @@ export default function UniboxAdminDetailPage() {
               URL acceso: <a href={clientUrl} target="_blank" rel="noreferrer" style={{ color: "#0071e3" }}>{clientUrl}</a>
             </div>
           </div>
-          <div style={{ display: "flex", gap: 10 }}>
-            <button style={btnGhost} onClick={() => fileInput.current?.click()}>+ Subir CSV de cuentas</button>
-            <button style={btnPrimary} onClick={syncAll} disabled={accounts.length === 0}>Sincronizar todo</button>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "flex-end" }}>
+            <button style={btnGhost} onClick={() => fileInput.current?.click()}>+ Subir CSV</button>
+            <button style={btnPrimary} onClick={syncAll} disabled={accounts.length === 0}>↻ Sincronizar todo</button>
+            <button
+              style={{ ...btnGhost, color: "#b45309", borderColor: "rgba(245,158,11,0.3)" }}
+              onClick={purgeBounces}
+              disabled={accounts.length === 0}
+              title="Elimina los mensajes 'no entregable' / mailer-daemon / direcciones que no existen"
+            >🧹 Limpiar bounces</button>
+            <button
+              style={{ ...btnGhost, color: "#dc2626", borderColor: "rgba(220,38,38,0.25)" }}
+              onClick={clearHistory}
+              disabled={accounts.length === 0}
+              title="Borra TODO el histórico de mensajes locales (las cuentas permanecen)"
+            >🗑 Borrar histórico</button>
           </div>
           <input ref={fileInput} type="file" accept=".csv" hidden
             onChange={(e) => e.target.files?.[0] && uploadCsv(e.target.files[0])} />

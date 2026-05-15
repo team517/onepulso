@@ -8,6 +8,7 @@ import {
   loadMessagesMap,
   saveMessagesMap,
   updateUnibox,
+  isBounceOrFailure,
 } from "./unibox-store";
 import { isWarmupMessage } from "./unibox-warmup";
 
@@ -63,7 +64,15 @@ export async function syncAccount(uniboxId: string, accountId: string): Promise<
           const text = parsed.text || "";
           const html = (parsed.html as string) || "";
           const fromAddr = parsed.from?.text || (msg.envelope as any)?.from?.[0]?.address || "";
+          const fromName = (msg.envelope as any)?.from?.[0]?.name || "";
+          const fromAddress = (msg.envelope as any)?.from?.[0]?.address || "";
           const warmup = isWarmupMessage({ subject, text, html, from: fromAddr });
+
+          // FILTRO BOUNCE: si es un mensaje de delivery failure / mailer-daemon
+          // / "user unknown", lo descartamos para que no llene la bandeja.
+          if (isBounceOrFailure({ from: fromAddr, fromAddress, fromName, subject, text })) {
+            continue;
+          }
 
           const inReplyTo = (parsed.inReplyTo as string) || "";
           const refsRaw = parsed.references;
@@ -75,8 +84,8 @@ export async function syncAccount(uniboxId: string, accountId: string): Promise<
             inReplyTo,
             references,
             from: fromAddr,
-            fromName: (msg.envelope as any)?.from?.[0]?.name || "",
-            fromAddress: (msg.envelope as any)?.from?.[0]?.address || "",
+            fromName,
+            fromAddress,
             to: parsed.to ? (Array.isArray(parsed.to) ? parsed.to.map(t => t.text).join(", ") : parsed.to.text) : "",
             toAddress: (msg.envelope as any)?.to?.[0]?.address || "",
             subject,

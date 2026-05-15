@@ -18,6 +18,12 @@ export function middleware(req: NextRequest) {
     return NextResponse.next();
   }
 
+  // Rutas públicas de portal cliente unibox: /u/* (login + inbox)
+  // y sus APIs propias (login, messages, send) — usan otro cookie
+  if (pathname.startsWith("/u/") || pathname.startsWith("/api/unibox-client/")) {
+    return NextResponse.next();
+  }
+
   const token = req.cookies.get("onepulso_session")?.value;
 
   if (!token || token !== SESSION_TOKEN) {

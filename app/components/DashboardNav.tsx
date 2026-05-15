@@ -6,6 +6,7 @@ const NAV = [
   { href: "/",              label: "Inicio",        icon: "⊞", exact: true },
   { href: "/campaigns",    label: "Campañas",      icon: "✦", exact: false },
   { href: "/seguimientos", label: "Seguimientos",  icon: "◈", exact: false },
+  { href: "/uniboxes",     label: "Unibox",        icon: "✉", exact: false },
   { href: "/tareas",       label: "Tareas",        icon: "✓", exact: false },
   { href: "/linkedin",     label: "LinkedIn",      icon: "◆", exact: false },
   { href: "/facturacion",  label: "Facturación",   icon: "◇", exact: false },

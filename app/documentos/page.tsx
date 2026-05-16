@@ -45,6 +45,64 @@ export default function DocumentosPage() {
 
   useEffect(() => { load(); }, []);
 
+  async function createNewFolder() {
+    const name = prompt("Nombre de la nueva carpeta:");
+    if (!name?.trim()) return;
+    const r = await fetch("/api/documents/folders", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: name.trim() }),
+    }).then((r) => r.json());
+    if (r.error) {
+      alert("⚠️ " + r.error);
+      return;
+    }
+    setFolders(r.folders || []);
+    setActiveFolder(name.trim()); // entrar directamente
+  }
+
+  async function renameCurrentFolder() {
+    if (activeFolder === "all" || activeFolder === "_root") return;
+    const newName = prompt(`Renombrar carpeta "${activeFolder}":`, activeFolder);
+    if (!newName?.trim() || newName.trim() === activeFolder) return;
+    const r = await fetch("/api/documents/folders", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ old: activeFolder, new: newName.trim() }),
+    }).then((r) => r.json());
+    if (r.error) {
+      alert("⚠️ " + r.error);
+      return;
+    }
+    setActiveFolder(newName.trim());
+    await load();
+  }
+
+  async function deleteCurrentFolder() {
+    if (activeFolder === "all" || activeFolder === "_root") return;
+    const inside = docs.filter((d) => d.folder === activeFolder).length;
+    if (inside > 0) {
+      const choice = confirm(
+        `La carpeta "${activeFolder}" tiene ${inside} documento(s).\n\n` +
+        `[Aceptar] = Mover documentos a "Sin carpeta" y borrar carpeta\n` +
+        `[Cancelar] = Cancelar`
+      );
+      if (!choice) return;
+      const r = await fetch(`/api/documents/folders?name=${encodeURIComponent(activeFolder)}&force=1`, {
+        method: "DELETE",
+      }).then((r) => r.json());
+      if (r.error) { alert("⚠️ " + r.error); return; }
+    } else {
+      if (!confirm(`¿Eliminar la carpeta vacía "${activeFolder}"?`)) return;
+      const r = await fetch(`/api/documents/folders?name=${encodeURIComponent(activeFolder)}`, {
+        method: "DELETE",
+      }).then((r) => r.json());
+      if (r.error) { alert("⚠️ " + r.error); return; }
+    }
+    setActiveFolder("all");
+    await load();
+  }
+
   async function doUpload(files: File[], folder: string, clientName: string, notes: string) {
     for (const f of files) {
       setUploadProgress((prev) => [...prev, { name: f.name, status: "uploading" }]);
@@ -253,8 +311,21 @@ export default function DocumentosPage() {
         <div style={{ display: "grid", gridTemplateColumns: "240px 1fr", gap: 18, alignItems: "start" }}>
           {/* Folders sidebar */}
           <aside style={{ ...panel, position: "sticky", top: 12 }}>
-            <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-faint)", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 10 }}>
-              Carpetas
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-faint)", textTransform: "uppercase", letterSpacing: "0.06em" }}>
+                Carpetas
+              </div>
+              <button
+                onClick={createNewFolder}
+                title="Crear nueva carpeta"
+                style={{
+                  background: "var(--accent)", color: "#fff",
+                  border: "none", borderRadius: 7,
+                  padding: "3px 9px", fontSize: 12, fontWeight: 700,
+                  cursor: "pointer", fontFamily: "inherit",
+                  display: "inline-flex", alignItems: "center", gap: 4,
+                }}
+              >+</button>
             </div>
             <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
               <FolderBtn label={`📁 Todas`} count={docs.length} active={activeFolder === "all"} onClick={() => setActiveFolder("all")} />
@@ -270,8 +341,23 @@ export default function DocumentosPage() {
               ))}
             </div>
             <div style={{ marginTop: 12, fontSize: 11, color: "var(--text-faint)", lineHeight: 1.5 }}>
-              Las carpetas se crean automáticamente al subir un archivo con ruta.
+              Click <strong>+</strong> arriba para crear una carpeta. Al subir archivos, eliges en cuál van.
             </div>
+
+            {/* Acciones de la carpeta activa (si es una carpeta concreta) */}
+            {activeFolder !== "all" && activeFolder !== "_root" && (
+              <div style={{
+                marginTop: 14, paddingTop: 14,
+                borderTop: "1px solid var(--border)",
+                display: "flex", flexDirection: "column", gap: 6,
+              }}>
+                <div style={{ fontSize: 10.5, fontWeight: 700, color: "var(--text-faint)", textTransform: "uppercase", letterSpacing: "0.06em" }}>
+                  Carpeta: {activeFolder}
+                </div>
+                <button onClick={renameCurrentFolder} style={folderActionBtn}>✏️ Renombrar</button>
+                <button onClick={deleteCurrentFolder} style={{ ...folderActionBtn, color: "#dc2626", borderColor: "rgba(220,38,38,0.25)" }}>🗑 Eliminar</button>
+              </div>
+            )}
           </aside>
 
           {/* Files grid */}
@@ -571,6 +657,13 @@ const iconBtn: React.CSSProperties = {
   borderRadius: 7, fontSize: 13, cursor: "pointer",
   fontFamily: "inherit", color: "var(--text-dim)",
   display: "inline-flex", alignItems: "center", justifyContent: "center",
+};
+const folderActionBtn: React.CSSProperties = {
+  background: "#fff", border: "1px solid var(--border)",
+  borderRadius: 7, padding: "6px 10px",
+  fontSize: 12, fontWeight: 600, cursor: "pointer",
+  fontFamily: "inherit", color: "var(--text-dim)",
+  textAlign: "left",
 };
 const modalBackdrop: React.CSSProperties = {
   position: "fixed", inset: 0, background: "rgba(15,23,42,0.5)",

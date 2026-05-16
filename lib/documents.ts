@@ -2,6 +2,7 @@ import { randomUUID } from "crypto";
 import { readJson, writeJson, writeBlob, readBlob, deleteJson } from "./storage";
 
 const KEY_INDEX = "documents-index";
+const KEY_FOLDERS = "documents-folders";
 const BLOB_PREFIX = "documents/";
 
 export type DocumentMeta = {
@@ -89,12 +90,101 @@ export async function readDocument(id: string): Promise<{ meta: DocumentMeta; da
   return { meta, data: blob.data };
 }
 
-/** Devuelve la lista única de carpetas existentes (deduplicadas, ordenadas). */
+/** Carpetas declaradas explícitamente (pueden estar vacías). */
+async function readExplicitFolders(): Promise<string[]> {
+  return (await readJson<string[]>(KEY_FOLDERS)) ?? [];
+}
+
+async function writeExplicitFolders(folders: string[]) {
+  // Normalizar: trim, sin duplicados, sin vacías, ordenadas
+  const unique = Array.from(new Set(folders.map((f) => f.trim()).filter(Boolean)));
+  unique.sort();
+  await writeJson(KEY_FOLDERS, unique);
+}
+
+/** Devuelve TODAS las carpetas: las explícitas + las derivadas de docs (deduplicadas). */
 export async function listFolders(): Promise<string[]> {
-  const docs = await listDocuments();
-  const set = new Set<string>();
+  const [docs, explicit] = await Promise.all([listDocuments(), readExplicitFolders()]);
+  const set = new Set<string>(explicit);
   for (const d of docs) {
     if (d.folder) set.add(d.folder);
   }
   return Array.from(set).sort();
+}
+
+/** Crea una carpeta (solo nombre — sin archivos dentro todavía). */
+export async function createFolder(name: string): Promise<string[]> {
+  const trimmed = name.trim();
+  if (!trimmed) throw new Error("Nombre de carpeta vacío");
+  if (trimmed.length > 100) throw new Error("Nombre demasiado largo (máx 100 caracteres)");
+  const folders = await readExplicitFolders();
+  if (!folders.includes(trimmed)) folders.push(trimmed);
+  await writeExplicitFolders(folders);
+  return await listFolders();
+}
+
+/** Renombra una carpeta. Actualiza todos los documentos que estaban en ella. */
+export async function renameFolder(oldName: string, newName: string): Promise<{ renamed_docs: number }> {
+  const old = oldName.trim();
+  const next = newName.trim();
+  if (!next) throw new Error("Nuevo nombre vacío");
+  if (old === next) return { renamed_docs: 0 };
+
+  // Actualizar docs
+  const docs = await listDocuments();
+  let renamed = 0;
+  for (const d of docs) {
+    if (d.folder === old) {
+      d.folder = next;
+      renamed++;
+    }
+  }
+  await saveIndex(docs);
+
+  // Actualizar lista explícita
+  const folders = await readExplicitFolders();
+  const without = folders.filter((f) => f !== old);
+  if (!without.includes(next)) without.push(next);
+  await writeExplicitFolders(without);
+
+  return { renamed_docs: renamed };
+}
+
+/** Elimina una carpeta. Si force=false y tiene docs, falla. Si force=true, mueve los docs a la raíz. */
+export async function deleteFolder(name: string, opts: { force?: boolean; deleteDocs?: boolean } = {}): Promise<{ moved_to_root: number; deleted_docs: number }> {
+  const target = name.trim();
+  if (!target) throw new Error("Nombre vacío");
+
+  const docs = await listDocuments();
+  const inside = docs.filter((d) => d.folder === target);
+
+  if (inside.length > 0 && !opts.force && !opts.deleteDocs) {
+    throw new Error(`La carpeta tiene ${inside.length} documento(s). Usa force=true para moverlos a raíz o deleteDocs=true para borrarlos.`);
+  }
+
+  let movedToRoot = 0;
+  let deletedDocs = 0;
+
+  if (opts.deleteDocs) {
+    // Borrar los documentos físicamente
+    for (const d of inside) {
+      try { await deleteJson(`${BLOB_PREFIX}${d.id}`); } catch {}
+      deletedDocs++;
+    }
+    const remaining = docs.filter((d) => d.folder !== target);
+    await saveIndex(remaining);
+  } else {
+    // Mover a raíz (folder = undefined)
+    for (const d of inside) {
+      d.folder = undefined;
+      movedToRoot++;
+    }
+    await saveIndex(docs);
+  }
+
+  // Quitar de la lista explícita
+  const folders = await readExplicitFolders();
+  await writeExplicitFolders(folders.filter((f) => f !== target));
+
+  return { moved_to_root: movedToRoot, deleted_docs: deletedDocs };
 }

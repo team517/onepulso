@@ -26,7 +26,7 @@ export default function DrivePage() {
   async function loadStatus() {
     setLoading(true);
     try {
-      const j = await fetch("/api/drive/status").then((r) => r.json());
+      const j = await fetch("/api/drive/status", { cache: "no-store" }).then((r) => r.json());
       setStatus(j);
     } finally {
       setLoading(false);
@@ -45,6 +45,13 @@ export default function DrivePage() {
       window.history.replaceState({}, "", "/drive");
     }
   }, []);
+
+  // Polling automático cada 10s mientras no esté configurado o conectado
+  useEffect(() => {
+    if (status?.configured && status?.connected) return; // ya está → no polling
+    const t = setInterval(() => loadStatus(), 10_000);
+    return () => clearInterval(t);
+  }, [status?.configured, status?.connected]);
 
   async function searchFolders(q: string) {
     setFoldersLoading(true);
@@ -144,35 +151,85 @@ export default function DrivePage() {
   }
 
   if (!status?.configured) {
+    const det = status?.detected || {};
+    const hasClientId = det.GOOGLE_DRIVE_CLIENT_ID || det.GOOGLE_CLIENT_ID;
+    const hasSecret = det.GOOGLE_DRIVE_CLIENT_SECRET || det.GOOGLE_CLIENT_SECRET;
     return (
       <div className="dash-shell">
         <DashboardNav />
         <div className="dash-content" style={{ padding: "32px 40px" }}>
-          <h1 style={pageTitle}>📁 Drive</h1>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14, flexWrap: "wrap", gap: 10 }}>
+            <h1 style={pageTitle}>📁 Drive</h1>
+            <button
+              onClick={loadStatus}
+              style={{ ...btnGhost, fontSize: 12.5 }}
+              title="Re-comprobar variables (auto cada 10s)"
+            >↻ Recargar</button>
+          </div>
+
+          {/* Estado de detección */}
+          <div style={{
+            background: "#fff", border: "1px solid var(--border)",
+            borderRadius: 12, padding: 16, marginBottom: 14,
+          }}>
+            <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 10, color: "var(--text)" }}>
+              Variables detectadas en Railway:
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 6, fontSize: 12.5 }}>
+              <EnvLine name="GOOGLE_DRIVE_CLIENT_ID" present={!!det.GOOGLE_DRIVE_CLIENT_ID} alt={!!det.GOOGLE_CLIENT_ID} />
+              <EnvLine name="GOOGLE_DRIVE_CLIENT_SECRET" present={!!det.GOOGLE_DRIVE_CLIENT_SECRET} alt={!!det.GOOGLE_CLIENT_SECRET} />
+              <EnvLine name="APP_BASE_URL" present={!!det.APP_BASE_URL} optional />
+            </div>
+            {(hasClientId && hasSecret) ? (
+              <div style={{
+                marginTop: 12, padding: "10px 12px",
+                background: "rgba(245,158,11,0.1)",
+                border: "1px solid rgba(245,158,11,0.3)",
+                borderRadius: 8, fontSize: 12.5, color: "#b45309",
+                lineHeight: 1.5,
+              }}>
+                ⚠️ Las variables existen pero esta página no las usa todavía.
+                <br/><strong>Necesita un redeploy de Railway para activarlas.</strong>
+                <br/><br/>Ve a Railway → tu servicio → <strong>Deployments</strong> → menú del último deploy → <strong>"Redeploy"</strong>. En 1-2 min vuelve aquí y aparecerá el botón "Conectar".
+              </div>
+            ) : (
+              <div style={{
+                marginTop: 12, padding: "10px 12px",
+                background: "rgba(239,68,68,0.08)",
+                border: "1px solid rgba(239,68,68,0.25)",
+                borderRadius: 8, fontSize: 12.5, color: "#b91c1c",
+                lineHeight: 1.5,
+              }}>
+                ❌ Faltan variables. Sigue las instrucciones de abajo y luego pulsa <strong>↻ Recargar</strong>.
+              </div>
+            )}
+            <div style={{ marginTop: 10, fontSize: 11, color: "var(--text-faint)" }}>
+              Esta página se auto-recarga cada 10s comprobando si ya están.
+            </div>
+          </div>
+
           <div style={warnCard}>
-            <strong>⚠️ Configuración necesaria</strong>
-            <p style={{ margin: "8px 0", fontSize: 13.5 }}>
-              Para conectar Google Drive necesito que añadas dos variables de entorno en Railway:
-            </p>
-            <ul style={{ fontSize: 13, color: "var(--text-dim)", lineHeight: 1.7 }}>
-              <li><code style={code}>GOOGLE_DRIVE_CLIENT_ID</code></li>
-              <li><code style={code}>GOOGLE_DRIVE_CLIENT_SECRET</code></li>
-            </ul>
-            <p style={{ margin: "12px 0 6px", fontSize: 13.5, fontWeight: 600 }}>Cómo obtenerlas:</p>
-            <ol style={{ fontSize: 13, color: "var(--text-dim)", lineHeight: 1.7 }}>
+            <strong>📋 Instrucciones de configuración</strong>
+            <p style={{ margin: "8px 0 6px", fontSize: 13.5, fontWeight: 600 }}>Paso 1 — Google Cloud Console:</p>
+            <ol style={{ fontSize: 13, color: "var(--text-dim)", lineHeight: 1.7, paddingLeft: 22 }}>
               <li>Ve a <a href="https://console.cloud.google.com/" target="_blank" rel="noreferrer" style={{ color: "var(--accent)" }}>console.cloud.google.com</a></li>
               <li>Crea un proyecto (o usa uno existente)</li>
-              <li><strong>APIs y servicios</strong> → <strong>Biblioteca</strong> → busca <strong>"Google Drive API"</strong> → Habilitar</li>
+              <li><strong>APIs y servicios</strong> → <strong>Biblioteca</strong> → busca <strong>"Google Drive API"</strong> → <strong>Habilitar</strong></li>
+              <li><strong>APIs y servicios</strong> → <strong>Pantalla de consentimiento OAuth</strong> → Externo → completa lo mínimo</li>
               <li><strong>APIs y servicios</strong> → <strong>Credenciales</strong> → <strong>+ Crear credenciales</strong> → <strong>ID de cliente OAuth</strong></li>
               <li>Tipo: <strong>Aplicación web</strong></li>
               <li>URIs de redireccionamiento autorizados: <code style={code}>https://onepulso.up.railway.app/api/drive/callback</code></li>
               <li>Copia el <strong>Client ID</strong> y <strong>Client Secret</strong></li>
-              <li>En Railway → Variables → añade <code style={code}>GOOGLE_DRIVE_CLIENT_ID</code> y <code style={code}>GOOGLE_DRIVE_CLIENT_SECRET</code></li>
-              <li>(opcional) <code style={code}>APP_BASE_URL=https://onepulso.up.railway.app</code></li>
             </ol>
-            <p style={{ margin: "12px 0 0", fontSize: 12, color: "var(--text-faint)" }}>
-              Cuando hayas hecho esto, refresca esta página y aparecerá un botón "Conectar Google Drive".
-            </p>
+            <p style={{ margin: "14px 0 6px", fontSize: 13.5, fontWeight: 600 }}>Paso 2 — Railway:</p>
+            <ol start={9} style={{ fontSize: 13, color: "var(--text-dim)", lineHeight: 1.7, paddingLeft: 22 }}>
+              <li>Tu servicio → pestaña <strong>Variables</strong> → <strong>+ New Variable</strong></li>
+              <li>Nombre: <code style={code}>GOOGLE_DRIVE_CLIENT_ID</code> · Valor: el Client ID</li>
+              <li>Nombre: <code style={code}>GOOGLE_DRIVE_CLIENT_SECRET</code> · Valor: el Secret</li>
+              <li>(opcional) <code style={code}>APP_BASE_URL=https://onepulso.up.railway.app</code></li>
+              <li><strong>Railway redeploya automáticamente.</strong> Espera 1-2 min y refresca esta página.</li>
+              <li>Si no redeploya solo: <strong>Deployments</strong> → menú del último → <strong>Redeploy</strong></li>
+            </ol>
           </div>
         </div>
       </div>
@@ -441,6 +498,29 @@ export default function DrivePage() {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+function EnvLine({ name, present, alt, optional }: { name: string; present: boolean; alt?: boolean; optional?: boolean }) {
+  const ok = present || alt;
+  return (
+    <div style={{
+      display: "flex", alignItems: "center", gap: 8,
+      padding: "6px 10px",
+      background: ok ? "rgba(16,185,129,0.08)" : optional ? "var(--bg-elev-2)" : "rgba(239,68,68,0.06)",
+      border: `1px solid ${ok ? "rgba(16,185,129,0.25)" : optional ? "var(--border)" : "rgba(239,68,68,0.2)"}`,
+      borderRadius: 7,
+    }}>
+      <span style={{ fontSize: 13, color: ok ? "#047857" : optional ? "var(--text-faint)" : "#b91c1c", fontWeight: 700, minWidth: 20 }}>
+        {ok ? "✓" : optional ? "○" : "✗"}
+      </span>
+      <code style={{ fontFamily: "ui-monospace, Menlo, monospace", fontSize: 12, fontWeight: 600, color: "var(--text)" }}>
+        {name}
+      </code>
+      <span style={{ fontSize: 11, color: "var(--text-faint)", marginLeft: "auto" }}>
+        {ok ? (alt && !present ? "(alternativo)" : "detectada") : optional ? "opcional" : "falta"}
+      </span>
     </div>
   );
 }

@@ -13,10 +13,10 @@ import { envVar } from "./env";
 const KEY_TOKENS = "google-drive-tokens";
 const KEY_CONFIG = "google-drive-config";
 
-const SCOPES = [
-  "https://www.googleapis.com/auth/drive",         // lectura + escritura
-  "https://www.googleapis.com/auth/drive.metadata", // metadata de archivos
-].join(" ");
+// Un único scope: drive (lectura + escritura completa).
+// NO añadir drive.metadata porque es redundante con drive y puede causar
+// "validation rules" en la pantalla de consentimiento.
+const SCOPES = "https://www.googleapis.com/auth/drive";
 
 export type GoogleTokens = {
   access_token: string;

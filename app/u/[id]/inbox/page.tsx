@@ -224,6 +224,34 @@ export default function ClientInboxPage() {
             onChange={(e) => setSearch(e.target.value)}
             style={searchStyle}
           />
+          <button
+            onClick={syncAll}
+            disabled={syncing || accounts.length === 0}
+            title="Sincronizar AHORA todas las cuentas (busca mensajes nuevos en IMAP)"
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 5,
+              padding: "7px 13px",
+              background: syncing ? "#cbd5e1" : "linear-gradient(135deg, #0071e3, #1d4ed8)",
+              color: "#fff",
+              border: "none",
+              borderRadius: 8,
+              fontSize: 12.5,
+              fontWeight: 700,
+              cursor: syncing ? "wait" : "pointer",
+              fontFamily: "inherit",
+              boxShadow: syncing ? "none" : "0 2px 6px rgba(0,113,227,0.3)",
+              transition: "all 0.15s",
+            }}
+          >
+            <span style={{
+              display: "inline-block",
+              animation: syncing ? "spin 1s linear infinite" : "none",
+              fontSize: 14,
+            }}>↻</span>
+            <span>{syncing ? "Sincronizando…" : "Refrescar"}</span>
+          </button>
           {warmupCount > 0 && (
             <button style={linkBtn} onClick={() => setShowWarmup(!showWarmup)}>
               {showWarmup ? `Ocultar warmup (${warmupCount})` : `Mostrar warmup (${warmupCount})`}

@@ -88,6 +88,20 @@ export default function ClientInboxPage() {
     es.onerror = () => { es.close(); setSyncing(false); };
   }
 
+  async function clearAllMessages() {
+    if (!confirm("¿Eliminar TODOS los mensajes de la bandeja?\n\nLas cuentas IMAP permanecen conectadas. Si quieres recuperar los mensajes válidos, pulsa luego 'Sincronizar todo'.")) return;
+    try {
+      const r = await fetch(`/api/uniboxes/${id}/messages?mode=all`, { method: "DELETE" }).then((r) => r.json());
+      if (r.ok) {
+        await loadMessages();
+      } else {
+        alert("Error: " + (r.error || "desconocido"));
+      }
+    } catch (e: any) {
+      alert("Error: " + e.message);
+    }
+  }
+
   function replyTo(m: any) {
     const replyAddr = m.fromAddress || m.from || "";
     const subj = /^re:/i.test(m.subject || "") ? m.subject : `Re: ${m.subject || ""}`;
@@ -195,6 +209,15 @@ export default function ClientInboxPage() {
           {warmupCount > 0 && (
             <button style={linkBtn} onClick={() => setShowWarmup(!showWarmup)}>
               {showWarmup ? `Ocultar warmup (${warmupCount})` : `Mostrar warmup (${warmupCount})`}
+            </button>
+          )}
+          {messages.length > 0 && (
+            <button
+              style={{ ...linkBtn, color: "#dc2626", marginLeft: "auto" }}
+              onClick={clearAllMessages}
+              title="Borrar todos los mensajes de la bandeja"
+            >
+              🗑 Eliminar mensajes
             </button>
           )}
         </div>

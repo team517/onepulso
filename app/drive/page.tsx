@@ -10,13 +10,19 @@ type DriveFile = {
   iconLink?: string; webViewLink?: string; size?: string; modifiedTime?: string;
 };
 
+// Tipos de la API Picker
+declare global {
+  interface Window {
+    gapi: any;
+    google: any;
+  }
+}
+
 export default function DrivePage() {
   const [status, setStatus] = useState<any>(null);
   const [loading, setLoading] = useState(true);
-  const [pickerOpen, setPickerOpen] = useState(false);
-  const [folders, setFolders] = useState<Folder[]>([]);
-  const [folderQuery, setFolderQuery] = useState("");
-  const [foldersLoading, setFoldersLoading] = useState(false);
+  const [pickerReady, setPickerReady] = useState(false);
+  const [pickerLoading, setPickerLoading] = useState(false);
   const [selectedWatched, setSelectedWatched] = useState<string | null>(null);
   const [filesInFolder, setFilesInFolder] = useState<DriveFile[]>([]);
   const [filesLoading, setFilesLoading] = useState(false);
@@ -49,35 +55,89 @@ export default function DrivePage() {
   // Sin polling automático — el usuario refresca manualmente con ↻ Recargar.
   // Antes lo hacíamos cada 10s pero molestaba al usuario.
 
-  async function searchFolders(q: string) {
-    setFoldersLoading(true);
-    setFolderQuery(q);
+  // Cargar el SDK de Google Picker dinámicamente
+  useEffect(() => {
+    if (!status?.connected || pickerReady) return;
+    if (window.gapi?.picker) {
+      setPickerReady(true);
+      return;
+    }
+    const script = document.createElement("script");
+    script.src = "https://apis.google.com/js/api.js";
+    script.async = true;
+    script.onload = () => {
+      window.gapi.load("picker", () => setPickerReady(true));
+    };
+    document.body.appendChild(script);
+    return () => {
+      // No quitamos el script (puede usarse en otras navegaciones)
+    };
+  }, [status?.connected, pickerReady]);
+
+  async function openGooglePicker() {
+    if (!pickerReady || !window.google?.picker) {
+      alert("El selector de Google aún se está cargando, espera un segundo y vuelve a intentarlo.");
+      return;
+    }
+    setPickerLoading(true);
     try {
-      const url = q.trim() ? `/api/drive/folders?q=${encodeURIComponent(q)}` : "/api/drive/folders";
-      const r = await fetch(url).then((r) => r.json());
-      setFolders(r.folders || []);
-    } catch {
-      setFolders([]);
+      const cfg = await fetch("/api/drive/picker-config").then((r) => r.json());
+      if (cfg.error) {
+        alert("⚠️ " + cfg.error);
+        setPickerLoading(false);
+        return;
+      }
+
+      const view = new window.google.picker.DocsView(window.google.picker.ViewId.FOLDERS)
+        .setSelectFolderEnabled(true)
+        .setMimeTypes("application/vnd.google-apps.folder")
+        .setIncludeFolders(true)
+        .setMode(window.google.picker.DocsViewMode.LIST);
+
+      const builder = new window.google.picker.PickerBuilder()
+        .enableFeature(window.google.picker.Feature.MULTISELECT_ENABLED)
+        .enableFeature(window.google.picker.Feature.SUPPORT_DRIVES)
+        .setOAuthToken(cfg.access_token)
+        .setDeveloperKey(cfg.api_key)
+        .setTitle("Selecciona las carpetas con las que puedo trabajar")
+        .addView(view)
+        .setCallback(async (data: any) => {
+          if (data.action === window.google.picker.Action.PICKED) {
+            const folders = data.docs || [];
+            for (const f of folders) {
+              try {
+                await fetch("/api/drive/watched", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({
+                    id: f.id,
+                    name: f.name,
+                    path: f.url || f.name,
+                  }),
+                });
+              } catch {}
+            }
+            await loadStatus();
+          }
+        });
+
+      if (cfg.app_id) builder.setAppId(cfg.app_id);
+
+      const picker = builder.build();
+      picker.setVisible(true);
+    } catch (e: any) {
+      alert("⚠️ Error abriendo Google Picker: " + e.message);
     } finally {
-      setFoldersLoading(false);
+      setPickerLoading(false);
     }
   }
 
-  async function openFolderPicker() {
-    setPickerOpen(true);
-    searchFolders("");
-  }
-
-  async function toggleWatched(folder: Folder) {
-    const isWatched = status?.watched_folders?.some((w: WatchedFolder) => w.id === folder.id);
-    if (isWatched) {
-      await fetch(`/api/drive/watched?id=${folder.id}`, { method: "DELETE" });
-    } else {
-      await fetch("/api/drive/watched", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: folder.id, name: folder.name }),
-      });
+  async function removeWatched(folderId: string) {
+    if (!confirm("¿Quitar esta carpeta de las watched?\n\nLa IA dejará de poder verla, pero no se borra nada de tu Drive.")) return;
+    await fetch(`/api/drive/watched?id=${folderId}`, { method: "DELETE" });
+    if (selectedWatched === folderId) {
+      setSelectedWatched(null);
+      setFilesInFolder([]);
     }
     await loadStatus();
   }
@@ -131,7 +191,7 @@ export default function DrivePage() {
     setTimeout(() => setUploadProgress([]), 4000);
   }
 
-  const watchedSet = useMemo(() => new Set(status?.watched_folders?.map((w: WatchedFolder) => w.id) ?? []), [status]);
+  // const watchedSet = useMemo(() => new Set(status?.watched_folders?.map((w: WatchedFolder) => w.id) ?? []), [status]);
 
   // ─── Renders ─────────────────────────────────────────────
 
@@ -174,6 +234,7 @@ export default function DrivePage() {
             <div style={{ display: "flex", flexDirection: "column", gap: 6, fontSize: 12.5 }}>
               <EnvLine name="GOOGLE_DRIVE_CLIENT_ID" present={!!det.GOOGLE_DRIVE_CLIENT_ID} alt={!!det.GOOGLE_CLIENT_ID} />
               <EnvLine name="GOOGLE_DRIVE_CLIENT_SECRET" present={!!det.GOOGLE_DRIVE_CLIENT_SECRET} alt={!!det.GOOGLE_CLIENT_SECRET} />
+              <EnvLine name="GOOGLE_DRIVE_API_KEY" present={!!det.GOOGLE_DRIVE_API_KEY} alt={!!det.GOOGLE_API_KEY} />
               <EnvLine name="APP_BASE_URL" present={!!det.APP_BASE_URL} optional />
             </div>
             {(hasClientId && hasSecret) ? (
@@ -205,27 +266,35 @@ export default function DrivePage() {
           </div>
 
           <div style={warnCard}>
-            <strong>📋 Instrucciones de configuración</strong>
-            <p style={{ margin: "8px 0 6px", fontSize: 13.5, fontWeight: 600 }}>Paso 1 — Google Cloud Console:</p>
+            <strong>📋 Instrucciones de configuración (3 vars en total)</strong>
+            <p style={{ margin: "8px 0 6px", fontSize: 13.5, fontWeight: 600 }}>Paso 1 — En Google Cloud Console:</p>
             <ol style={{ fontSize: 13, color: "var(--text-dim)", lineHeight: 1.7, paddingLeft: 22 }}>
-              <li>Ve a <a href="https://console.cloud.google.com/" target="_blank" rel="noreferrer" style={{ color: "var(--accent)" }}>console.cloud.google.com</a></li>
-              <li>Crea un proyecto (o usa uno existente)</li>
-              <li><strong>APIs y servicios</strong> → <strong>Biblioteca</strong> → busca <strong>"Google Drive API"</strong> → <strong>Habilitar</strong></li>
-              <li><strong>APIs y servicios</strong> → <strong>Pantalla de consentimiento OAuth</strong> → Externo → completa lo mínimo</li>
-              <li><strong>APIs y servicios</strong> → <strong>Credenciales</strong> → <strong>+ Crear credenciales</strong> → <strong>ID de cliente OAuth</strong></li>
-              <li>Tipo: <strong>Aplicación web</strong></li>
-              <li>URIs de redireccionamiento autorizados: <code style={code}>https://onepulso.up.railway.app/api/drive/callback</code></li>
-              <li>Copia el <strong>Client ID</strong> y <strong>Client Secret</strong></li>
+              <li>Ve a <a href="https://console.cloud.google.com/" target="_blank" rel="noreferrer" style={{ color: "var(--accent)" }}>console.cloud.google.com</a> → crea o elige un proyecto</li>
+              <li><strong>APIs y servicios</strong> → <strong>Biblioteca</strong> → habilita <strong>"Google Drive API"</strong> Y <strong>"Google Picker API"</strong></li>
+              <li><strong>Credenciales</strong> → <strong>+ Crear credenciales</strong> → <strong>ID de cliente OAuth</strong>:
+                <ul style={{ paddingLeft: 18, marginTop: 4 }}>
+                  <li>Tipo: <strong>Aplicación web</strong></li>
+                  <li>URI redireccionamiento: <code style={code}>https://onepulso.up.railway.app/api/drive/callback</code></li>
+                  <li>Copia <strong>Client ID</strong> y <strong>Client Secret</strong></li>
+                </ul>
+              </li>
+              <li><strong>Credenciales</strong> → <strong>+ Crear credenciales</strong> → <strong>Clave de API</strong>:
+                <ul style={{ paddingLeft: 18, marginTop: 4 }}>
+                  <li>Copia la <strong>API Key</strong> generada</li>
+                </ul>
+              </li>
             </ol>
-            <p style={{ margin: "14px 0 6px", fontSize: 13.5, fontWeight: 600 }}>Paso 2 — Railway:</p>
-            <ol start={9} style={{ fontSize: 13, color: "var(--text-dim)", lineHeight: 1.7, paddingLeft: 22 }}>
-              <li>Tu servicio → pestaña <strong>Variables</strong> → <strong>+ New Variable</strong></li>
-              <li>Nombre: <code style={code}>GOOGLE_DRIVE_CLIENT_ID</code> · Valor: el Client ID</li>
-              <li>Nombre: <code style={code}>GOOGLE_DRIVE_CLIENT_SECRET</code> · Valor: el Secret</li>
-              <li>(opcional) <code style={code}>APP_BASE_URL=https://onepulso.up.railway.app</code></li>
-              <li><strong>Railway redeploya automáticamente.</strong> Espera 1-2 min y refresca esta página.</li>
-              <li>Si no redeploya solo: <strong>Deployments</strong> → menú del último → <strong>Redeploy</strong></li>
+            <p style={{ margin: "14px 0 6px", fontSize: 13.5, fontWeight: 600 }}>Paso 2 — En Railway (Variables):</p>
+            <ol style={{ fontSize: 13, color: "var(--text-dim)", lineHeight: 1.7, paddingLeft: 22 }}>
+              <li><code style={code}>GOOGLE_DRIVE_CLIENT_ID</code> = el Client ID</li>
+              <li><code style={code}>GOOGLE_DRIVE_CLIENT_SECRET</code> = el Secret</li>
+              <li><code style={code}>GOOGLE_DRIVE_API_KEY</code> = la API Key del paso 4</li>
+              <li><code style={code}>APP_BASE_URL</code> = <code style={code}>https://onepulso.up.railway.app</code></li>
+              <li>Railway redeploya solo. Si no, <strong>Deployments</strong> → último → <strong>Redeploy</strong></li>
             </ol>
+            <p style={{ marginTop: 14, fontSize: 12, color: "var(--text-faint)", lineHeight: 1.5 }}>
+              💡 Esta versión usa el scope <code style={code}>drive.file</code> (no-sensible). Significa que la IA <strong>NO ve todo tu Drive</strong>; solo carpetas que selecciones explícitamente con el Google Picker oficial. Esto evita la verificación de Google y los errores "Acceso bloqueado".
+            </p>
           </div>
         </div>
       </div>
@@ -250,7 +319,17 @@ export default function DrivePage() {
             </p>
           </div>
           <div style={{ display: "flex", gap: 8 }}>
-            <button onClick={openFolderPicker} style={btnPrimary}>+ Seleccionar carpetas</button>
+            <button
+              onClick={openGooglePicker}
+              disabled={!pickerReady || pickerLoading}
+              style={{
+                ...btnPrimary,
+                opacity: !pickerReady || pickerLoading ? 0.6 : 1,
+                cursor: !pickerReady || pickerLoading ? "wait" : "pointer",
+              }}
+            >
+              {pickerLoading ? "Abriendo…" : !pickerReady ? "Cargando picker…" : "+ Seleccionar carpetas"}
+            </button>
             <button
               onClick={async () => {
                 if (!confirm("¿Desconectar Google Drive?\n\nDeberás autorizar otra vez la próxima.")) return;
@@ -278,25 +357,40 @@ export default function DrivePage() {
             ) : (
               <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                 {status.watched_folders.map((w: WatchedFolder) => (
-                  <button
+                  <div
                     key={w.id}
-                    onClick={() => loadFilesIn(w.id)}
                     style={{
                       ...folderItem,
                       background: selectedWatched === w.id ? "rgba(0,113,227,0.08)" : "#fff",
                       borderColor: selectedWatched === w.id ? "var(--accent)" : "var(--border)",
+                      display: "flex", alignItems: "center", gap: 6,
                     }}
                   >
-                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 3 }}>
-                      <span style={{ fontSize: 16 }}>📁</span>
-                      <span style={{ fontSize: 13, fontWeight: 700, color: "var(--text)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>{w.name}</span>
-                    </div>
-                    {w.path && w.path !== w.name && (
-                      <div style={{ fontSize: 10.5, color: "var(--text-faint)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                        {w.path}
+                    <button
+                      onClick={() => loadFilesIn(w.id)}
+                      style={{ flex: 1, textAlign: "left", background: "transparent", border: "none", padding: 0, cursor: "pointer", fontFamily: "inherit" }}
+                    >
+                      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 3 }}>
+                        <span style={{ fontSize: 16 }}>📁</span>
+                        <span style={{ fontSize: 13, fontWeight: 700, color: "var(--text)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>{w.name}</span>
                       </div>
-                    )}
-                  </button>
+                      {w.path && w.path !== w.name && (
+                        <div style={{ fontSize: 10.5, color: "var(--text-faint)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                          {w.path}
+                        </div>
+                      )}
+                    </button>
+                    <button
+                      onClick={() => removeWatched(w.id)}
+                      title="Quitar de watched"
+                      style={{
+                        background: "transparent", border: "none",
+                        cursor: "pointer", fontSize: 12, color: "var(--text-faint)",
+                        padding: "4px 6px", borderRadius: 6,
+                        flexShrink: 0,
+                      }}
+                    >×</button>
+                  </div>
                 ))}
               </div>
             )}
@@ -417,66 +511,6 @@ export default function DrivePage() {
         </div>
       </div>
 
-      {/* Picker Modal */}
-      {pickerOpen && (
-        <div onClick={() => setPickerOpen(false)} style={modalBackdrop}>
-          <div onClick={(e) => e.stopPropagation()} style={modalBox}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
-              <h3 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>Selecciona carpetas</h3>
-              <button onClick={() => setPickerOpen(false)} style={{ background: "transparent", border: "none", fontSize: 22, cursor: "pointer", color: "var(--text-faint)" }}>×</button>
-            </div>
-            <p style={{ fontSize: 12.5, color: "var(--text-dim)", marginTop: 0, marginBottom: 12, lineHeight: 1.5 }}>
-              La IA <strong>solo verá las que marques</strong>. Click en una carpeta para añadirla / quitarla.
-            </p>
-            <input
-              type="text"
-              value={folderQuery}
-              onChange={(e) => searchFolders(e.target.value)}
-              placeholder="🔎 Busca por nombre de carpeta…"
-              style={inputStyle}
-              autoFocus
-            />
-            <div style={{ maxHeight: "50vh", overflowY: "auto", marginTop: 12, display: "flex", flexDirection: "column", gap: 4 }}>
-              {foldersLoading ? (
-                <div style={{ padding: 20, textAlign: "center" }}><div className="loading-pulse"><span/><span/><span/></div></div>
-              ) : folders.length === 0 ? (
-                <div style={emptyStyle}>Sin resultados. Prueba otro nombre.</div>
-              ) : (
-                folders.map((f) => {
-                  const isW = watchedSet.has(f.id);
-                  return (
-                    <button
-                      key={f.id}
-                      onClick={() => toggleWatched(f)}
-                      style={{
-                        display: "flex", alignItems: "center", gap: 10,
-                        padding: "10px 12px",
-                        background: isW ? "rgba(16,185,129,0.08)" : "#fff",
-                        border: `1px solid ${isW ? "rgba(16,185,129,0.4)" : "var(--border)"}`,
-                        borderRadius: 9, cursor: "pointer", textAlign: "left",
-                        fontFamily: "inherit",
-                      }}
-                    >
-                      <span style={{ fontSize: 18 }}>📁</span>
-                      <span style={{ flex: 1, fontSize: 13.5, fontWeight: 600, color: "var(--text)" }}>{f.name}</span>
-                      <span style={{
-                        fontSize: 11, fontWeight: 700, padding: "3px 9px", borderRadius: 99,
-                        background: isW ? "rgba(16,185,129,0.18)" : "var(--bg-elev-2)",
-                        color: isW ? "#047857" : "var(--text-dim)",
-                      }}>
-                        {isW ? "✓ Añadida" : "+ Añadir"}
-                      </span>
-                    </button>
-                  );
-                })
-              )}
-            </div>
-            <div style={{ marginTop: 14, display: "flex", justifyContent: "flex-end" }}>
-              <button onClick={() => setPickerOpen(false)} style={btnPrimary}>Hecho</button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

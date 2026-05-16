@@ -13,6 +13,8 @@ export async function GET() {
     GOOGLE_CLIENT_ID: !!process.env.GOOGLE_CLIENT_ID,
     GOOGLE_DRIVE_CLIENT_SECRET: !!process.env.GOOGLE_DRIVE_CLIENT_SECRET,
     GOOGLE_CLIENT_SECRET: !!process.env.GOOGLE_CLIENT_SECRET,
+    GOOGLE_DRIVE_API_KEY: !!process.env.GOOGLE_DRIVE_API_KEY,
+    GOOGLE_API_KEY: !!process.env.GOOGLE_API_KEY,
     APP_BASE_URL: !!process.env.APP_BASE_URL,
     NEXT_PUBLIC_APP_URL: !!process.env.NEXT_PUBLIC_APP_URL,
   };
@@ -34,12 +36,17 @@ export async function GET() {
   }
   const tokens = await getTokens();
   const cfg = await getConfig();
+  const has_api_key = !!(process.env.GOOGLE_DRIVE_API_KEY || process.env.GOOGLE_API_KEY);
   return NextResponse.json({
     configured: true,
     connected: !!tokens,
     user_email: tokens?.user_email,
     watched_folders: cfg.watched_folders,
     detected,
+    has_api_key,
+    api_key_warning: !has_api_key
+      ? "Falta GOOGLE_DRIVE_API_KEY — el selector de carpetas no funcionará. Crea una en Google Cloud → Credenciales → + Crear credenciales → Clave de API y añádela en Railway."
+      : undefined,
   });
 }
 

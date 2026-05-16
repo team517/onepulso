@@ -13,10 +13,12 @@ import { envVar } from "./env";
 const KEY_TOKENS = "google-drive-tokens";
 const KEY_CONFIG = "google-drive-config";
 
-// Un único scope: drive (lectura + escritura completa).
-// NO añadir drive.metadata porque es redundante con drive y puede causar
-// "validation rules" en la pantalla de consentimiento.
-const SCOPES = "https://www.googleapis.com/auth/drive";
+// drive.file: scope NO-sensible. Solo da acceso a archivos/carpetas que:
+//   - La app crea (sube)
+//   - El usuario selecciona explícitamente vía Google Drive Picker
+// Ventaja: NO necesita verificación de Google, NO triggea "validation rules",
+// funciona inmediatamente en producción sin pantalla "Acceso bloqueado".
+const SCOPES = "https://www.googleapis.com/auth/drive.file";
 
 export type GoogleTokens = {
   access_token: string;

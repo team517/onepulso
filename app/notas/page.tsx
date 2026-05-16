@@ -328,7 +328,7 @@ export default function NotasPage() {
                     minHeight: 100,
                   }}
                 >
-                  {/* Header con pin + acciones */}
+                  {/* Header con título + pin + edit */}
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8, gap: 6 }}>
                     {isEditing ? (
                       <input
@@ -348,26 +348,55 @@ export default function NotasPage() {
                         }}
                       />
                     ) : (
-                      n.title ? (
-                        <div style={{ fontSize: 14, fontWeight: 700, color: c.accent, lineHeight: 1.3, flex: 1 }}>
-                          {n.title}
-                        </div>
-                      ) : <div style={{ flex: 1 }} />
+                      <div
+                        onClick={() => startEdit(n)}
+                        style={{
+                          flex: 1,
+                          fontSize: 14, fontWeight: 700,
+                          color: c.accent,
+                          lineHeight: 1.3,
+                          cursor: "pointer",
+                          minHeight: 18,
+                        }}
+                      >
+                        {n.title || <span style={{ fontWeight: 400, fontStyle: "italic", color: c.accent, opacity: 0.5 }}>(sin título)</span>}
+                      </div>
                     )}
-                    <button
-                      onClick={() => togglePin(n)}
-                      title={n.pinned ? "Desfijar" : "Fijar arriba"}
-                      style={{
-                        background: "transparent",
-                        border: "none",
-                        cursor: "pointer",
-                        fontSize: 14,
-                        color: n.pinned ? c.accent : c.border,
-                        opacity: n.pinned ? 1 : 0.5,
-                        padding: 0,
-                        transition: "all 0.15s",
-                      }}
-                    >📌</button>
+                    <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
+                      {!isEditing && (
+                        <button
+                          onClick={() => startEdit(n)}
+                          title="Editar nota"
+                          style={{
+                            background: "transparent",
+                            border: "none",
+                            cursor: "pointer",
+                            fontSize: 13,
+                            color: c.accent,
+                            opacity: 0.55,
+                            padding: "2px 4px",
+                            borderRadius: 4,
+                            transition: "all 0.15s",
+                          }}
+                          onMouseEnter={(e) => (e.currentTarget.style.opacity = "1")}
+                          onMouseLeave={(e) => (e.currentTarget.style.opacity = "0.55")}
+                        >✏️</button>
+                      )}
+                      <button
+                        onClick={() => togglePin(n)}
+                        title={n.pinned ? "Desfijar" : "Fijar arriba"}
+                        style={{
+                          background: "transparent",
+                          border: "none",
+                          cursor: "pointer",
+                          fontSize: 14,
+                          color: n.pinned ? c.accent : c.border,
+                          opacity: n.pinned ? 1 : 0.5,
+                          padding: "2px 4px",
+                          transition: "all 0.15s",
+                        }}
+                      >📌</button>
+                    </div>
                   </div>
 
                   {/* Content */}
@@ -376,12 +405,22 @@ export default function NotasPage() {
                       value={editContent}
                       onChange={(e) => setEditContent(e.target.value)}
                       rows={6}
+                      onKeyDown={(e) => {
+                        if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
+                          e.preventDefault();
+                          saveEdit(n.id);
+                        }
+                        if (e.key === "Escape") {
+                          e.preventDefault();
+                          setEditingId(null);
+                        }
+                      }}
                       style={{
                         width: "100%",
-                        background: "rgba(255,255,255,0.5)",
+                        background: "rgba(255,255,255,0.55)",
                         border: `1px solid ${c.border}`,
                         borderRadius: 6,
-                        padding: "6px 8px",
+                        padding: "8px 10px",
                         fontSize: 13.5,
                         lineHeight: 1.5,
                         color: "#1e293b",
@@ -389,6 +428,7 @@ export default function NotasPage() {
                         resize: "vertical",
                         fontFamily: "inherit",
                         boxSizing: "border-box",
+                        minHeight: 100,
                       }}
                       autoFocus
                     />
@@ -401,11 +441,13 @@ export default function NotasPage() {
                         color: "#1e293b",
                         whiteSpace: "pre-wrap",
                         wordBreak: "break-word",
-                        cursor: "text",
-                        minHeight: 24,
+                        cursor: "pointer",
+                        minHeight: 30,
+                        padding: "2px 0",
                       }}
+                      title="Click para editar"
                     >
-                      {n.content}
+                      {n.content || <span style={{ fontStyle: "italic", color: c.accent, opacity: 0.4 }}>(vacía — click para editar)</span>}
                     </div>
                   )}
 

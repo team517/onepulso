@@ -234,7 +234,10 @@ export async function syncUnibox(uniboxId: string): Promise<{ ok: number; fail: 
   const accs = await listAccounts(uniboxId);
   let ok = 0, fail = 0, total = 0;
 
-  const CONCURRENCY = 5;
+  // 10 cuentas en paralelo (antes 5). IMAP soporta bien múltiples conexiones
+  // simultáneas si son a hosts distintos. Si son al mismo host (ej. todas en
+  // Gmail), Gmail tolera bien hasta ~15-20 conexiones por cuenta de usuario.
+  const CONCURRENCY = 10;
   for (let i = 0; i < accs.length; i += CONCURRENCY) {
     const batch = accs.slice(i, i + CONCURRENCY);
     const results = await Promise.allSettled(
@@ -260,18 +263,25 @@ export async function syncUnibox(uniboxId: string): Promise<{ ok: number; fail: 
   return { ok, fail, new: total };
 }
 
-/** Sincroniza TODAS las uniboxes existentes. Usado por el scheduler de fondo. */
+/** Sincroniza TODAS las uniboxes existentes en PARALELO. Usado por el scheduler.
+ *  Antes era secuencial → con 3 uniboxes tardaba 3× más.
+ *  Ahora paralelo con concurrencia 3 (3 uniboxes a la vez como máximo). */
 export async function syncAllUniboxes(): Promise<{ uniboxes: number; total_new: number; errors: number }> {
   const { listUniboxes } = await import("./unibox-store");
   const all = await listUniboxes();
   let totalNew = 0;
   let errors = 0;
-  for (const u of all) {
-    try {
-      const r = await syncUnibox(u.id);
-      totalNew += r.new;
-    } catch (e) {
-      errors++;
+
+  const PARALLEL_UNIBOXES = 3;
+  for (let i = 0; i < all.length; i += PARALLEL_UNIBOXES) {
+    const batch = all.slice(i, i + PARALLEL_UNIBOXES);
+    const results = await Promise.allSettled(batch.map((u) => syncUnibox(u.id)));
+    for (const r of results) {
+      if (r.status === "fulfilled") {
+        totalNew += r.value.new;
+      } else {
+        errors++;
+      }
     }
   }
   return { uniboxes: all.length, total_new: totalNew, errors };

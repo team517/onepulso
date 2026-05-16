@@ -55,15 +55,18 @@ export default function ClientInboxPage() {
 
   useEffect(() => { if (me) loadMessages(); }, [selectedAccount, showWarmup]);
 
-  // Auto-refresh every 45s (solo recarga caché — el sync IMAP corre en backend)
+  // Auto-refresh every 20s (solo recarga caché — el sync IMAP corre en backend)
+  // Así en cuanto un mensaje nuevo aterriza en la caché de Postgres, aparece
+  // en pantalla en máximo 20s.
   useEffect(() => {
     if (!me) return;
-    const t = setInterval(() => loadMessages(), 45_000);
+    const t = setInterval(() => loadMessages(), 20_000);
     return () => clearInterval(t);
   }, [me, selectedAccount, showWarmup]);
 
-  // Sync IMAP completo cada 2 min mientras el usuario tenga la página abierta.
-  // Es ADEMÁS del scheduler de backend (que también sincroniza cada 2 min).
+  // Sync IMAP completo cada 90s mientras el usuario tenga la página abierta.
+  // Es ADEMÁS del scheduler de backend (cada 90s). En total: latencia máxima
+  // de mensajes nuevos = ~90s (uno u otro pillará el evento).
   useEffect(() => {
     if (!me || accounts.length === 0) return;
     const doSync = async () => {
@@ -72,10 +75,10 @@ export default function ClientInboxPage() {
         await loadMessages();
       } catch {}
     };
-    // Lanzar uno al cargar (3s después para no bloquear primer paint)
-    const initial = setTimeout(doSync, 3000);
-    // Y cada 2 min mientras esté abierta
-    const interval = setInterval(doSync, 2 * 60_000);
+    // Lanzar uno al cargar (2s después para no bloquear primer paint)
+    const initial = setTimeout(doSync, 2000);
+    // Y cada 90s mientras esté abierta
+    const interval = setInterval(doSync, 90_000);
     return () => { clearTimeout(initial); clearInterval(interval); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [me, accounts.length, id]);

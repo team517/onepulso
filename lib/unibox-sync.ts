@@ -50,7 +50,9 @@ export async function syncAccount(uniboxId: string, accountId: string): Promise<
         await client.logout();
         return 0;
       }
-      const start = Math.max(1, total - 49);
+      // Traer hasta los últimos 200 mensajes (antes 50). Cubre cuentas con
+      // tráfico alto. Como deduplicamos por UID, los ya vistos no se reprocesan.
+      const start = Math.max(1, total - 199);
       const range = `${start}:*`;
 
       const fresh: UniboxMessage[] = [];
@@ -105,8 +107,12 @@ export async function syncAccount(uniboxId: string, accountId: string): Promise<
         } catch {}
       }
 
-      msgsMap[accountId] = [...fresh, ...existing].slice(0, 200);
+      // Mantener cache de 400 mensajes (más histórico visible)
+      msgsMap[accountId] = [...fresh, ...existing].slice(0, 400);
       await saveMessagesMap(uniboxId, msgsMap);
+      if (newCount > 0) {
+        console.log(`[unibox-sync] ${account.email}: ${newCount} mensajes nuevos en INBOX`);
+      }
     } finally {
       lock.release();
     }
@@ -116,8 +122,10 @@ export async function syncAccount(uniboxId: string, accountId: string): Promise<
     await saveAccounts(uniboxId, accs);
     return newCount;
   } catch (e: any) {
-    accs[idx].last_error = e.message || String(e);
+    const errMsg = e.message || String(e);
+    accs[idx].last_error = errMsg;
     await saveAccounts(uniboxId, accs);
+    console.warn(`[unibox-sync] ✗ ${account.email}: ${errMsg}`);
     try { await client.logout(); } catch {}
     throw e;
   }
@@ -219,21 +227,36 @@ async function syncAccountSent(uniboxId: string, accountId: string): Promise<num
   return newCount;
 }
 
-/** Sincroniza todas las cuentas de una unibox. */
+/** Sincroniza todas las cuentas de una unibox EN PARALELO con concurrencia limitada.
+ *  Antes era secuencial — con 25 cuentas tardaba minutos. Ahora paralelo en lotes
+ *  de 5 simultáneos para no saturar memoria. */
 export async function syncUnibox(uniboxId: string): Promise<{ ok: number; fail: number; new: number }> {
   const accs = await listAccounts(uniboxId);
   let ok = 0, fail = 0, total = 0;
-  for (const a of accs) {
-    try {
-      total += await syncAccount(uniboxId, a.id);
-      // También intentamos Sent (silencioso, si falla no rompe)
-      try { total += await syncAccountSent(uniboxId, a.id); } catch {}
-      ok++;
-    } catch {
-      fail++;
+
+  const CONCURRENCY = 5;
+  for (let i = 0; i < accs.length; i += CONCURRENCY) {
+    const batch = accs.slice(i, i + CONCURRENCY);
+    const results = await Promise.allSettled(
+      batch.map(async (a) => {
+        const inboxNew = await syncAccount(uniboxId, a.id);
+        let sentNew = 0;
+        try { sentNew = await syncAccountSent(uniboxId, a.id); } catch {}
+        return inboxNew + sentNew;
+      })
+    );
+    for (const r of results) {
+      if (r.status === "fulfilled") {
+        ok++;
+        total += r.value;
+      } else {
+        fail++;
+      }
     }
   }
+
   await updateUnibox(uniboxId, { last_sync: new Date().toISOString() });
+  if (total > 0) console.log(`[unibox-sync] ${uniboxId}: ${total} mensajes nuevos · ${ok} cuentas OK · ${fail} con error`);
   return { ok, fail, new: total };
 }
 

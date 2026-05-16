@@ -62,8 +62,8 @@ export default function ClientInboxPage() {
     return () => clearInterval(t);
   }, [me, selectedAccount, showWarmup]);
 
-  // Sync IMAP completo cada 3 min mientras el usuario tenga la página abierta.
-  // Es ADEMÁS del scheduler de backend (que también sincroniza).
+  // Sync IMAP completo cada 2 min mientras el usuario tenga la página abierta.
+  // Es ADEMÁS del scheduler de backend (que también sincroniza cada 2 min).
   useEffect(() => {
     if (!me || accounts.length === 0) return;
     const doSync = async () => {
@@ -74,8 +74,8 @@ export default function ClientInboxPage() {
     };
     // Lanzar uno al cargar (3s después para no bloquear primer paint)
     const initial = setTimeout(doSync, 3000);
-    // Y cada 3 min mientras esté abierta
-    const interval = setInterval(doSync, 3 * 60_000);
+    // Y cada 2 min mientras esté abierta
+    const interval = setInterval(doSync, 2 * 60_000);
     return () => { clearTimeout(initial); clearInterval(interval); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [me, accounts.length, id]);

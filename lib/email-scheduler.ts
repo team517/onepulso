@@ -5,6 +5,7 @@ import { syncInbox, deepRefreshAllThreads } from "./email-inbox";
 import { isSendIfNoReply, stripConditionMarkers } from "./email-sequences";
 import { runAutopilot } from "./email-autopilot";
 import { processTaskReminders } from "./tasks-reminder";
+import { syncAllUniboxes } from "./unibox-sync";
 
 declare global {
   // eslint-disable-next-line no-var
@@ -53,8 +54,10 @@ export function startEmailScheduler() {
 
 let lastInboxSync = 0;
 let lastDeepRefresh = 0;
+let lastUniboxSync = 0;
 const INBOX_SYNC_MS = 30_000;      // sync incremental cada 30s
 const DEEP_REFRESH_MS = 2 * 60_000; // deep refresh cada 2 minutos
+const UNIBOX_SYNC_MS = 3 * 60_000;  // sync de uniboxes cada 3 minutos
 
 export async function tick() {
   // 1. Enviar follow-ups vencidos
@@ -108,6 +111,22 @@ export async function tick() {
     }
   } catch (e: any) {
     console.error("[email-scheduler] task reminders error", e.message);
+  }
+
+  // 5. Sync de todas las uniboxes cada 3 min (IMAP de las cuentas conectadas)
+  if (Date.now() - lastUniboxSync > UNIBOX_SYNC_MS) {
+    lastUniboxSync = Date.now();
+    try {
+      const r = await syncAllUniboxes();
+      if (r.total_new > 0) {
+        console.log(`[email-scheduler] uniboxes: ${r.total_new} mensajes nuevos en ${r.uniboxes} uniboxes`);
+      }
+      if (r.errors > 0) {
+        console.warn(`[email-scheduler] uniboxes: ${r.errors} uniboxes con error`);
+      }
+    } catch (e: any) {
+      console.error("[email-scheduler] unibox sync error", e.message);
+    }
   }
 
   return dueResults;

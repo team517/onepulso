@@ -55,12 +55,30 @@ export default function ClientInboxPage() {
 
   useEffect(() => { if (me) loadMessages(); }, [selectedAccount, showWarmup]);
 
-  // Auto-refresh every 2 minutes
+  // Auto-refresh every 45s (solo recarga caché — el sync IMAP corre en backend)
   useEffect(() => {
     if (!me) return;
-    const t = setInterval(() => loadMessages(), 120000);
+    const t = setInterval(() => loadMessages(), 45_000);
     return () => clearInterval(t);
   }, [me, selectedAccount, showWarmup]);
+
+  // Sync IMAP completo cada 3 min mientras el usuario tenga la página abierta.
+  // Es ADEMÁS del scheduler de backend (que también sincroniza).
+  useEffect(() => {
+    if (!me || accounts.length === 0) return;
+    const doSync = async () => {
+      try {
+        await fetch(`/api/uniboxes/${id}/sync-all`, { method: "POST" });
+        await loadMessages();
+      } catch {}
+    };
+    // Lanzar uno al cargar (3s después para no bloquear primer paint)
+    const initial = setTimeout(doSync, 3000);
+    // Y cada 3 min mientras esté abierta
+    const interval = setInterval(doSync, 3 * 60_000);
+    return () => { clearTimeout(initial); clearInterval(interval); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [me, accounts.length, id]);
 
   async function openMessage(accountId: string, uid: number) {
     const r = await fetch(`/api/uniboxes/${id}/messages/${accountId}/${uid}`);

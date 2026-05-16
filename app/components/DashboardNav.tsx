@@ -10,7 +10,7 @@ const NAV = [
   { href: "/tareas",       label: "Tareas",        icon: "✓", exact: false },
   { href: "/notas",        label: "Notas",         icon: "✎", exact: false },
   { href: "/documentos",   label: "Documentos",    icon: "▤", exact: false },
-  { href: "/drive",        label: "Drive",         icon: "☁", exact: false },
+  { href: "/gastos",       label: "Gastos",        icon: "€", exact: false },
   { href: "/linkedin",     label: "LinkedIn",      icon: "◆", exact: false },
   { href: "/facturacion",  label: "Facturación",   icon: "◇", exact: false },
 ];

@@ -5,6 +5,7 @@ import { addCampaignRecord, listCampaignRecords, updateCampaignRecord } from "./
 import { readCSVAsLeads, readCSVAsAccounts } from "./csv";
 import { listSkills, getSkill, skillsCatalogForPrompt } from "./skills";
 import { fetchSite, fetchSiteEnriched, scrapedToContext } from "./web-scraper";
+import { getConfig as getDriveConfig, listFiles as driveListFiles, moveFile as driveMoveFile, createFolder as driveCreateFolder, isFolderWatched, getTokens as getDriveTokens } from "./google-drive";
 
 export const tools: Anthropic.Messages.Tool[] = [
   {
@@ -77,6 +78,45 @@ Luego usa esa info para que el copy sea hiper-específico, no genérico.`,
         enriched: { type: "boolean", description: "Si true, también descarga páginas internas relevantes (about, servicios). Default false." },
       },
       required: ["url"],
+    },
+  },
+  {
+    name: "drive_list_watched_folders",
+    description: "Lista las carpetas de Google Drive que el usuario ha seleccionado como 'watched' (las únicas con las que la IA puede trabajar). Llámala SIEMPRE antes de organizar/listar/mover archivos en Drive — si la lista está vacía, dile al usuario que vaya a /drive y seleccione carpetas.",
+    input_schema: { type: "object", properties: {} },
+  },
+  {
+    name: "drive_list_files",
+    description: "Lista los archivos dentro de una carpeta watched concreta. folder_id debe ser una de las que devuelve drive_list_watched_folders — si no, falla.",
+    input_schema: {
+      type: "object",
+      properties: { folder_id: { type: "string", description: "ID de carpeta Drive (de las watched)" } },
+      required: ["folder_id"],
+    },
+  },
+  {
+    name: "drive_move_file",
+    description: "Mueve un archivo de una carpeta watched a otra carpeta watched. Ambas DEBEN estar en la lista de watched o falla.",
+    input_schema: {
+      type: "object",
+      properties: {
+        file_id: { type: "string" },
+        from_folder_id: { type: "string" },
+        to_folder_id: { type: "string" },
+      },
+      required: ["file_id", "from_folder_id", "to_folder_id"],
+    },
+  },
+  {
+    name: "drive_create_subfolder",
+    description: "Crea una subcarpeta DENTRO de una carpeta watched (ej. 'Facturas 2026' dentro de la watched 'Contabilidad'). Útil para organizar. La carpeta padre debe ser una watched.",
+    input_schema: {
+      type: "object",
+      properties: {
+        name: { type: "string" },
+        parent_folder_id: { type: "string" },
+      },
+      required: ["name", "parent_folder_id"],
     },
   },
   {
@@ -275,6 +315,62 @@ export async function executeTool(
           return `Error scrapeando ${url}: ${e.message ?? String(e)}`;
         }
       }
+      case "drive_list_watched_folders": {
+        const tokens = await getDriveTokens();
+        if (!tokens) return "Google Drive no está conectado. Pídele al usuario que vaya a /drive y conecte su cuenta.";
+        const cfg = await getDriveConfig();
+        if (!cfg.watched_folders.length) {
+          return "El usuario no ha seleccionado ninguna carpeta. Dile que vaya a /drive y pulse '+ Seleccionar carpetas' para elegir con cuáles puedes trabajar. Por seguridad NO podré tocar nada hasta entonces.";
+        }
+        return JSON.stringify(
+          cfg.watched_folders.map((f) => ({ id: f.id, name: f.name, path: f.path }))
+        );
+      }
+      case "drive_list_files": {
+        const cfg = await getDriveConfig();
+        if (!isFolderWatched(cfg, input.folder_id)) {
+          return `Error: la carpeta ${input.folder_id} no está en la lista de watched. Solo puedo trabajar con carpetas seleccionadas por el usuario.`;
+        }
+        try {
+          const files = await driveListFiles(input.folder_id);
+          return JSON.stringify(
+            files.map((f) => ({
+              id: f.id,
+              name: f.name,
+              type: f.mimeType,
+              size: f.size,
+              modified: f.modifiedTime,
+              link: f.webViewLink,
+            }))
+          );
+        } catch (e: any) {
+          return `Error listando: ${e.message}`;
+        }
+      }
+      case "drive_move_file": {
+        const cfg = await getDriveConfig();
+        if (!isFolderWatched(cfg, input.from_folder_id) || !isFolderWatched(cfg, input.to_folder_id)) {
+          return "Error: ambas carpetas (origen y destino) deben estar en la lista de watched.";
+        }
+        try {
+          const r = await driveMoveFile(input.file_id, input.from_folder_id, input.to_folder_id);
+          return JSON.stringify({ ok: true, file: r });
+        } catch (e: any) {
+          return `Error moviendo: ${e.message}`;
+        }
+      }
+      case "drive_create_subfolder": {
+        const cfg = await getDriveConfig();
+        if (!isFolderWatched(cfg, input.parent_folder_id)) {
+          return "Error: la carpeta padre debe estar en la lista de watched.";
+        }
+        try {
+          const r = await driveCreateFolder(input.name, input.parent_folder_id);
+          return JSON.stringify({ ok: true, folder: r });
+        } catch (e: any) {
+          return `Error creando subcarpeta: ${e.message}`;
+        }
+      }
       case "list_campaigns_local": {
         const recs = await listCampaignRecords();
         return JSON.stringify(recs, null, 2);
@@ -456,6 +552,21 @@ Si Xavi pega solo una URL sin instrucciones:
 
 Si Xavi te da solo un nicho ("CTOs de SaaS"):
 - Modo A. Usa la plantilla onepulso (abajo). Adapta sector.
+
+## GOOGLE DRIVE (regla estricta — solo carpetas watched)
+
+Cuando el usuario diga "organiza", "ordena", "guarda esto en Drive", "muévelo a X", "mira mis facturas", o cualquier acción sobre archivos de Drive:
+
+1. SIEMPRE llama PRIMERO a drive_list_watched_folders.
+2. Si devuelve lista VACÍA → dile al usuario que vaya a /drive y seleccione carpetas. NO intentes nada más.
+3. Si hay carpetas, úsalas como universo de trabajo. NUNCA toques nada fuera.
+4. Para organizar:
+   - drive_list_files(folder_id) → ver qué hay en cada carpeta watched
+   - drive_move_file(file_id, from, to) → mover entre carpetas watched
+   - drive_create_subfolder(name, parent_folder_id) → crear subcarpeta dentro de watched
+5. Si el usuario te pide algo que requiere salir de las watched ("mueve a una carpeta nueva fuera de mis seleccionadas"), DENIÉGALO y explícale que añada esa carpeta como watched primero.
+
+NO inventes IDs de carpetas/archivos. Usa solo los que devuelvan los tools.
 
 ## EXTRAER INFO DE WEBS
 

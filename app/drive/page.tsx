@@ -237,24 +237,7 @@ export default function DrivePage() {
   }
 
   if (!status.connected) {
-    return (
-      <div className="dash-shell">
-        <DashboardNav />
-        <div className="dash-content" style={{ padding: "32px 40px" }}>
-          <h1 style={pageTitle}>📁 Drive</h1>
-          <div style={connectCard}>
-            <div style={{ fontSize: 40, marginBottom: 10 }}>📂</div>
-            <h2 style={{ margin: "0 0 8px", fontSize: 19 }}>Conecta tu Google Drive</h2>
-            <p style={{ color: "var(--text-dim)", fontSize: 14, maxWidth: 460, margin: "0 auto 18px" }}>
-              Una vez conectado, elige las carpetas con las que quieres trabajar. La IA solo organizará archivos dentro de esas carpetas.
-            </p>
-            <a href="/api/drive/auth" style={btnPrimary}>
-              🔗 Conectar Google Drive
-            </a>
-          </div>
-        </div>
-      </div>
-    );
+    return <ConnectView />;
   }
 
   // Conectado
@@ -499,6 +482,181 @@ export default function DrivePage() {
         </div>
       )}
     </div>
+  );
+}
+
+function ConnectView() {
+  const [debug, setDebug] = useState<any>(null);
+  const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    fetch("/api/drive/debug").then((r) => r.json()).then(setDebug).catch(() => {});
+  }, []);
+
+  function copyUri() {
+    if (!debug?.redirect_uri_to_register_in_google_cloud) return;
+    navigator.clipboard.writeText(debug.redirect_uri_to_register_in_google_cloud);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  }
+
+  return (
+    <div className="dash-shell">
+      <DashboardNav />
+      <div className="dash-content" style={{ padding: "32px 40px", overflow: "auto" }}>
+        <h1 style={pageTitle}>📁 Drive</h1>
+
+        {/* Tarjeta principal: botón Google */}
+        <div style={{
+          background: "#fff",
+          border: "1px solid var(--border)",
+          borderRadius: 16,
+          padding: 36,
+          textAlign: "center",
+          marginTop: 16,
+          marginBottom: 20,
+          boxShadow: "0 1px 3px rgba(15,23,42,0.05)",
+          maxWidth: 560,
+        }}>
+          <div style={{ fontSize: 44, marginBottom: 12 }}>📂</div>
+          <h2 style={{ margin: "0 0 8px", fontSize: 21, fontWeight: 700, letterSpacing: "-0.01em" }}>
+            Conecta tu Google Drive
+          </h2>
+          <p style={{ color: "var(--text-dim)", fontSize: 14, maxWidth: 420, margin: "0 auto 22px", lineHeight: 1.55 }}>
+            Una vez conectado, elige las carpetas con las que trabajar. La IA solo tocará archivos dentro de esas carpetas — el resto de tu Drive queda intacto.
+          </p>
+          <a href="/api/drive/auth" style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 10,
+            padding: "12px 22px",
+            background: "#fff",
+            color: "#3c4043",
+            border: "1px solid #dadce0",
+            borderRadius: 8,
+            fontSize: 14,
+            fontWeight: 600,
+            cursor: "pointer",
+            fontFamily: "'Google Sans', Roboto, Arial, sans-serif",
+            textDecoration: "none",
+            transition: "all 0.15s",
+            boxShadow: "0 1px 2px rgba(60,64,67,0.1)",
+          }}>
+            <GoogleLogo />
+            Iniciar sesión con Google
+          </a>
+          <div style={{ fontSize: 11, color: "var(--text-faint)", marginTop: 14 }}>
+            Pediremos acceso solo a Drive · Puedes revocar cuando quieras
+          </div>
+        </div>
+
+        {/* Si dio error en una conexión anterior, mostrar diagnóstico */}
+        <details style={{
+          background: "var(--bg-elev-2)",
+          border: "1px solid var(--border)",
+          borderRadius: 12,
+          padding: "14px 18px",
+          marginBottom: 16,
+          maxWidth: 760,
+        }}>
+          <summary style={{ cursor: "pointer", fontSize: 13, fontWeight: 700, color: "var(--text)" }}>
+            ⚠️ ¿Error "Acceso bloqueado" o "Error 400"? Diagnóstico paso a paso
+          </summary>
+          <div style={{ marginTop: 14 }}>
+            <p style={{ fontSize: 13.5, lineHeight: 1.6, color: "var(--text)" }}>
+              Si Google te bloquea el login, casi siempre es porque la URL de redirección que pongo en mi código <strong>no coincide exactamente</strong> con la que pusiste en Google Cloud Console.
+            </p>
+
+            {/* URI a copiar */}
+            <div style={{
+              background: "#fff",
+              border: "1.5px solid var(--accent)",
+              borderRadius: 9,
+              padding: "12px 14px",
+              marginTop: 12,
+            }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: "var(--accent)", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6 }}>
+                ✅ Esta es la URL EXACTA que tienes que tener en Google Cloud:
+              </div>
+              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                <code style={{
+                  flex: 1,
+                  fontFamily: "ui-monospace, Menlo, monospace",
+                  fontSize: 12.5,
+                  background: "var(--bg-elev-2)",
+                  padding: "8px 10px",
+                  borderRadius: 6,
+                  color: "var(--text)",
+                  wordBreak: "break-all",
+                  overflow: "hidden",
+                }}>
+                  {debug?.redirect_uri_to_register_in_google_cloud || "cargando…"}
+                </code>
+                <button
+                  onClick={copyUri}
+                  style={{
+                    padding: "8px 14px",
+                    background: copied ? "#10b981" : "var(--accent)",
+                    color: "#fff",
+                    border: "none",
+                    borderRadius: 7,
+                    fontSize: 12,
+                    fontWeight: 700,
+                    cursor: "pointer",
+                    fontFamily: "inherit",
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  {copied ? "✓ Copiado" : "📋 Copiar"}
+                </button>
+              </div>
+              <div style={{ fontSize: 11, color: "var(--text-faint)", marginTop: 8 }}>
+                {debug?.source && <>Detectada de: <code>{debug.source}</code></>}
+              </div>
+            </div>
+
+            <p style={{ fontSize: 13.5, marginTop: 14, lineHeight: 1.6, fontWeight: 600 }}>Cómo arreglarlo:</p>
+            <ol style={{ fontSize: 13, color: "var(--text-dim)", lineHeight: 1.7, paddingLeft: 22 }}>
+              <li>Ve a <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noreferrer" style={{ color: "var(--accent)" }}>console.cloud.google.com/apis/credentials</a></li>
+              <li>Click en tu <strong>OAuth 2.0 Client ID</strong></li>
+              <li>Sección <strong>"URIs de redireccionamiento autorizados"</strong></li>
+              <li><strong>Pega exactamente</strong> la URL de arriba (usa el botón Copiar). Borra cualquier otra que no coincida.</li>
+              <li><strong>Save</strong> abajo</li>
+              <li>Espera 30-60 segundos (Google tarda en propagar el cambio)</li>
+              <li>Pulsa otra vez "Iniciar sesión con Google" arriba</li>
+            </ol>
+
+            <p style={{ fontSize: 13.5, marginTop: 16, lineHeight: 1.6, fontWeight: 600 }}>
+              Si el problema es "Acceso bloqueado: error de autorización":
+            </p>
+            <ol style={{ fontSize: 13, color: "var(--text-dim)", lineHeight: 1.7, paddingLeft: 22 }}>
+              <li>Google Cloud → <strong>APIs y servicios</strong> → <strong>Pantalla de consentimiento de OAuth</strong></li>
+              <li>Si está en "Producción" → click <strong>"Volver al modo de prueba"</strong></li>
+              <li>Sección <strong>"Usuarios de prueba"</strong> → <strong>+ Add users</strong> → añade <code>team@onepulso.online</code> (el que vas a usar)</li>
+              <li>Save → vuelve aquí y prueba otra vez</li>
+            </ol>
+
+            <p style={{ fontSize: 12, marginTop: 14, color: "var(--text-faint)" }}>
+              En la pantalla de Google verás "Esta app aún no se ha verificado" → es normal en modo prueba.
+              Click en <strong>"Configuración avanzada"</strong> → <strong>"Ir a onepulso (no seguro)"</strong> → aceptas permisos → vuelves aquí ya conectado ✓
+            </p>
+          </div>
+        </details>
+      </div>
+    </div>
+  );
+}
+
+function GoogleLogo() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 18 18" xmlns="http://www.w3.org/2000/svg">
+      <g fill="none" fillRule="evenodd">
+        <path d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844a4.14 4.14 0 0 1-1.796 2.716v2.259h2.908c1.702-1.567 2.684-3.875 2.684-6.615z" fill="#4285F4"/>
+        <path d="M9 18c2.43 0 4.467-.806 5.956-2.18l-2.908-2.259c-.806.54-1.837.86-3.048.86-2.344 0-4.328-1.584-5.036-3.71H.957v2.332A8.997 8.997 0 0 0 9 18z" fill="#34A853"/>
+        <path d="M3.964 10.71A5.41 5.41 0 0 1 3.682 9c0-.593.102-1.17.282-1.71V4.958H.957A8.996 8.996 0 0 0 0 9c0 1.452.348 2.827.957 4.042l3.007-2.332z" fill="#FBBC05"/>
+        <path d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0A8.997 8.997 0 0 0 .957 4.958L3.964 7.29C4.672 5.163 6.656 3.58 9 3.58z" fill="#EA4335"/>
+      </g>
+    </svg>
   );
 }
 

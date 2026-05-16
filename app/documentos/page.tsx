@@ -242,12 +242,14 @@ export default function DocumentosPage() {
               {docs.length} archivo{docs.length !== 1 ? "s" : ""} · {fmtSize(totalSize)} · Almacenados de forma segura
             </p>
           </div>
-          <button
-            onClick={() => openUploadModal()}
-            style={btnPrimary}
-          >
-            + Subir documento
-          </button>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button onClick={createNewFolder} style={btnGhost}>
+              + Nueva carpeta
+            </button>
+            <button onClick={() => openUploadModal()} style={btnPrimary}>
+              + Subir documento
+            </button>
+          </div>
           <input
             ref={fileRef}
             type="file"
@@ -311,22 +313,28 @@ export default function DocumentosPage() {
         <div style={{ display: "grid", gridTemplateColumns: "240px 1fr", gap: 18, alignItems: "start" }}>
           {/* Folders sidebar */}
           <aside style={{ ...panel, position: "sticky", top: 12 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
-              <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-faint)", textTransform: "uppercase", letterSpacing: "0.06em" }}>
-                Carpetas
-              </div>
-              <button
-                onClick={createNewFolder}
-                title="Crear nueva carpeta"
-                style={{
-                  background: "var(--accent)", color: "#fff",
-                  border: "none", borderRadius: 7,
-                  padding: "3px 9px", fontSize: 12, fontWeight: 700,
-                  cursor: "pointer", fontFamily: "inherit",
-                  display: "inline-flex", alignItems: "center", gap: 4,
-                }}
-              >+</button>
+            <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-faint)", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 8 }}>
+              Carpetas
             </div>
+            <button
+              onClick={createNewFolder}
+              style={{
+                width: "100%",
+                background: "linear-gradient(135deg, #0071e3, #1d4ed8)",
+                color: "#fff",
+                border: "none",
+                borderRadius: 8,
+                padding: "8px 12px",
+                fontSize: 12.5,
+                fontWeight: 700,
+                cursor: "pointer",
+                fontFamily: "inherit",
+                marginBottom: 10,
+                boxShadow: "0 2px 6px rgba(0,113,227,0.25)",
+              }}
+            >
+              + Nueva carpeta
+            </button>
             <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
               <FolderBtn label={`📁 Todas`} count={docs.length} active={activeFolder === "all"} onClick={() => setActiveFolder("all")} />
               <FolderBtn label={`📄 Sin carpeta`} count={docs.filter((d) => !d.folder).length} active={activeFolder === "_root"} onClick={() => setActiveFolder("_root")} />

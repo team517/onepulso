@@ -402,6 +402,12 @@ export async function syncInbox(opts: { days?: number; max?: number } = {}): Pro
     error = e.message;
   }
 
+  // Liberar referencias antes de salir
+  knownMsgIds.clear();
+  if (typeof (global as any).gc === "function") {
+    try { (global as any).gc(); } catch {}
+  }
+
   return { fetched: totalFetched, new_messages: totalNew, threads_touched: [...threadsTouched], error };
 }
 
@@ -419,7 +425,10 @@ export async function deepRefreshAllThreads(opts: {
   maxThreads?: number;
 } = {}): Promise<{ threads_refreshed: number; new_messages: number; errors: number }> {
   const days = opts.days ?? 60;
-  const maxThreads = opts.maxThreads ?? 100;
+  // Reducido de 100 a 40 para evitar OOM en cuentas con muchos hilos.
+  const maxThreads = opts.maxThreads ?? 40;
+  // Tope duro de UIDs procesados por folder para acotar memoria
+  const MAX_UIDS_PER_FOLDER = 300;
 
   const cfg = await readEmailConfig();
   if (!cfg) return { threads_refreshed: 0, new_messages: 0, errors: 0 };
@@ -517,7 +526,9 @@ export async function deepRefreshAllThreads(opts: {
               toUids.forEach((u) => uidsCollected.add(u));
             } catch {}
           }
-          const uids = Array.from(uidsCollected);
+          // Sort y limitar para tope memoria — más recientes primero
+          const uids = Array.from(uidsCollected).sort((a, b) => b - a).slice(0, MAX_UIDS_PER_FOLDER);
+          uidsCollected.clear(); // liberar el Set
           if (uids.length === 0) continue;
 
           for (const uid of uids) {
@@ -526,7 +537,11 @@ export async function deepRefreshAllThreads(opts: {
               if (!full) continue;
               const parsed = _hasMailparser && full.source ? await simpleParser(full.source) : null;
               const messageId = normMsgId(parsed?.messageId ?? (full.envelope as any)?.messageId);
-              if (!messageId || knownMsgIds.has(messageId)) continue;
+              if (!messageId || knownMsgIds.has(messageId)) {
+                // Liberar parsed/source aunque hagamos skip
+                (full as any).source = null;
+                continue;
+              }
 
               const fromAddr = String(parsed?.from?.value?.[0]?.address ?? "").toLowerCase();
               const toAddrsRaw = (parsed?.to as any)?.value ?? [];
@@ -769,6 +784,14 @@ export async function deepRefreshAllThreads(opts: {
   if (totalNew > 0) {
     console.log(`[deep-refresh] ✓ ${totalNew} mensajes nuevos en ${openThreads.length} hilos refrescados`);
   }
+
+  // Liberar referencias grandes y sugerir GC si está disponible (--expose-gc)
+  knownMsgIds.clear();
+  addrToThreads.clear();
+  if (typeof (global as any).gc === "function") {
+    try { (global as any).gc(); } catch {}
+  }
+
   return { threads_refreshed: openThreads.length, new_messages: totalNew, errors };
 }
 

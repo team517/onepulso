@@ -9,6 +9,8 @@ import { processTaskReminders } from "./tasks-reminder";
 declare global {
   // eslint-disable-next-line no-var
   var __emailScheduler: NodeJS.Timeout | undefined;
+  // eslint-disable-next-line no-var
+  var __emailSchedulerRunning: boolean | undefined;
 }
 
 const TICK_MS = 30_000; // 30s — más reactivo
@@ -16,8 +18,37 @@ const TICK_MS = 30_000; // 30s — más reactivo
 export function startEmailScheduler() {
   if (globalThis.__emailScheduler) return;
   console.log("[email-scheduler] starting (30s tick: followups + inbox sync)");
-  globalThis.__emailScheduler = setInterval(tick, TICK_MS);
-  tick().catch((e) => console.error("[email-scheduler] initial error", e));
+
+  // Wrapper que evita reentrancia: si un tick tarda más de 30s, el siguiente
+  // se salta en vez de ejecutarse en paralelo (causa común de OOM).
+  const safeTick = async () => {
+    if (globalThis.__emailSchedulerRunning) {
+      console.log("[email-scheduler] tick anterior aún corre — saltando");
+      return;
+    }
+    globalThis.__emailSchedulerRunning = true;
+    try {
+      await tick();
+    } catch (e: any) {
+      console.error("[email-scheduler] tick error:", e?.message || e);
+    } finally {
+      globalThis.__emailSchedulerRunning = false;
+    }
+  };
+
+  globalThis.__emailScheduler = setInterval(safeTick, TICK_MS);
+  safeTick();
+
+  // Capturar errores no capturados para que el proceso no muera por un fallo de async
+  if (!(globalThis as any).__emailSchedulerHandlersInstalled) {
+    process.on("unhandledRejection", (reason: any) => {
+      console.error("[unhandledRejection]", reason?.message || reason);
+    });
+    process.on("uncaughtException", (err: any) => {
+      console.error("[uncaughtException]", err?.message || err);
+    });
+    (globalThis as any).__emailSchedulerHandlersInstalled = true;
+  }
 }
 
 let lastInboxSync = 0;

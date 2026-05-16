@@ -91,7 +91,7 @@ type Tab = "han_respondido" | "esperando" | "calendario" | "secuencias" | "cerra
 const TAB_DEFS: Array<{ key: Tab; label: string; icon: string; description: string }> = [
   { key: "han_respondido", label: "Han respondido", icon: "📬", description: "Necesitan respuesta tuya" },
   { key: "esperando", label: "Esperando", icon: "⏳", description: "Has enviado, sin reply aún" },
-  { key: "calendario", label: "Calendario", icon: "📅", description: "Vista mensual de follow-ups" },
+  { key: "calendario", label: "Follow-ups", icon: "📅", description: "Hilos con follow-ups programados (también vistos en el calendario)" },
   { key: "secuencias", label: "Secuencias", icon: "🔁", description: "Plantillas de seguimiento" },
   { key: "cerrados", label: "Cerrados", icon: "✓", description: "Conversaciones finalizadas" },
   { key: "todos", label: "Todos", icon: "📋", description: "Todos los hilos" },

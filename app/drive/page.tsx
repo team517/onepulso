@@ -46,12 +46,8 @@ export default function DrivePage() {
     }
   }, []);
 
-  // Polling automático cada 10s mientras no esté configurado o conectado
-  useEffect(() => {
-    if (status?.configured && status?.connected) return; // ya está → no polling
-    const t = setInterval(() => loadStatus(), 10_000);
-    return () => clearInterval(t);
-  }, [status?.configured, status?.connected]);
+  // Sin polling automático — el usuario refresca manualmente con ↻ Recargar.
+  // Antes lo hacíamos cada 10s pero molestaba al usuario.
 
   async function searchFolders(q: string) {
     setFoldersLoading(true);
@@ -163,7 +159,7 @@ export default function DrivePage() {
             <button
               onClick={loadStatus}
               style={{ ...btnGhost, fontSize: 12.5 }}
-              title="Re-comprobar variables (auto cada 10s)"
+              title="Re-comprobar variables"
             >↻ Recargar</button>
           </div>
 
@@ -204,7 +200,7 @@ export default function DrivePage() {
               </div>
             )}
             <div style={{ marginTop: 10, fontSize: 11, color: "var(--text-faint)" }}>
-              Esta página se auto-recarga cada 10s comprobando si ya están.
+              Cuando termines de configurar las variables, pulsa <strong>↻ Recargar</strong> arriba.
             </div>
           </div>
 

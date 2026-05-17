@@ -161,11 +161,28 @@ export default function ClientInboxPage() {
 
   // Build thread for selected msg
   const normSubj = (s: string) => (s || "").replace(/^\s*(re|fwd|rv|fw)\s*:\s*/gi, "").trim().toLowerCase();
+  // Normaliza message-ids: quita corchetes y mayúsculas/espacios para que
+  // matchen aunque vengan con o sin <>.
+  const normMid = (s: string) => (s || "").trim().replace(/^<+|>+$/g, "").toLowerCase();
   const thread = selectedMsg
     ? messages.filter(x => {
         if (x.accountId !== selectedMsg.accountId) return false;
         if (x.uid === selectedMsg.uid) return false;
-        if (selectedMsg.messageId && (x.inReplyTo === selectedMsg.messageId || (x.references || []).includes(selectedMsg.messageId))) return true;
+        const selMid = normMid(selectedMsg.messageId);
+        const xInReply = normMid(x.inReplyTo);
+        const xRefs = (x.references || []).map(normMid);
+        const xMid = normMid(x.messageId);
+        const selInReply = normMid(selectedMsg.inReplyTo);
+        const selRefs = (selectedMsg.references || []).map(normMid);
+        // x es reply de selectedMsg
+        if (selMid && (xInReply === selMid || xRefs.includes(selMid))) return true;
+        // selectedMsg es reply de x (o ambos en el mismo hilo)
+        if (xMid && (selInReply === xMid || selRefs.includes(xMid))) return true;
+        // Ambos comparten alguna reference (mismo hilo en algún ancestro)
+        if (xRefs.length > 0 && selRefs.length > 0) {
+          for (const r of xRefs) if (selRefs.includes(r)) return true;
+        }
+        // Fallback por subject normalizado
         if (normSubj(x.subject) === normSubj(selectedMsg.subject) && normSubj(selectedMsg.subject)) return true;
         return false;
       }).sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())

@@ -49,25 +49,59 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const html = hasHtml ? body : body.replace(/\n/g, "<br>");
   const displayName = [acc.first_name, acc.last_name].filter(Boolean).join(" ") || acc.email;
 
+  /** Normaliza un message-id para que SIEMPRE tenga <...>.
+   *  mailparser a veces devuelve "abc@xyz.com" sin corchetes; sin ellos
+   *  el servidor SMTP receptor no agrupa el mensaje en el hilo correcto. */
+  const wrapMsgId = (id: string): string => {
+    const s = id.trim();
+    if (!s) return "";
+    if (s.startsWith("<") && s.endsWith(">")) return s;
+    return `<${s.replace(/^<+|>+$/g, "")}>`;
+  };
+
+  const normalizedInReplyTo = inReplyTo ? wrapMsgId(inReplyTo) : "";
+
+  // Asegurar prefijo "Re: " sin duplicarlo (si el usuario lo quitó por error)
+  let finalSubject = subject || "(sin asunto)";
+  if (normalizedInReplyTo && !/^re:\s*/i.test(finalSubject)) {
+    finalSubject = `Re: ${finalSubject}`;
+  }
+
   const mail: any = {
     from: `"${displayName}" <${acc.email}>`,
     to,
     cc: cc || undefined,
     bcc: bcc || undefined,
-    subject: subject || "(sin asunto)",
+    subject: finalSubject,
     text: body.replace(/<[^>]+>/g, ""),
     html,
     attachments,
   };
-  if (inReplyTo) {
-    mail.inReplyTo = inReplyTo;
-    const refList = (references ? references.split(/\s+/).filter(Boolean) : []);
-    if (!refList.includes(inReplyTo)) refList.push(inReplyTo);
+  if (normalizedInReplyTo) {
+    mail.inReplyTo = normalizedInReplyTo;
+    // Construir cadena de References completa, todas con <>:
+    const refList = (references ? references.split(/\s+/).filter(Boolean).map(wrapMsgId) : []);
+    if (!refList.includes(normalizedInReplyTo)) refList.push(normalizedInReplyTo);
     mail.references = refList;
+    // Cabeceras explícitas como respaldo por si nodemailer no las pone bien
+    mail.headers = {
+      "In-Reply-To": normalizedInReplyTo,
+      "References": refList.join(" "),
+    };
   }
 
   try {
     const info = await transporter.sendMail(mail);
+
+    // Tras enviar, disparar un sync de la carpeta Sent (en background)
+    // para que el reply aparezca cuanto antes en la unibox.
+    setImmediate(async () => {
+      try {
+        const { syncUnibox } = await import("@/lib/unibox-sync");
+        await syncUnibox(id);
+      } catch {}
+    });
+
     return NextResponse.json({ ok: true, messageId: info.messageId });
   } catch (e: any) {
     return NextResponse.json({ error: e.message || String(e) }, { status: 500 });

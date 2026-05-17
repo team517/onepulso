@@ -76,13 +76,24 @@ export async function syncAccount(uniboxId: string, accountId: string): Promise<
             continue;
           }
 
-          const inReplyTo = (parsed.inReplyTo as string) || "";
+          // Normalizamos message-ids: SIEMPRE con <> para que los servidores
+          // SMTP los reconozcan como referencias válidas al responder.
+          const wrap = (s: string): string => {
+            const t = String(s || "").trim();
+            if (!t) return "";
+            const cleaned = t.replace(/^<+|>+$/g, "");
+            return cleaned ? `<${cleaned}>` : "";
+          };
+          // messageId: parsed prioritario, fallback al envelope (más fiable IMAP)
+          const messageId = wrap(parsed.messageId || (msg.envelope as any)?.messageId || "");
+          const inReplyTo = wrap((parsed.inReplyTo as string) || (msg.envelope as any)?.inReplyTo || "");
           const refsRaw = parsed.references;
-          const references = Array.isArray(refsRaw) ? refsRaw : refsRaw ? [refsRaw] : [];
+          const refsArr = Array.isArray(refsRaw) ? refsRaw : refsRaw ? [refsRaw] : [];
+          const references = refsArr.map(wrap).filter(Boolean);
 
           fresh.push({
             uid: msg.uid,
-            messageId: parsed.messageId || "",
+            messageId,
             inReplyTo,
             references,
             from: fromAddr,
@@ -191,12 +202,20 @@ async function syncAccountSent(uniboxId: string, accountId: string): Promise<num
           const fromAddress = (msg.envelope as any)?.from?.[0]?.address || "";
           if (isBounceOrFailure({ from: fromAddr, fromAddress, fromName, subject, text })) continue;
           const warmup = isWarmupMessage({ subject, text, html, from: fromAddr });
-          const inReplyTo = (parsed.inReplyTo as string) || "";
+          const wrap = (s: string): string => {
+            const t = String(s || "").trim();
+            if (!t) return "";
+            const cleaned = t.replace(/^<+|>+$/g, "");
+            return cleaned ? `<${cleaned}>` : "";
+          };
+          const messageId = wrap(parsed.messageId || (msg.envelope as any)?.messageId || "");
+          const inReplyTo = wrap((parsed.inReplyTo as string) || (msg.envelope as any)?.inReplyTo || "");
           const refsRaw = parsed.references;
-          const references = Array.isArray(refsRaw) ? refsRaw : refsRaw ? [refsRaw] : [];
+          const refsArr = Array.isArray(refsRaw) ? refsRaw : refsRaw ? [refsRaw] : [];
+          const references = refsArr.map(wrap).filter(Boolean);
           fresh.push({
             uid: uidPseudo,
-            messageId: parsed.messageId || "",
+            messageId,
             inReplyTo,
             references,
             from: fromAddr,

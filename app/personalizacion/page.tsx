@@ -47,6 +47,26 @@ export default function PersonalizacionPage() {
   const [previewResult, setPreviewResult] = useState<any>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
   const [previewError, setPreviewError] = useState<string | null>(null);
+  const promptRef = useRef<HTMLTextAreaElement>(null);
+
+  function insertPlaceholder(token: string) {
+    const ta = promptRef.current;
+    if (!ta) {
+      setPrompt(prompt + ` {${token}}`);
+      return;
+    }
+    const start = ta.selectionStart ?? prompt.length;
+    const end = ta.selectionEnd ?? prompt.length;
+    const insert = `{${token}}`;
+    const next = prompt.slice(0, start) + insert + prompt.slice(end);
+    setPrompt(next);
+    // Mover cursor justo después del placeholder
+    setTimeout(() => {
+      ta.focus();
+      const pos = start + insert.length;
+      ta.setSelectionRange(pos, pos);
+    }, 0);
+  }
 
   // Run
   const [rangeMode, setRangeMode] = useState<"all" | "first_n" | "custom">("all");
@@ -198,7 +218,7 @@ export default function PersonalizacionPage() {
       if (!confirm(`Vas a personalizar ${rows.length} mensajes. Puede tardar varios minutos y consumir tokens del LLM. ¿Continuar?`)) return;
     }
     setRunning(true);
-    setRunJob({ status: "starting", progress: { done: 0, ok: 0, failed: 0 }, total: rows.length });
+    setRunJob({ status: "starting", progress: { done: 0, ok: 0, failed: 0 }, selected_rows: rows });
     try {
       const r = await fetch("/api/personalization/run", {
         method: "POST",
@@ -216,12 +236,27 @@ export default function PersonalizacionPage() {
       if (!r.ok) {
         alert("Error: " + (j.error || `HTTP ${r.status}`));
         setRunJob(null);
+        setRunning(false);
         return;
       }
+      // El job arranca en background. Hacemos polling cada 2s hasta que termine.
+      const jobId = j.job.id;
       setRunJob(j.job);
+      const poll = setInterval(async () => {
+        try {
+          const updated = await fetch(`/api/personalization/jobs/${jobId}`).then((r) => r.json());
+          if (updated.job) {
+            setRunJob(updated.job);
+            if (updated.job.status === "done" || updated.job.status === "error") {
+              clearInterval(poll);
+              setRunning(false);
+              loadHistory();
+            }
+          }
+        } catch {}
+      }, 2000);
     } catch (e: any) {
       alert("Error: " + e.message);
-    } finally {
       setRunning(false);
     }
   }
@@ -303,14 +338,31 @@ export default function PersonalizacionPage() {
               </label>
             </div>
           ) : (
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 14px", background: "rgba(16,185,129,0.08)", border: "1px solid rgba(16,185,129,0.3)", borderRadius: 9, gap: 12 }}>
-              <div>
-                <div style={{ fontSize: 14, fontWeight: 700, color: "#047857" }}>📊 {file.filename}</div>
-                <div style={{ fontSize: 12, color: "var(--text-dim)", marginTop: 2 }}>
-                  {file.row_count.toLocaleString()} filas · {file.columns.length} columnas detectadas
+            <div style={{
+              padding: "12px 14px",
+              background: "rgba(16,185,129,0.08)",
+              border: "1px solid rgba(16,185,129,0.35)",
+              borderRadius: 10,
+            }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 8 }}>
+                <div>
+                  <div style={{ fontSize: 14.5, fontWeight: 700, color: "#047857" }}>✓ CSV cargado: {file.filename}</div>
+                  <div style={{ fontSize: 13, color: "#047857", marginTop: 3, fontWeight: 600 }}>
+                    📊 <strong>{file.row_count.toLocaleString()} leads</strong> cargados completos · <strong>{file.columns.length}</strong> columnas detectadas
+                  </div>
                 </div>
+                <button onClick={() => { setFile(null); setMapping({}); setPreviewResult(null); setRunJob(null); }} style={btnGhostSm}>Cambiar</button>
               </div>
-              <button onClick={() => { setFile(null); setMapping({}); setPreviewResult(null); setRunJob(null); }} style={btnGhostSm}>Cambiar</button>
+              <details style={{ marginTop: 4 }}>
+                <summary style={{ cursor: "pointer", fontSize: 11.5, color: "var(--text-dim)", fontWeight: 600 }}>
+                  Ver columnas detectadas ({file.columns.length})
+                </summary>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 8 }}>
+                  {file.columns.map((c: string) => (
+                    <code key={c} style={{ ...codeInline, background: "#fff", border: "1px solid var(--border)" }}>{c}</code>
+                  ))}
+                </div>
+              </details>
             </div>
           )}
         </Step>
@@ -344,10 +396,53 @@ export default function PersonalizacionPage() {
         {/* STEP 3: Prompt */}
         {file && mapping.first_name && (
           <Step n={3} label="Escribe el prompt de personalización">
-            <div style={{ fontSize: 12, color: "var(--text-dim)", marginBottom: 8 }}>
-              Usa <code style={codeInline}>{`{firstName}`}</code>, <code style={codeInline}>{`{companyName}`}</code>, <code style={codeInline}>{`{industry}`}</code>, <code style={codeInline}>{`{city}`}</code>, <code style={codeInline}>{`{description}`}</code>, <code style={codeInline}>{`{email}`}</code> donde quieras insertar el dato del lead. También funciona <code style={codeInline}>{"{NombreColumna}"}</code> para cualquier columna del CSV.
+            <div style={{ fontSize: 12, color: "var(--text-dim)", marginBottom: 10 }}>
+              Click en un campo para insertarlo en el prompt en la posición del cursor:
             </div>
+
+            {/* Barra de placeholders mapeados */}
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 10 }}>
+              {STANDARD_FIELDS.filter((f) => mapping[f.key]).map((f) => {
+                const token =
+                  f.key === "first_name" ? "firstName" :
+                  f.key === "company_name" ? "companyName" :
+                  f.key;
+                return (
+                  <button
+                    key={f.key}
+                    type="button"
+                    onClick={() => insertPlaceholder(token)}
+                    title={`Inserta {${token}} → valor de columna "${mapping[f.key]}"`}
+                    style={tokenBtnPrimary}
+                  >
+                    + {`{${token}}`}
+                    <span style={{ fontSize: 10, opacity: 0.8, marginLeft: 4 }}>{mapping[f.key]}</span>
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Toggle de "otras columnas" para insertar las que no son standard */}
+            {file.columns.filter((c: string) => !Object.values(mapping).includes(c)).length > 0 && (
+              <details style={{ marginBottom: 10 }}>
+                <summary style={{ cursor: "pointer", fontSize: 11.5, color: "var(--text-dim)", fontWeight: 600 }}>
+                  ▸ Otras columnas del CSV ({file.columns.filter((c: string) => !Object.values(mapping).includes(c)).length})
+                </summary>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 5, marginTop: 8 }}>
+                  {file.columns.filter((c: string) => !Object.values(mapping).includes(c)).map((c: string) => (
+                    <button
+                      key={c}
+                      type="button"
+                      onClick={() => insertPlaceholder(c)}
+                      style={tokenBtnSecondary}
+                    >+ {`{${c}}`}</button>
+                  ))}
+                </div>
+              </details>
+            )}
+
             <textarea
+              ref={promptRef}
               value={prompt}
               onChange={(e) => setPrompt(e.target.value)}
               rows={10}
@@ -366,6 +461,9 @@ export default function PersonalizacionPage() {
                 <span style={{ fontSize: 11.5, color: "#b45309" }}>
                   ⚠️ Falta API Key de DeepSeek — <button onClick={() => setSettingsOpen(true)} style={{ background: "none", border: "none", color: "var(--accent)", cursor: "pointer", textDecoration: "underline", fontSize: 11.5, padding: 0 }}>configurar</button>
                 </span>
+              )}
+              {provider === "deepseek" && settings?.deepseek_api_key_present && (
+                <span style={{ fontSize: 11.5, color: "#047857" }}>✓ DeepSeek conectado</span>
               )}
             </div>
           </Step>
@@ -766,6 +864,28 @@ const codeInline: React.CSSProperties = {
   borderRadius: 4, fontFamily: "ui-monospace, Menlo, monospace",
   fontSize: 11.5,
 };
+const tokenBtnPrimary: React.CSSProperties = {
+  display: "inline-flex", alignItems: "center",
+  padding: "5px 11px",
+  background: "linear-gradient(135deg, #0071e3, #1d4ed8)",
+  color: "#fff", border: "none",
+  borderRadius: 99,
+  fontSize: 11.5, fontWeight: 700,
+  cursor: "pointer", fontFamily: "inherit",
+  boxShadow: "0 1px 3px rgba(0,113,227,0.25)",
+  transition: "transform 0.1s",
+};
+const tokenBtnSecondary: React.CSSProperties = {
+  display: "inline-flex", alignItems: "center",
+  padding: "4px 9px",
+  background: "var(--bg-elev-2)",
+  color: "var(--text-dim)",
+  border: "1px solid var(--border)",
+  borderRadius: 99,
+  fontSize: 11, fontWeight: 600,
+  cursor: "pointer", fontFamily: "inherit",
+  fontFamily: "ui-monospace, Menlo, monospace",
+} as React.CSSProperties;
 const modalBackdrop: React.CSSProperties = {
   position: "fixed", inset: 0, background: "rgba(15,23,42,0.5)",
   display: "flex", alignItems: "center", justifyContent: "center",

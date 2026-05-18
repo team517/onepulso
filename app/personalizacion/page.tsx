@@ -87,6 +87,68 @@ export default function PersonalizacionPage() {
   const [history, setHistory] = useState<any[]>([]);
   const [historyOpen, setHistoryOpen] = useState(false);
 
+  // Saved prompts
+  const [savedPrompts, setSavedPrompts] = useState<any[]>([]);
+  const [promptsLibOpen, setPromptsLibOpen] = useState(false);
+  const [saveModalOpen, setSaveModalOpen] = useState(false);
+  const [savePromptName, setSavePromptName] = useState("");
+  const [savePromptDesc, setSavePromptDesc] = useState("");
+  const [savingPrompt, setSavingPrompt] = useState(false);
+
+  async function loadSavedPrompts() {
+    try {
+      const r = await fetch("/api/personalization/prompts").then((r) => r.json());
+      setSavedPrompts(r.prompts || []);
+    } catch {}
+  }
+  useEffect(() => { loadSavedPrompts(); }, []);
+
+  async function saveCurrentPrompt() {
+    if (!savePromptName.trim() || !prompt.trim()) return;
+    setSavingPrompt(true);
+    try {
+      const r = await fetch("/api/personalization/prompts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: savePromptName.trim(),
+          content: prompt,
+          description: savePromptDesc.trim() || undefined,
+          provider,
+        }),
+      }).then((r) => r.json());
+      if (r.error) {
+        alert("⚠️ " + r.error);
+        return;
+      }
+      setSavePromptName("");
+      setSavePromptDesc("");
+      setSaveModalOpen(false);
+      await loadSavedPrompts();
+    } finally {
+      setSavingPrompt(false);
+    }
+  }
+
+  async function loadPromptFromLibrary(p: any) {
+    setPrompt(p.content);
+    if (p.provider) setProvider(p.provider);
+    setPromptsLibOpen(false);
+    // Marcar como usado en background
+    fetch(`/api/personalization/prompts/${p.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "mark_used" }),
+    }).catch(() => {});
+    loadSavedPrompts();
+  }
+
+  async function deletePromptFromLibrary(id: string, name: string) {
+    if (!confirm(`¿Eliminar el prompt "${name}"?`)) return;
+    await fetch(`/api/personalization/prompts/${id}`, { method: "DELETE" });
+    loadSavedPrompts();
+  }
+
   async function loadHistory() {
     try {
       const r = await fetch("/api/personalization/jobs").then((r) => r.json());
@@ -396,6 +458,25 @@ export default function PersonalizacionPage() {
         {/* STEP 3: Prompt */}
         {file && mapping.first_name && (
           <Step n={3} label="Escribe el prompt de personalización">
+            {/* Toolbar de prompts guardados */}
+            <div style={{ display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
+              <button
+                onClick={() => setPromptsLibOpen(true)}
+                style={{ ...btnGhostSm, display: "inline-flex", alignItems: "center", gap: 5 }}
+                title="Carga un prompt guardado anteriormente"
+              >
+                📚 Mis prompts {savedPrompts.length > 0 && <span style={{ background: "var(--accent)", color: "#fff", borderRadius: 99, padding: "0 6px", fontSize: 10, fontWeight: 700 }}>{savedPrompts.length}</span>}
+              </button>
+              <button
+                onClick={() => { setSavePromptName(""); setSavePromptDesc(""); setSaveModalOpen(true); }}
+                disabled={!prompt.trim()}
+                style={{ ...btnGhostSm, display: "inline-flex", alignItems: "center", gap: 5, opacity: !prompt.trim() ? 0.5 : 1 }}
+                title="Guarda el prompt actual para reutilizarlo"
+              >
+                💾 Guardar este prompt
+              </button>
+            </div>
+
             <div style={{ fontSize: 12, color: "var(--text-dim)", marginBottom: 10 }}>
               Click en un campo para insertarlo en el prompt en la posición del cursor:
             </div>
@@ -711,6 +792,119 @@ export default function PersonalizacionPage() {
           </Step>
         )}
       </div>
+
+      {/* Modal: Guardar prompt actual */}
+      {saveModalOpen && (
+        <div onClick={() => !savingPrompt && setSaveModalOpen(false)} style={modalBackdrop}>
+          <div onClick={(e) => e.stopPropagation()} style={{ ...modalBox, maxWidth: 460 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+              <h3 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>💾 Guardar prompt</h3>
+              <button onClick={() => setSaveModalOpen(false)} disabled={savingPrompt} style={{ background: "transparent", border: "none", fontSize: 22, cursor: "pointer", color: "var(--text-faint)" }}>×</button>
+            </div>
+            <label style={lbl}>Nombre *</label>
+            <input
+              value={savePromptName}
+              onChange={(e) => setSavePromptName(e.target.value)}
+              placeholder='Ej: "Cold email SaaS B2B CTOs España"'
+              style={inp}
+              autoFocus
+            />
+            <label style={lbl}>Descripción <span style={{ fontWeight: 400, textTransform: "none", letterSpacing: 0, color: "var(--text-faint)" }}>— opcional</span></label>
+            <textarea
+              value={savePromptDesc}
+              onChange={(e) => setSavePromptDesc(e.target.value)}
+              rows={2}
+              placeholder="Para qué tipo de prospects, qué tono, etc."
+              style={{ ...inp, resize: "vertical", fontFamily: "inherit" }}
+            />
+            <div style={{ marginTop: 12, padding: 10, background: "var(--bg-elev-2)", borderRadius: 8, fontSize: 11.5, color: "var(--text-dim)", maxHeight: 120, overflow: "auto", whiteSpace: "pre-wrap", fontFamily: "ui-monospace, Menlo, monospace" }}>
+              {prompt.slice(0, 600)}{prompt.length > 600 && "…"}
+            </div>
+            <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
+              <button onClick={saveCurrentPrompt} disabled={!savePromptName.trim() || savingPrompt} style={{ ...btnPrimary, flex: 1, opacity: !savePromptName.trim() || savingPrompt ? 0.5 : 1 }}>
+                {savingPrompt ? "Guardando…" : "💾 Guardar"}
+              </button>
+              <button onClick={() => setSaveModalOpen(false)} disabled={savingPrompt} style={btnGhost}>Cancelar</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Biblioteca de prompts */}
+      {promptsLibOpen && (
+        <div onClick={() => setPromptsLibOpen(false)} style={modalBackdrop}>
+          <div onClick={(e) => e.stopPropagation()} style={{ ...modalBox, maxWidth: 620 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+              <h3 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>📚 Mis prompts guardados</h3>
+              <button onClick={() => setPromptsLibOpen(false)} style={{ background: "transparent", border: "none", fontSize: 22, cursor: "pointer", color: "var(--text-faint)" }}>×</button>
+            </div>
+            {savedPrompts.length === 0 ? (
+              <div style={{ padding: "30px 16px", textAlign: "center", color: "var(--text-faint)", fontSize: 13 }}>
+                <div style={{ fontSize: 36, marginBottom: 8 }}>📋</div>
+                Aún no tienes prompts guardados.<br/>
+                Edita uno arriba y pulsa <strong>💾 Guardar este prompt</strong> para reutilizarlo después.
+              </div>
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: 8, maxHeight: "60vh", overflowY: "auto" }}>
+                {savedPrompts.map((p) => (
+                  <div key={p.id} style={{
+                    background: "#fff",
+                    border: "1px solid var(--border)",
+                    borderRadius: 10,
+                    padding: 12,
+                    display: "flex",
+                    alignItems: "flex-start",
+                    gap: 10,
+                  }}>
+                    <div style={{ flex: 1, minWidth: 0, cursor: "pointer" }} onClick={() => loadPromptFromLibrary(p)}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 3, flexWrap: "wrap" }}>
+                        <span style={{ fontSize: 13.5, fontWeight: 700, color: "var(--text)" }}>{p.name}</span>
+                        {p.provider && (
+                          <span style={{
+                            fontSize: 10, padding: "1px 6px", borderRadius: 99, fontWeight: 700,
+                            background: p.provider === "deepseek" ? "rgba(245,158,11,0.12)" : "rgba(139,92,246,0.12)",
+                            color: p.provider === "deepseek" ? "#b45309" : "#7c3aed",
+                          }}>{p.provider}</span>
+                        )}
+                        {(p.uses ?? 0) > 0 && (
+                          <span style={{ fontSize: 10, color: "var(--text-faint)" }}>· usado {p.uses}×</span>
+                        )}
+                      </div>
+                      {p.description && (
+                        <div style={{ fontSize: 12, color: "var(--text-dim)", marginBottom: 4 }}>{p.description}</div>
+                      )}
+                      <div style={{
+                        fontSize: 11,
+                        color: "var(--text-faint)",
+                        fontFamily: "ui-monospace, Menlo, monospace",
+                        overflow: "hidden",
+                        display: "-webkit-box",
+                        WebkitLineClamp: 2,
+                        WebkitBoxOrient: "vertical" as any,
+                        background: "var(--bg-elev-2)",
+                        padding: "5px 8px",
+                        borderRadius: 6,
+                      }}>
+                        {p.content.slice(0, 200)}{p.content.length > 200 && "…"}
+                      </div>
+                    </div>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                      <button
+                        onClick={() => loadPromptFromLibrary(p)}
+                        style={{ ...btnPrimary, fontSize: 11, padding: "5px 10px" }}
+                      >Usar</button>
+                      <button
+                        onClick={() => deletePromptFromLibrary(p.id, p.name)}
+                        style={{ ...btnGhostSm, fontSize: 11, padding: "4px 9px", color: "#dc2626", borderColor: "rgba(220,38,38,0.25)" }}
+                      >🗑</button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Settings Modal */}
       {settingsOpen && settings && (

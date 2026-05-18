@@ -95,6 +95,89 @@ export default function PersonalizacionPage() {
   const [savePromptDesc, setSavePromptDesc] = useState("");
   const [savingPrompt, setSavingPrompt] = useState(false);
 
+  // Saved campaigns (CSV + mapping + prompt como conjunto)
+  const [savedCampaigns, setSavedCampaigns] = useState<any[]>([]);
+  const [campaignsLibOpen, setCampaignsLibOpen] = useState(false);
+  const [saveCampaignOpen, setSaveCampaignOpen] = useState(false);
+  const [campaignName, setCampaignName] = useState("");
+  const [campaignDesc, setCampaignDesc] = useState("");
+  const [savingCampaign, setSavingCampaign] = useState(false);
+
+  async function loadSavedCampaigns() {
+    try {
+      const r = await fetch("/api/personalization/campaigns").then((r) => r.json());
+      setSavedCampaigns(r.campaigns || []);
+    } catch {}
+  }
+  useEffect(() => { loadSavedCampaigns(); }, []);
+
+  async function saveCurrentCampaign() {
+    if (!campaignName.trim() || !file) return;
+    setSavingCampaign(true);
+    try {
+      const r = await fetch("/api/personalization/campaigns", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: campaignName.trim(),
+          description: campaignDesc.trim() || undefined,
+          file_id: file.file_id,
+          filename: file.filename,
+          total_rows: file.row_count,
+          columns: file.columns,
+          mapping,
+          prompt,
+          provider,
+        }),
+      }).then((r) => r.json());
+      if (r.error) {
+        alert("⚠️ " + r.error);
+        return;
+      }
+      setCampaignName("");
+      setCampaignDesc("");
+      setSaveCampaignOpen(false);
+      await loadSavedCampaigns();
+    } finally {
+      setSavingCampaign(false);
+    }
+  }
+
+  async function loadCampaignFromLibrary(c: any) {
+    // Verificar antes que el CSV blob exista
+    const check = await fetch(`/api/personalization/campaigns/${c.id}`).then((r) => r.json());
+    if (!check.file_available) {
+      alert(`El archivo de "${c.name}" ya no está disponible. Es posible que lo borraran del almacenamiento. Tendrás que volver a subir el CSV.`);
+      return;
+    }
+    setFile({
+      file_id: c.file_id,
+      filename: c.filename,
+      row_count: c.total_rows,
+      columns: c.columns,
+      preview: [],
+    });
+    setMapping(c.mapping || {});
+    setPrompt(c.prompt || "");
+    setProvider(c.provider || "claude");
+    setPreviewResult(null);
+    setRunJob(null);
+    setCampaignsLibOpen(false);
+    // Marcar como usada
+    fetch(`/api/personalization/campaigns/${c.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "mark_used" }),
+    }).catch(() => {});
+    loadSavedCampaigns();
+  }
+
+  async function deleteCampaignFromLibrary(id: string, name: string) {
+    if (!confirm(`¿Eliminar la campaña "${name}"?\n\n(El CSV original sigue en tu almacenamiento por si lo usaste en otras campañas. La descarga de resultados anteriores no se ve afectada.)`)) return;
+    await fetch(`/api/personalization/campaigns/${id}`, { method: "DELETE" });
+    loadSavedCampaigns();
+  }
+
   async function loadSavedPrompts() {
     try {
       const r = await fetch("/api/personalization/prompts").then((r) => r.json());
@@ -371,7 +454,12 @@ export default function PersonalizacionPage() {
               Sube un CSV de leads, mapea columnas, escribe un prompt y genera un mensaje único para cada uno con IA. Preview antes de procesar todo.
             </p>
           </div>
-          <button onClick={() => { loadSettings(); setSettingsOpen(true); }} style={btnGhost}>⚙️ Ajustes IA</button>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <button onClick={() => { loadSavedCampaigns(); setCampaignsLibOpen(true); }} style={btnGhost}>
+              📋 Mis campañas {savedCampaigns.length > 0 && <span style={{ background: "var(--accent)", color: "#fff", borderRadius: 99, padding: "0 6px", fontSize: 10, fontWeight: 700, marginLeft: 4 }}>{savedCampaigns.length}</span>}
+            </button>
+            <button onClick={() => { loadSettings(); setSettingsOpen(true); }} style={btnGhost}>⚙️ Ajustes IA</button>
+          </div>
         </header>
 
         {/* STEP 1: Upload */}
@@ -627,17 +715,31 @@ export default function PersonalizacionPage() {
               } checked={rangeMode === "custom"} onClick={() => setRangeMode("custom")} />
             </div>
 
-            <button
-              onClick={doRun}
-              disabled={!canRun || running}
-              style={{
-                ...btnPrimary, fontSize: 14, padding: "11px 22px",
-                opacity: !canRun || running ? 0.55 : 1,
-                cursor: !canRun || running ? "not-allowed" : "pointer",
-              }}
-            >
-              {running ? "Procesando…" : `🚀 Personalizar ${getSelectedRows().length} mensajes`}
-            </button>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              <button
+                onClick={doRun}
+                disabled={!canRun || running}
+                style={{
+                  ...btnPrimary, fontSize: 14, padding: "11px 22px",
+                  opacity: !canRun || running ? 0.55 : 1,
+                  cursor: !canRun || running ? "not-allowed" : "pointer",
+                }}
+              >
+                {running ? "Procesando…" : `🚀 Personalizar ${getSelectedRows().length} mensajes`}
+              </button>
+              <button
+                onClick={() => { setCampaignName(""); setCampaignDesc(""); setSaveCampaignOpen(true); }}
+                disabled={!canRun}
+                style={{
+                  ...btnGhost, fontSize: 13.5, padding: "11px 18px",
+                  opacity: !canRun ? 0.5 : 1,
+                  cursor: !canRun ? "not-allowed" : "pointer",
+                }}
+                title="Guarda esta configuración (CSV + mapping + prompt + modelo) para volver a usarla más tarde"
+              >
+                💾 Guardar campaña
+              </button>
+            </div>
 
             {runJob && (
               <div style={{
@@ -792,6 +894,118 @@ export default function PersonalizacionPage() {
           </Step>
         )}
       </div>
+
+      {/* Modal: Guardar campaña */}
+      {saveCampaignOpen && (
+        <div onClick={() => !savingCampaign && setSaveCampaignOpen(false)} style={modalBackdrop}>
+          <div onClick={(e) => e.stopPropagation()} style={{ ...modalBox, maxWidth: 480 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+              <h3 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>💾 Guardar campaña</h3>
+              <button onClick={() => setSaveCampaignOpen(false)} disabled={savingCampaign} style={{ background: "transparent", border: "none", fontSize: 22, cursor: "pointer", color: "var(--text-faint)" }}>×</button>
+            </div>
+            <p style={{ fontSize: 12.5, color: "var(--text-dim)", margin: "0 0 14px", lineHeight: 1.55 }}>
+              Guarda esta configuración completa: <strong>CSV ({file?.row_count} leads), mapping de columnas, prompt y modelo</strong>. Podrás volver a ella con un click sin tener que repetir nada.
+            </p>
+            <label style={lbl}>Nombre *</label>
+            <input
+              value={campaignName}
+              onChange={(e) => setCampaignName(e.target.value)}
+              placeholder='Ej: "Cold CTOs SaaS Q3 2026"'
+              style={inp}
+              autoFocus
+            />
+            <label style={lbl}>Descripción <span style={{ fontWeight: 400, textTransform: "none", letterSpacing: 0, color: "var(--text-faint)" }}>— opcional</span></label>
+            <textarea
+              value={campaignDesc}
+              onChange={(e) => setCampaignDesc(e.target.value)}
+              rows={2}
+              placeholder="A quién va dirigida, contexto, lo que necesites recordar…"
+              style={{ ...inp, resize: "vertical", fontFamily: "inherit" }}
+            />
+            <div style={{ marginTop: 12, padding: 10, background: "var(--bg-elev-2)", borderRadius: 8, fontSize: 11.5, color: "var(--text-dim)", lineHeight: 1.6 }}>
+              <strong>Incluye:</strong>
+              <br/>📊 {file?.filename} · {file?.row_count.toLocaleString()} leads
+              <br/>🔗 {Object.values(mapping).filter(Boolean).length} columnas mapeadas
+              <br/>💬 Prompt {prompt.length} caracteres
+              <br/>🤖 Modelo: {provider === "claude" ? "Claude" : "DeepSeek"}
+            </div>
+            <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
+              <button onClick={saveCurrentCampaign} disabled={!campaignName.trim() || savingCampaign} style={{ ...btnPrimary, flex: 1, opacity: !campaignName.trim() || savingCampaign ? 0.5 : 1 }}>
+                {savingCampaign ? "Guardando…" : "💾 Guardar"}
+              </button>
+              <button onClick={() => setSaveCampaignOpen(false)} disabled={savingCampaign} style={btnGhost}>Cancelar</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Biblioteca de campañas */}
+      {campaignsLibOpen && (
+        <div onClick={() => setCampaignsLibOpen(false)} style={modalBackdrop}>
+          <div onClick={(e) => e.stopPropagation()} style={{ ...modalBox, maxWidth: 680 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+              <h3 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>📋 Mis campañas guardadas</h3>
+              <button onClick={() => setCampaignsLibOpen(false)} style={{ background: "transparent", border: "none", fontSize: 22, cursor: "pointer", color: "var(--text-faint)" }}>×</button>
+            </div>
+            {savedCampaigns.length === 0 ? (
+              <div style={{ padding: "30px 16px", textAlign: "center", color: "var(--text-faint)", fontSize: 13 }}>
+                <div style={{ fontSize: 36, marginBottom: 8 }}>📁</div>
+                Aún no tienes campañas guardadas.<br/>
+                Configura una en el flujo de arriba y pulsa <strong>💾 Guardar campaña</strong> al llegar al paso 5 para reutilizarla después.
+              </div>
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: 8, maxHeight: "65vh", overflowY: "auto" }}>
+                {savedCampaigns.map((c) => (
+                  <div key={c.id} style={{
+                    background: "#fff",
+                    border: "1px solid var(--border)",
+                    borderRadius: 10,
+                    padding: 12,
+                    display: "flex",
+                    alignItems: "flex-start",
+                    gap: 10,
+                  }}>
+                    <div style={{ flex: 1, minWidth: 0, cursor: "pointer" }} onClick={() => loadCampaignFromLibrary(c)}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4, flexWrap: "wrap" }}>
+                        <span style={{ fontSize: 14, fontWeight: 700, color: "var(--text)" }}>{c.name}</span>
+                        <span style={{
+                          fontSize: 10, padding: "1px 6px", borderRadius: 99, fontWeight: 700,
+                          background: c.provider === "deepseek" ? "rgba(245,158,11,0.12)" : "rgba(139,92,246,0.12)",
+                          color: c.provider === "deepseek" ? "#b45309" : "#7c3aed",
+                        }}>{c.provider}</span>
+                        {(c.uses ?? 0) > 0 && (
+                          <span style={{ fontSize: 10, color: "var(--text-faint)" }}>· usado {c.uses}×</span>
+                        )}
+                      </div>
+                      {c.description && (
+                        <div style={{ fontSize: 12, color: "var(--text-dim)", marginBottom: 6 }}>{c.description}</div>
+                      )}
+                      <div style={{ display: "flex", gap: 10, fontSize: 11.5, color: "var(--text-faint)", flexWrap: "wrap" }}>
+                        <span>📊 <strong style={{ color: "var(--text-dim)" }}>{c.total_rows?.toLocaleString?.() ?? c.total_rows}</strong> leads</span>
+                        <span>🔗 {Object.values(c.mapping || {}).filter(Boolean).length} cols mapeadas</span>
+                        <span>💬 {c.prompt?.length ?? 0} chars</span>
+                      </div>
+                      <div style={{ fontSize: 10.5, color: "var(--text-faint)", marginTop: 4 }}>
+                        {c.filename}
+                      </div>
+                    </div>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                      <button
+                        onClick={() => loadCampaignFromLibrary(c)}
+                        style={{ ...btnPrimary, fontSize: 11, padding: "5px 10px" }}
+                      >Abrir</button>
+                      <button
+                        onClick={() => deleteCampaignFromLibrary(c.id, c.name)}
+                        style={{ ...btnGhostSm, fontSize: 11, padding: "4px 9px", color: "#dc2626", borderColor: "rgba(220,38,38,0.25)" }}
+                      >🗑</button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Modal: Guardar prompt actual */}
       {saveModalOpen && (

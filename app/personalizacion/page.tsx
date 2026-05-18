@@ -63,6 +63,28 @@ export default function PersonalizacionPage() {
   const [savingSettings, setSavingSettings] = useState(false);
   const [testResult, setTestResult] = useState<any>(null);
 
+  // History
+  const [history, setHistory] = useState<any[]>([]);
+  const [historyOpen, setHistoryOpen] = useState(false);
+
+  async function loadHistory() {
+    try {
+      const r = await fetch("/api/personalization/jobs").then((r) => r.json());
+      setHistory(r.jobs || []);
+    } catch {}
+  }
+  useEffect(() => { loadHistory(); }, []);
+  // Recargar el history cada vez que termine un job
+  useEffect(() => {
+    if (runJob?.status === "done") loadHistory();
+  }, [runJob?.status]);
+
+  async function deleteHistoryItem(id: string) {
+    if (!confirm("¿Eliminar este job del historial? (no afecta a tu CSV original)")) return;
+    await fetch(`/api/personalization/jobs/${id}`, { method: "DELETE" });
+    loadHistory();
+  }
+
   async function loadSettings() {
     try {
       const s = await fetch("/api/personalization/settings").then((r) => r.json());
@@ -439,37 +461,63 @@ export default function PersonalizacionPage() {
             </button>
 
             {runJob && (
-              <div style={{ marginTop: 16, background: "var(--bg-elev-2)", border: "1px solid var(--border)", borderRadius: 10, padding: 14 }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8, flexWrap: "wrap", gap: 8 }}>
+              <div style={{
+                marginTop: 16,
+                background: runJob.status === "done" ? "linear-gradient(135deg, rgba(16,185,129,0.06), rgba(16,185,129,0.12))" : "var(--bg-elev-2)",
+                border: `1px solid ${runJob.status === "done" ? "rgba(16,185,129,0.35)" : "var(--border)"}`,
+                borderRadius: 12, padding: 16,
+              }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10, flexWrap: "wrap", gap: 10 }}>
                   <div>
-                    <div style={{ fontSize: 14, fontWeight: 700 }}>
+                    <div style={{ fontSize: 15, fontWeight: 700, color: runJob.status === "done" ? "#047857" : "var(--text)" }}>
                       {runJob.status === "done" ? "✓ Completado" :
                        runJob.status === "running" ? "⏳ En curso" :
                        runJob.status === "error" ? "✗ Error" : "Iniciando…"}
                     </div>
-                    <div style={{ fontSize: 12, color: "var(--text-dim)", marginTop: 2 }}>
-                      {runJob.progress?.done ?? 0} / {runJob.selected_rows?.length ?? runJob.total ?? 0} ·
-                      ✓ {runJob.progress?.ok ?? 0} OK ·
-                      ✗ {runJob.progress?.failed ?? 0} fallaron
+                    <div style={{ fontSize: 12.5, color: "var(--text-dim)", marginTop: 3 }}>
+                      {runJob.progress?.done ?? 0} / {runJob.selected_rows?.length ?? runJob.total ?? 0} procesados ·
+                      <span style={{ color: "#047857", fontWeight: 600 }}> ✓ {runJob.progress?.ok ?? 0}</span> ·
+                      <span style={{ color: "#b91c1c", fontWeight: 600 }}> ✗ {runJob.progress?.failed ?? 0}</span>
                     </div>
                   </div>
                   {runJob.status === "done" && runJob.id && (
                     <a
                       href={`/api/personalization/jobs/${runJob.id}/csv`}
                       download
-                      style={{ ...btnPrimary, textDecoration: "none", fontSize: 12.5 }}
+                      style={{
+                        ...btnPrimary,
+                        textDecoration: "none",
+                        fontSize: 14,
+                        padding: "11px 20px",
+                        background: "linear-gradient(135deg, #10b981, #047857)",
+                        boxShadow: "0 2px 8px rgba(16,185,129,0.35)",
+                        display: "inline-flex", alignItems: "center", gap: 6,
+                      }}
                     >
                       ⬇ Descargar CSV
                     </a>
                   )}
                 </div>
+
+                {/* Barra de progreso */}
+                {runJob.status === "running" && (
+                  <div style={{ height: 6, background: "var(--bg-elev-3)", borderRadius: 99, overflow: "hidden", marginBottom: 12 }}>
+                    <div style={{
+                      height: "100%",
+                      width: `${Math.min(100, ((runJob.progress?.done ?? 0) / Math.max(1, runJob.selected_rows?.length ?? 1)) * 100)}%`,
+                      background: "linear-gradient(90deg, #0071e3, #06b6d4)",
+                      transition: "width 0.3s",
+                    }} />
+                  </div>
+                )}
+
                 {runJob.error && (
                   <div style={{ fontSize: 12, color: "#b91c1c", marginTop: 6 }}>{runJob.error}</div>
                 )}
                 {runJob.results && runJob.results.length > 0 && (
                   <details style={{ marginTop: 10 }}>
                     <summary style={{ cursor: "pointer", fontSize: 12, fontWeight: 600, color: "var(--text-dim)" }}>
-                      Ver primeros mensajes generados
+                      Ver primeros mensajes generados ({runJob.results.length})
                     </summary>
                     <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 6, maxHeight: 280, overflowY: "auto" }}>
                       {runJob.results.slice(0, 10).map((r: any) => (
@@ -486,6 +534,79 @@ export default function PersonalizacionPage() {
                       ))}
                     </div>
                   </details>
+                )}
+              </div>
+            )}
+
+            {/* Historial de jobs anteriores */}
+            {history.length > 0 && (
+              <div style={{ marginTop: 24 }}>
+                <button
+                  onClick={() => setHistoryOpen(!historyOpen)}
+                  style={{
+                    background: "transparent", border: "none",
+                    fontSize: 13, fontWeight: 700,
+                    color: "var(--text-dim)", cursor: "pointer",
+                    padding: 0, display: "inline-flex", alignItems: "center", gap: 6,
+                  }}
+                >
+                  {historyOpen ? "▾" : "▸"} Historial de trabajos ({history.length})
+                </button>
+                {historyOpen && (
+                  <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 6 }}>
+                    {history.map((j) => (
+                      <div key={j.id} style={{
+                        display: "flex", alignItems: "center", gap: 10,
+                        padding: "10px 12px",
+                        background: "#fff", border: "1px solid var(--border)",
+                        borderRadius: 9,
+                      }}>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12.5, fontWeight: 600 }}>
+                            <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{j.filename}</span>
+                            <span style={{
+                              fontSize: 10, fontWeight: 700,
+                              padding: "1px 6px", borderRadius: 99,
+                              background:
+                                j.status === "done" ? "rgba(16,185,129,0.15)" :
+                                j.status === "running" ? "rgba(0,113,227,0.15)" :
+                                j.status === "error" ? "rgba(239,68,68,0.15)" :
+                                "var(--bg-elev-2)",
+                              color:
+                                j.status === "done" ? "#047857" :
+                                j.status === "running" ? "#0071e3" :
+                                j.status === "error" ? "#b91c1c" :
+                                "var(--text-dim)",
+                            }}>{j.status}</span>
+                            <span style={{
+                              fontSize: 10, fontWeight: 600,
+                              padding: "1px 6px", borderRadius: 99,
+                              background: j.provider === "deepseek" ? "rgba(245,158,11,0.12)" : "rgba(139,92,246,0.12)",
+                              color: j.provider === "deepseek" ? "#b45309" : "#7c3aed",
+                            }}>{j.provider}</span>
+                          </div>
+                          <div style={{ fontSize: 11, color: "var(--text-faint)", marginTop: 2 }}>
+                            {j.selected_count} mensajes · {j.progress?.ok ?? 0} OK · {j.progress?.failed ?? 0} fallaron · {fmtRelative(j.created_at)}
+                          </div>
+                        </div>
+                        {j.status === "done" && (
+                          <a
+                            href={`/api/personalization/jobs/${j.id}/csv`}
+                            download
+                            style={{
+                              ...btnPrimary, fontSize: 11.5, padding: "6px 12px",
+                              textDecoration: "none",
+                            }}
+                          >⬇ CSV</a>
+                        )}
+                        <button onClick={() => deleteHistoryItem(j.id)} title="Eliminar del historial" style={{
+                          background: "transparent", border: "1px solid var(--border)",
+                          borderRadius: 7, padding: "4px 8px",
+                          fontSize: 12, cursor: "pointer", color: "var(--text-faint)",
+                        }}>🗑</button>
+                      </div>
+                    ))}
+                  </div>
                 )}
               </div>
             )}
@@ -553,6 +674,18 @@ export default function PersonalizacionPage() {
       )}
     </div>
   );
+}
+
+function fmtRelative(iso: string): string {
+  const ms = Date.now() - new Date(iso).getTime();
+  const m = Math.floor(ms / 60000);
+  if (m < 1) return "ahora";
+  if (m < 60) return `hace ${m}m`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `hace ${h}h`;
+  const d = Math.floor(h / 24);
+  if (d < 7) return `hace ${d}d`;
+  return new Date(iso).toLocaleDateString("es-ES", { day: "numeric", month: "short" });
 }
 
 function Step({ n, label, children, done }: any) {

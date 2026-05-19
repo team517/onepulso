@@ -110,6 +110,11 @@ export async function listPosts(): Promise<ScheduledPost[]> {
   });
 }
 
+export async function getPost(id: string): Promise<ScheduledPost | null> {
+  const all = await readPosts();
+  return all.find((p) => p.id === id) ?? null;
+}
+
 export async function createPost(input: Partial<ScheduledPost> & { text: string }): Promise<ScheduledPost> {
   const all = await readPosts();
   const now = new Date().toISOString();

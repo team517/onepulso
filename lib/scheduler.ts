@@ -1,18 +1,35 @@
-import { listPosts, publishPost, updatePost } from "./linkedin";
+import { listPosts, publishPost, updatePost, getPost } from "./linkedin";
 
 declare global {
   // eslint-disable-next-line no-var
   var __linkedinScheduler: NodeJS.Timeout | undefined;
+  // eslint-disable-next-line no-var
+  var __linkedinSchedulerRunning: boolean | undefined;
 }
 
 const TICK_MS = 30_000; // 30s
 
 export function startScheduler() {
   if (globalThis.__linkedinScheduler) return;
-  console.log("[linkedin-scheduler] starting (30s tick)");
-  globalThis.__linkedinScheduler = setInterval(tick, TICK_MS);
-  // Tick once immediately
-  tick().catch((e) => console.error("[linkedin-scheduler] initial tick error", e));
+  console.log("[linkedin-scheduler] starting (30s tick, anti-reentrant)");
+
+  const safeTick = async () => {
+    if (globalThis.__linkedinSchedulerRunning) {
+      console.log("[linkedin-scheduler] tick anterior aún corre — saltando");
+      return;
+    }
+    globalThis.__linkedinSchedulerRunning = true;
+    try {
+      await tick();
+    } catch (e: any) {
+      console.error("[linkedin-scheduler] tick error:", e?.message || e);
+    } finally {
+      globalThis.__linkedinSchedulerRunning = false;
+    }
+  };
+
+  globalThis.__linkedinScheduler = setInterval(safeTick, TICK_MS);
+  safeTick();
 }
 
 export async function tick(): Promise<{ checked: number; published: number; failed: number }> {
@@ -26,9 +43,19 @@ export async function tick(): Promise<{ checked: number; published: number; fail
     if (!p.scheduled_at) continue;
     if (new Date(p.scheduled_at).getTime() > now) continue;
     checked++;
+
+    // ATOMIC CLAIM: re-leer el post AHORA mismo y comprobar que sigue siendo "scheduled".
+    // Si otra ejecución (otro tick que se cruzó, llamada manual, etc.) ya lo marcó como
+    // "publishing" o "published", saltamos para evitar duplicados.
+    const fresh = await getPost(p.id);
+    if (!fresh || fresh.status !== "scheduled") {
+      console.log(`[linkedin-scheduler] skip ${p.id}: status ya es ${fresh?.status}`);
+      continue;
+    }
+    // Marcar como publishing INMEDIATAMENTE (antes de cualquier await pesado)
     await updatePost(p.id, { status: "publishing" });
     try {
-      const { urn } = await publishPost(p);
+      const { urn } = await publishPost(fresh);
       await updatePost(p.id, {
         status: "published",
         published_at: new Date().toISOString(),

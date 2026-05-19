@@ -1,4 +1,4 @@
-import { listAllScheduledFollowups, getThread, updateFollowup, appendMessage } from "./email-threads";
+import { listAllScheduledFollowups, getThread, updateFollowup, appendMessage, listThreads } from "./email-threads";
 import { sendEmail } from "./email-send";
 import { readEmailConfig } from "./email-config";
 import { syncInbox, deepRefreshAllThreads } from "./email-inbox";
@@ -59,7 +59,46 @@ const INBOX_SYNC_MS = 30_000;      // sync incremental cada 30s
 const DEEP_REFRESH_MS = 2 * 60_000; // deep refresh cada 2 minutos
 const UNIBOX_SYNC_MS = 90_000;      // sync de uniboxes cada 90 segundos
 
+/**
+ * Rescata follow-ups atascadas en "sending" durante más de N minutos.
+ * Esto ocurre si el proceso murió a medio envío (OOM, deploy, crash).
+ * Las devolvemos a "scheduled" para que el siguiente tick las reintente.
+ */
+async function rescueStuckSendingFollowups(maxStuckMinutes = 5): Promise<number> {
+  const threads = await listThreads();
+  const cutoff = Date.now() - maxStuckMinutes * 60_000;
+  let rescued = 0;
+  for (const t of threads) {
+    for (const f of t.followups ?? []) {
+      if (f.status === "sending") {
+        // No tenemos timestamp exacto de cuándo pasó a sending; usamos updated_at del thread.
+        const stamp = new Date(t.updated_at).getTime();
+        if (stamp < cutoff) {
+          await updateFollowup(t.id, f.id, { status: "scheduled", error: undefined });
+          rescued++;
+          console.log(`[email-scheduler] rescued stuck follow-up ${f.id} (thread ${t.id}) — devuelto a scheduled`);
+        }
+      }
+    }
+  }
+  return rescued;
+}
+
+let lastStuckCheck = 0;
+const STUCK_CHECK_MS = 5 * 60_000; // cada 5 min
+
 export async function tick() {
+  // 0. Cada 5 min, rescatar followups "sending" atascadas
+  if (Date.now() - lastStuckCheck > STUCK_CHECK_MS) {
+    lastStuckCheck = Date.now();
+    try {
+      const n = await rescueStuckSendingFollowups();
+      if (n > 0) console.log(`[email-scheduler] ${n} follow-ups rescatadas de sending → scheduled`);
+    } catch (e: any) {
+      console.error("[email-scheduler] stuck check error:", e.message);
+    }
+  }
+
   // 1. Enviar follow-ups vencidos
   const dueResults = await sendDueFollowups();
 
@@ -160,6 +199,15 @@ export async function sendDueFollowups(): Promise<{ sent: number; failed: number
           }
         }
       }
+    }
+
+    // ATOMIC CLAIM: re-leer el thread y verificar que la followup sigue "scheduled".
+    // Si otro proceso (cron manual, retry desde UI, otro tick) ya la cogió, saltamos.
+    const freshThread = await getThread(f.thread_id);
+    const freshFu = freshThread?.followups.find((x) => x.id === f.id);
+    if (!freshFu || freshFu.status !== "scheduled") {
+      console.log(`[email-scheduler] skip ${f.id}: status ya es ${freshFu?.status ?? "(borrada)"}`);
+      continue;
     }
 
     await updateFollowup(f.thread_id, f.id, { status: "sending" });

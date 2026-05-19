@@ -38,6 +38,52 @@ export default function CalendarPage() {
   const [selectedDay, setSelectedDay] = useState<Date | null>(null);
   const [selectedEvent, setSelectedEvent] = useState<Event | null>(null);
   const [savingContext, setSavingContext] = useState(false);
+  // Drag & drop
+  const [draggingEventId, setDraggingEventId] = useState<string | null>(null);
+  const [draggingEvent, setDraggingEvent] = useState<Event | null>(null);
+  const [dragOverKey, setDragOverKey] = useState<string | null>(null);
+  const [moveFeedback, setMoveFeedback] = useState<string | null>(null);
+
+  async function onDropOnDay(targetDate: Date) {
+    if (!draggingEvent) return;
+    const ev = draggingEvent;
+    // Mantener la HORA original, solo cambiar fecha
+    const orig = new Date(ev.scheduled_at);
+    const next = new Date(targetDate);
+    next.setHours(orig.getHours(), orig.getMinutes(), 0, 0);
+    // Si la nueva fecha es la misma que la original, no hacer nada
+    if (next.toDateString() === orig.toDateString()) {
+      setDraggingEventId(null);
+      setDraggingEvent(null);
+      return;
+    }
+    // Optimistic update: cambiar localmente antes de la respuesta
+    setEvents((prev) => prev.map((e) =>
+      e.id === ev.id ? { ...e, scheduled_at: next.toISOString() } : e
+    ));
+    setDraggingEventId(null);
+    setDraggingEvent(null);
+    setMoveFeedback(`Moviendo ${ev.contact_name} → ${next.toLocaleDateString("es-ES", { weekday: "long", day: "numeric", month: "long" })}…`);
+    try {
+      const r = await fetch(`/api/email/followups/${ev.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ scheduled_at: next.toISOString() }),
+      });
+      if (!r.ok) {
+        const j = await r.json().catch(() => ({}));
+        throw new Error(j.error || `HTTP ${r.status}`);
+      }
+      setMoveFeedback(`✓ ${ev.contact_name} movido a ${next.toLocaleDateString("es-ES", { weekday: "long", day: "numeric", month: "long" })}`);
+      // Recargar desde servidor para asegurar consistencia
+      load();
+    } catch (e: any) {
+      setMoveFeedback(`⚠️ No pude mover: ${e.message}`);
+      // Revertir
+      load();
+    }
+    setTimeout(() => setMoveFeedback(null), 4000);
+  }
 
   useEffect(() => { load(); }, []);
 
@@ -157,7 +203,8 @@ export default function CalendarPage() {
             <div className="dash-page-title">Calendario de seguimientos</div>
             <div className="dash-page-subtitle">
               {events.filter(e => e.status === "scheduled").length} programados ·{" "}
-              {events.filter(e => e.auto_pilot && e.status === "scheduled").length} en autopilot
+              {events.filter(e => e.auto_pilot && e.status === "scheduled").length} en autopilot ·{" "}
+              <span style={{ color: "var(--accent)" }}>💡 Arrastra cualquier follow-up programado a otro día para cambiar la fecha</span>
             </div>
           </div>
           <div className="dash-page-actions">
@@ -165,6 +212,21 @@ export default function CalendarPage() {
             <button onClick={load} style={btnSecondary}>↻ Recargar</button>
           </div>
         </div>
+
+        {moveFeedback && (
+          <div style={{
+            position: "fixed", top: 20, right: 20, zIndex: 1000,
+            padding: "10px 16px",
+            background: moveFeedback.startsWith("⚠️") ? "#fef2f2" : moveFeedback.startsWith("✓") ? "#ecfdf5" : "#fff",
+            border: `1px solid ${moveFeedback.startsWith("⚠️") ? "#fecaca" : moveFeedback.startsWith("✓") ? "#a7f3d0" : "var(--border)"}`,
+            color: moveFeedback.startsWith("⚠️") ? "#b91c1c" : moveFeedback.startsWith("✓") ? "#047857" : "var(--text)",
+            borderRadius: 10, fontSize: 12.5, fontWeight: 600,
+            boxShadow: "0 10px 30px rgba(15,23,42,0.15)",
+            maxWidth: 380,
+          }}>
+            {moveFeedback}
+          </div>
+        )}
 
         <div style={{
           flex: 1, overflow: "hidden",
@@ -221,22 +283,35 @@ export default function CalendarPage() {
                 const evs = byDay[k] ?? [];
                 const isSel = selectedDay && selectedDay.toDateString() === date.toDateString();
                 const todayStyle = isToday(date);
+                const isDropTarget = dragOverKey === k;
 
                 return (
                   <div
                     key={i}
                     onClick={() => setSelectedDay(date)}
+                    onDragOver={(e) => {
+                      e.preventDefault();
+                      if (dragOverKey !== k) setDragOverKey(k);
+                    }}
+                    onDragLeave={() => {
+                      if (dragOverKey === k) setDragOverKey(null);
+                    }}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      setDragOverKey(null);
+                      onDropOnDay(date);
+                    }}
                     style={{
                       minHeight: 96,
-                      background: inMonth ? "#ffffff" : "var(--bg-elev-2)",
+                      background: isDropTarget ? "rgba(0,113,227,0.08)" : inMonth ? "#ffffff" : "var(--bg-elev-2)",
                       border: "1px solid",
-                      borderColor: isSel ? "var(--accent)" : todayStyle ? "rgba(0,113,227,0.4)" : "var(--border)",
+                      borderColor: isDropTarget ? "var(--accent)" : isSel ? "var(--accent)" : todayStyle ? "rgba(0,113,227,0.4)" : "var(--border)",
                       borderRadius: 10,
                       padding: 7,
                       cursor: "pointer",
                       opacity: inMonth ? 1 : 0.55,
                       transition: "all 0.15s",
-                      boxShadow: isSel ? "0 0 0 2px rgba(0,113,227,0.18)" : "none",
+                      boxShadow: isDropTarget ? "0 0 0 2px rgba(0,113,227,0.3)" : isSel ? "0 0 0 2px rgba(0,113,227,0.18)" : "none",
                       position: "relative",
                     }}
                   >
@@ -260,9 +335,24 @@ export default function CalendarPage() {
                       {evs.slice(0, 3).map(e => {
                         const s = statusInfo(e);
                         const isCancelled = e.status === "cancelled";
+                        const draggable = e.status === "scheduled" || e.status === "pending_approval";
+                        const isDragging = draggingEventId === e.id;
                         return (
                           <div
                             key={e.id}
+                            draggable={draggable}
+                            onDragStart={(ev) => {
+                              if (!draggable) return;
+                              ev.dataTransfer.effectAllowed = "move";
+                              ev.dataTransfer.setData("text/plain", e.id);
+                              setDraggingEventId(e.id);
+                              setDraggingEvent(e);
+                            }}
+                            onDragEnd={() => {
+                              setDraggingEventId(null);
+                              setDraggingEvent(null);
+                              setDragOverKey(null);
+                            }}
                             onClick={ev => { ev.stopPropagation(); setSelectedEvent(e); }}
                             style={{
                               fontSize: 10.5, fontWeight: 600,
@@ -272,11 +362,15 @@ export default function CalendarPage() {
                               whiteSpace: "nowrap",
                               overflow: "hidden",
                               textOverflow: "ellipsis",
-                              cursor: "pointer",
-                              opacity: isCancelled ? 0.65 : 1,
+                              cursor: draggable ? (isDragging ? "grabbing" : "grab") : "pointer",
+                              opacity: isCancelled ? 0.65 : isDragging ? 0.4 : 1,
                               textDecoration: isCancelled ? "line-through" : "none",
+                              transition: "opacity 0.12s",
                             }}
-                            title={`${e.contact_name} · ${new Date(e.scheduled_at).toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" })} · ${s.label}${e.cancelled_reason === "prospect_replied" ? " (respondió)" : ""}`}
+                            title={
+                              `${e.contact_name} · ${new Date(e.scheduled_at).toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" })} · ${s.label}${e.cancelled_reason === "prospect_replied" ? " (respondió)" : ""}` +
+                              (draggable ? "\nArrastra a otro día para cambiar la fecha" : "")
+                            }
                           >
                             {s.icon} {new Date(e.scheduled_at).toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" })} · {e.contact_name}
                           </div>

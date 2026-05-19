@@ -224,11 +224,13 @@ function Dashboard({ slug, data, onLogout, onRefresh }: {
       });
       const d = await res.json();
       if (res.ok && d.uniboxId) {
-        window.location.href = `/u/${d.uniboxId}`;
-      } else {
-        setSsoState("error");
-        setSsoError(d.error || "No se pudo abrir el Unibox");
+        // Vinculado → SSO directo a la bandeja
+        window.location.href = `/u/${d.uniboxId}/inbox`;
+        return;
       }
+      // No vinculado todavía → mensaje claro
+      setSsoState("error");
+      setSsoError(d.error || "Tu bandeja aún no está disponible");
     } catch {
       setSsoState("error");
       setSsoError("Error de conexión");
@@ -372,75 +374,94 @@ function Dashboard({ slug, data, onLogout, onRefresh }: {
           </div>
         </div>
 
-        {/* Mi Unibox card */}
-        {linked_unibox && (
-          <button
-            onClick={openUnibox}
-            disabled={ssoState === "loading"}
-            style={{
-              width: "100%",
-              textAlign: "left",
-              background: "linear-gradient(145deg, #0d2244 0%, #1a3a6e 60%, #2756a8 100%)",
-              border: "none",
-              borderRadius: 20,
-              padding: "22px 26px",
-              boxShadow: "0 8px 28px rgba(13,34,68,0.28)",
-              marginBottom: 20,
-              cursor: ssoState === "loading" ? "wait" : "pointer",
-              color: "#fff",
-              fontFamily: "inherit",
-              display: "flex", alignItems: "center", gap: 18,
-              transition: "transform 0.2s ease, box-shadow 0.2s ease",
-              position: "relative", overflow: "hidden",
-            }}
-            onMouseEnter={(e) => {
-              if (ssoState !== "loading") {
-                (e.currentTarget as HTMLButtonElement).style.transform = "translateY(-1px)";
-                (e.currentTarget as HTMLButtonElement).style.boxShadow = "0 12px 32px rgba(13,34,68,0.35)";
-              }
-            }}
-            onMouseLeave={(e) => {
-              (e.currentTarget as HTMLButtonElement).style.transform = "translateY(0)";
-              (e.currentTarget as HTMLButtonElement).style.boxShadow = "0 8px 28px rgba(13,34,68,0.28)";
-            }}
-          >
-            {/* sparkle accent */}
-            <div style={{
-              position: "absolute", top: -40, right: -40,
-              width: 200, height: 200,
-              background: "radial-gradient(circle at center, rgba(255,255,255,0.12), transparent 70%)",
-              pointerEvents: "none",
-            }} />
-            <div style={{
-              width: 52, height: 52,
-              background: "rgba(255,255,255,0.14)",
-              borderRadius: 14,
-              display: "flex", alignItems: "center", justifyContent: "center",
-              fontSize: 24, flexShrink: 0,
-              border: "1px solid rgba(255,255,255,0.2)",
-            }}>
-              ✉
-            </div>
-            <div style={{ flex: 1, minWidth: 0, position: "relative" }}>
-              <div style={{ fontSize: 11.5, opacity: 0.7, letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 4 }}>
-                Bandeja de correo
+        {/* Mi Unibox card — siempre visible */}
+        {(() => {
+          const isLinked = !!linked_unibox;
+          const subtitle = ssoState === "error"
+            ? `⚠ ${ssoError}`
+            : isLinked
+              ? `Accede a tu bandeja unificada — ${linked_unibox!.email}`
+              : client.email
+                ? `Aún no hay bandeja asignada a ${client.email}. Tu gestor te avisará en cuanto esté lista.`
+                : "Pide a tu gestor que vincule tu email para acceder a tu bandeja.";
+          return (
+            <button
+              onClick={openUnibox}
+              disabled={ssoState === "loading"}
+              style={{
+                width: "100%",
+                textAlign: "left",
+                background: isLinked
+                  ? "linear-gradient(145deg, #0d2244 0%, #1a3a6e 60%, #2756a8 100%)"
+                  : "linear-gradient(145deg, #1e293b 0%, #334155 100%)",
+                border: "none",
+                borderRadius: 20,
+                padding: "22px 26px",
+                boxShadow: isLinked
+                  ? "0 8px 28px rgba(13,34,68,0.28)"
+                  : "0 4px 16px rgba(30,41,59,0.15)",
+                marginBottom: 20,
+                cursor: ssoState === "loading" ? "wait" : "pointer",
+                color: "#fff",
+                fontFamily: "inherit",
+                display: "flex", alignItems: "center", gap: 18,
+                transition: "transform 0.2s ease, box-shadow 0.2s ease",
+                position: "relative", overflow: "hidden",
+                opacity: isLinked ? 1 : 0.88,
+              }}
+              onMouseEnter={(e) => {
+                if (ssoState !== "loading") {
+                  (e.currentTarget as HTMLButtonElement).style.transform = "translateY(-1px)";
+                  (e.currentTarget as HTMLButtonElement).style.boxShadow = isLinked
+                    ? "0 12px 32px rgba(13,34,68,0.35)"
+                    : "0 8px 24px rgba(30,41,59,0.25)";
+                }
+              }}
+              onMouseLeave={(e) => {
+                (e.currentTarget as HTMLButtonElement).style.transform = "translateY(0)";
+                (e.currentTarget as HTMLButtonElement).style.boxShadow = isLinked
+                  ? "0 8px 28px rgba(13,34,68,0.28)"
+                  : "0 4px 16px rgba(30,41,59,0.15)";
+              }}
+            >
+              {/* sparkle accent */}
+              <div style={{
+                position: "absolute", top: -40, right: -40,
+                width: 200, height: 200,
+                background: "radial-gradient(circle at center, rgba(255,255,255,0.12), transparent 70%)",
+                pointerEvents: "none",
+              }} />
+              <div style={{
+                width: 52, height: 52,
+                background: "rgba(255,255,255,0.14)",
+                borderRadius: 14,
+                display: "flex", alignItems: "center", justifyContent: "center",
+                fontSize: 24, flexShrink: 0,
+                border: "1px solid rgba(255,255,255,0.2)",
+              }}>
+                ✉
               </div>
-              <div style={{ fontSize: 17, fontWeight: 700, letterSpacing: "-0.02em" }}>
-                Mi Unibox · {linked_unibox.title}
+              <div style={{ flex: 1, minWidth: 0, position: "relative" }}>
+                <div style={{ fontSize: 11.5, opacity: 0.7, letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 4 }}>
+                  Bandeja de correo
+                </div>
+                <div style={{ fontSize: 17, fontWeight: 700, letterSpacing: "-0.02em" }}>
+                  {isLinked ? `Mi Unibox · ${linked_unibox!.title}` : "Mi Unibox"}
+                </div>
+                <div style={{ fontSize: 12.5, opacity: 0.75, marginTop: 3 }}>
+                  {subtitle}
+                </div>
               </div>
-              <div style={{ fontSize: 12.5, opacity: 0.75, marginTop: 3 }}>
-                {ssoState === "error" ? `⚠ ${ssoError}` : `Accede a tu bandeja unificada — ${linked_unibox.email}`}
+              <div style={{
+                fontSize: 22, opacity: 0.8,
+                flexShrink: 0, paddingRight: 4,
+                position: "relative",
+              }}>
+                {ssoState === "loading" ? "⋯" : isLinked ? "→" : "🔒"}
               </div>
-            </div>
-            <div style={{
-              fontSize: 22, opacity: 0.8,
-              flexShrink: 0, paddingRight: 4,
-              position: "relative",
-            }}>
-              {ssoState === "loading" ? "⋯" : "→"}
-            </div>
-          </button>
-        )}
+            </button>
+          );
+        })()}
 
         {/* Stages timeline */}
         <div style={{

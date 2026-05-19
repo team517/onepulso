@@ -7,6 +7,16 @@
   to   { transform: rotate(360deg); }
 }
 
+/* Estilo unificado para previews de mensajes generados por la IA —
+   asegura separación clara entre párrafos para que se lea bien la estructura. */
+.msg-preview p {
+  margin: 0 0 10px 0;
+  line-height: 1.6;
+}
+.msg-preview p:last-child { margin-bottom: 0; }
+.msg-preview strong { color: #0f172a; font-weight: 700; }
+.msg-preview br { display: block; content: ""; margin: 4px 0; }
+
 /* =========================================================
    onepulso · Toolbar compacto seguimientos
    ========================================================= */

@@ -25,14 +25,19 @@ const DEFAULT_PROMPT = `Escribe un cold email B2B en español dirigido a {firstN
 
 Sobre la empresa: {description}
 
-REGLAS:
-- 4-5 frases máximo. Tono directo, sin clichés ni saludos cursi.
-- Conecta con algo específico de {companyName} o el sector {industry}.
-- Propuesta de valor concreta para empresas como {companyName}.
-- CTA final: pedir 15 minutos de call esta semana.
-- Firma: "Un saludo, Xavi"
+ESTRUCTURA OBLIGATORIA (cada bloque en su propio párrafo, NUNCA todo junto):
+1. Saludo: "Hola {firstName},"
+2. Gancho específico sobre {companyName} o el sector {industry}
+3. Propuesta de valor concreta para empresas como ellos
+4. Caso/dato real con número
+5. CTA: pedir 15 min esta semana
+6. Despedida: "Un saludo,<br>Xavi"
 
-OUTPUT: solo el cuerpo del email, en HTML simple (<p>...</p>).`;
+REGLAS:
+- Tono directo, sin clichés ni "estimado" ni "saludos cordiales".
+- Frases máximo 20 palabras. Bloques máximo 3 líneas.
+- <strong> en 1-3 palabras clave (gancho, número, CTA).
+- Castellano España.`;
 
 export default function PersonalizacionPage() {
   const [file, setFile] = useState<any>(null);
@@ -803,9 +808,10 @@ export default function PersonalizacionPage() {
                   </div>
                 </div>
                 <div style={{ background: "#fff", border: "1px solid var(--accent)", borderRadius: 10, padding: 14 }}>
-                  <div style={{ fontSize: 11, fontWeight: 700, color: "var(--accent)", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6 }}>Mensaje generado</div>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: "var(--accent)", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 8 }}>Mensaje generado</div>
                   <div
-                    style={{ fontSize: 13, lineHeight: 1.6, color: "var(--text)" }}
+                    className="msg-preview"
+                    style={{ fontSize: 13.5, lineHeight: 1.6, color: "var(--text)" }}
                     dangerouslySetInnerHTML={{ __html: previewResult.message }}
                   />
                 </div>
@@ -926,14 +932,14 @@ export default function PersonalizacionPage() {
                     </summary>
                     <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 6, maxHeight: 280, overflowY: "auto" }}>
                       {runJob.results.slice(0, 10).map((r: any) => (
-                        <div key={r.row_index} style={{ padding: 8, background: "#fff", border: "1px solid var(--border)", borderRadius: 7, fontSize: 12 }}>
-                          <div style={{ color: "var(--text-faint)", fontSize: 10.5, marginBottom: 3 }}>
+                        <div key={r.row_index} style={{ padding: 10, background: "#fff", border: "1px solid var(--border)", borderRadius: 7, fontSize: 12 }}>
+                          <div style={{ color: "var(--text-faint)", fontSize: 10.5, marginBottom: 6 }}>
                             Fila {r.row_index + 1} {r.lead_email && `· ${r.lead_email}`}
                           </div>
                           {r.error ? (
                             <span style={{ color: "#b91c1c" }}>⚠ {r.error}</span>
                           ) : (
-                            <div dangerouslySetInnerHTML={{ __html: r.message.slice(0, 250) + (r.message.length > 250 ? "…" : "") }} />
+                            <div className="msg-preview" style={{ lineHeight: 1.55 }} dangerouslySetInnerHTML={{ __html: r.message }} />
                           )}
                         </div>
                       ))}

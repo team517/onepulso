@@ -167,8 +167,57 @@ function escapeRegExp(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-/** Sistema por defecto para el LLM */
-const DEFAULT_SYSTEM = `Eres un experto en cold email B2B. Generas mensajes personalizados, naturales, en español de España (a menos que el prompt indique otro idioma), sin floritura ni clichés. Tu output es SOLO el mensaje final que se enviará al lead, sin meta-comentarios ni explicaciones.`;
+/** Sistema por defecto para el LLM — fuerza estructura limpia con párrafos */
+const DEFAULT_SYSTEM = `Eres un experto en cold email B2B. Generas mensajes personalizados, naturales, en español de España (a menos que el prompt indique otro idioma), sin floritura ni clichés.
+
+REGLAS DE FORMATO (OBLIGATORIO, sin excepción):
+
+1. El output va EN HTML con etiquetas <p>...</p> para cada bloque.
+2. CADA idea va en su propio <p>. NUNCA mezcles varias frases largas en el mismo párrafo.
+3. Estructura del mensaje:
+   - <p>Saludo personalizado al lead</p>
+   - <p>Gancho / observación específica sobre la empresa</p>
+   - <p>Propuesta de valor concreta</p>
+   - <p>(Opcional) Prueba social / caso de éxito con número</p>
+   - <p>CTA claro</p>
+   - <p>Firma</p>
+4. Frases máximo 20 palabras. Bloques máximo 3 líneas.
+5. Usa <strong>...</strong> en 1-3 palabras clave (gancho, número, CTA).
+6. Para saltos suaves dentro de un párrafo, <br>.
+7. Tu output es SOLO el HTML del cuerpo del mensaje, sin meta-comentarios, sin explicaciones, sin "Aquí tienes:".
+
+EJEMPLO de output correcto:
+
+<p>Hola Juan,</p>
+<p>Vi que en <strong>Acme</strong> estáis escalando ventas con un equipo SDR de 4 personas en Madrid.</p>
+<p>Nosotros ayudamos a SaaS B2B como vosotros a <strong>conseguir 4 reuniones semanales</strong> sin contratar más SDRs.</p>
+<p>Con una empresa similar a la vuestra cerramos <strong>12 deals en 90 días</strong>.</p>
+<p>¿Te va bien <strong>15 minutos esta semana</strong> para ver si encaja?</p>
+<p>Un saludo,<br>Xavi</p>`;
+
+/** Asegura que el output del LLM tiene estructura HTML con <p>.
+ *  Si llega texto plano con saltos de línea, lo convierte a párrafos. */
+function ensureStructuredOutput(raw: string): string {
+  let s = raw.trim();
+  // Si ya tiene <p>, asumimos que está bien
+  if (/<p[\s>]/i.test(s)) return s;
+  // Quitar markdown code fences accidentales
+  s = s.replace(/^```(?:html)?\s*/i, "").replace(/```\s*$/i, "").trim();
+  // Si quedó vacío, devolver tal cual
+  if (!s) return s;
+  // Split por dobles saltos de línea (párrafos)
+  const blocks = s.split(/\n\s*\n+/).map((b) => b.trim()).filter(Boolean);
+  if (blocks.length > 1) {
+    return blocks.map((b) => `<p>${b.replace(/\n/g, "<br>")}</p>`).join("\n");
+  }
+  // Solo 1 bloque pero tiene saltos simples → cada línea es un párrafo
+  const lines = s.split(/\n+/).map((l) => l.trim()).filter(Boolean);
+  if (lines.length > 1) {
+    return lines.map((l) => `<p>${l}</p>`).join("\n");
+  }
+  // Una sola línea — envolver en un <p>
+  return `<p>${s}</p>`;
+}
 
 /** Genera un mensaje personalizado para un row concreto. Usado por preview y por el job runner. */
 export async function generateForRow(
@@ -178,14 +227,16 @@ export async function generateForRow(
   provider: AIProvider,
 ): Promise<string> {
   const final = applyMapping(prompt, row, mapping);
-  const result = await generateText({
+  const raw = await generateText({
     provider,
     system: DEFAULT_SYSTEM,
     prompt: final,
     maxTokens: 1200,
     temperature: 0.75,
   });
-  return result;
+  // Post-procesar: garantizar estructura HTML con <p> aunque el LLM
+  // devuelva texto plano con saltos de línea.
+  return ensureStructuredOutput(raw);
 }
 
 /** Lee el CSV completo como array de objetos {col: val} */

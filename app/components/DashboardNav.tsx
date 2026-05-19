@@ -7,6 +7,7 @@ const NAV = [
   { href: "/campaigns",    label: "Campañas",      icon: "✦", exact: false },
   { href: "/personalizacion", label: "Personalización", icon: "✺", exact: false },
   { href: "/seguimientos", label: "Seguimientos",  icon: "◈", exact: false },
+  { href: "/onboarding",   label: "Onboarding",    icon: "◉", exact: false },
   { href: "/uniboxes",     label: "Unibox",        icon: "✉", exact: false },
   { href: "/tareas",       label: "Tareas",        icon: "✓", exact: false },
   { href: "/notas",        label: "Notas",         icon: "✎", exact: false },

@@ -24,6 +24,12 @@ export function middleware(req: NextRequest) {
     return NextResponse.next();
   }
 
+  // Portal público de onboarding: /o/[slug] (login + dashboard del cliente)
+  // y sus APIs propias — usan cookie por-slug (onboarding_client_<slug>)
+  if (pathname.startsWith("/o/") || pathname.startsWith("/api/onboarding-client/")) {
+    return NextResponse.next();
+  }
+
   const token = req.cookies.get("onepulso_session")?.value;
 
   if (!token || token !== SESSION_TOKEN) {

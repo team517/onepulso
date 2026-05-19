@@ -16,6 +16,7 @@ type Client = {
   slug: string;
   username: string;
   password: string;
+  email?: string;
   project_title?: string;
   contact_name?: string;
   admin_notes?: string;
@@ -282,6 +283,7 @@ function ClientDetail({
   const [name, setName] = useState(client.name);
   const [projectTitle, setProjectTitle] = useState(client.project_title || "");
   const [contactName, setContactName] = useState(client.contact_name || "");
+  const [email, setEmail] = useState(client.email || "");
   const [username, setUsername] = useState(client.username);
   const [password, setPassword] = useState(client.password);
   const [statusMsg, setStatusMsg] = useState(client.status_message || "");
@@ -292,6 +294,7 @@ function ClientDetail({
     setName(client.name);
     setProjectTitle(client.project_title || "");
     setContactName(client.contact_name || "");
+    setEmail(client.email || "");
     setUsername(client.username);
     setPassword(client.password);
     setStatusMsg(client.status_message || "");
@@ -450,6 +453,16 @@ function ClientDetail({
           <Field label="URL pública">
             <input value={`/o/${client.slug}`} readOnly style={{ ...input, background: "#f8fafc" }} />
           </Field>
+          <Field label="Email del cliente (para enlazar Unibox)">
+            <input
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              onBlur={() => email !== (client.email || "") && onChange({ email: email || undefined })}
+              style={input}
+              placeholder="cliente@empresa.com"
+            />
+          </Field>
           <Field label="Usuario">
             <input
               value={username}
@@ -526,6 +539,7 @@ function NewClientModal({ onClose, onCreated }: { onClose: () => void; onCreated
   const [name, setName] = useState("");
   const [projectTitle, setProjectTitle] = useState("");
   const [contactName, setContactName] = useState("");
+  const [email, setEmail] = useState("");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
@@ -547,6 +561,7 @@ function NewClientModal({ onClose, onCreated }: { onClose: () => void; onCreated
           name,
           project_title: projectTitle || undefined,
           contact_name: contactName || undefined,
+          email: email || undefined,
           username: username || undefined,
           password: password || undefined,
         }),
@@ -573,6 +588,9 @@ function NewClientModal({ onClose, onCreated }: { onClose: () => void; onCreated
         </Field>
         <Field label="Nombre del proyecto">
           <input value={projectTitle} onChange={(e) => setProjectTitle(e.target.value)} style={input} placeholder="Ej: Web corporativa v2" />
+        </Field>
+        <Field label="Email del cliente (debe coincidir con el del Unibox)">
+          <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} style={input} placeholder="cliente@empresa.com" />
         </Field>
         <Field label="Usuario de login (opcional, por defecto = slug)">
           <input value={username} onChange={(e) => setUsername(e.target.value)} style={input} placeholder="Se generará automáticamente" />

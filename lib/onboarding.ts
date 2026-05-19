@@ -30,6 +30,8 @@ export type Client = {
   username: string;
   /** Contraseña en texto claro (modelo simple, sin hash). */
   password: string;
+  /** Email del cliente — sirve para enlazar con un Unibox cuyo client_email coincida. */
+  email?: string;
   /** Título del proyecto que ven los clientes (ej. "Web onepulso v2"). */
   project_title?: string;
   /** Persona de contacto (nombre) */
@@ -164,6 +166,7 @@ export async function createClient(input: {
   project_title?: string;
   contact_name?: string;
   admin_notes?: string;
+  email?: string;
 }): Promise<Client> {
   const clients = await listClients();
   const baseSlug = slugify(input.slug || input.name);
@@ -183,6 +186,7 @@ export async function createClient(input: {
     project_title: input.project_title?.trim() || undefined,
     contact_name: input.contact_name?.trim() || undefined,
     admin_notes: input.admin_notes?.trim() || undefined,
+    email: input.email?.trim().toLowerCase() || undefined,
     completed_stage_ids: [],
     current_stage_id: undefined,
     status_message: undefined,

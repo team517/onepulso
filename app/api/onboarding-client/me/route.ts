@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getClient, getClientBySlug, listStages, progressPercent } from "@/lib/onboarding";
+import { findUniboxByClientEmail } from "@/lib/unibox-store";
 
 /**
  * Devuelve el estado actual del cliente autenticado por la cookie del slug.
@@ -24,11 +25,19 @@ export async function GET(req: NextRequest) {
   const stages = await listStages();
   const percent = progressPercent(client, stages);
 
+  // ¿Tiene un Unibox vinculado por email?
+  let linked_unibox: { id: string; title: string; email: string } | null = null;
+  if (client.email) {
+    const u = await findUniboxByClientEmail(client.email);
+    if (u) linked_unibox = { id: u.id, title: u.title, email: u.client_email };
+  }
+
   return NextResponse.json({
     client: {
       id: client.id,
       name: client.name,
       slug: client.slug,
+      email: client.email,
       project_title: client.project_title,
       contact_name: client.contact_name,
       status_message: client.status_message,
@@ -38,5 +47,6 @@ export async function GET(req: NextRequest) {
     },
     stages,
     percent,
+    linked_unibox,
   });
 }

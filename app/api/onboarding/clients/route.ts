@@ -19,6 +19,7 @@ export async function POST(req: NextRequest) {
     project_title: body.project_title,
     contact_name: body.contact_name,
     admin_notes: body.admin_notes,
+    email: body.email,
   });
   return NextResponse.json({ client });
 }

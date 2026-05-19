@@ -14,6 +14,7 @@ type ClientView = {
   id: string;
   name: string;
   slug: string;
+  email?: string;
   project_title?: string;
   contact_name?: string;
   status_message?: string;
@@ -22,12 +23,14 @@ type ClientView = {
   updated_at: string;
 };
 
+type LinkedUnibox = { id: string; title: string; email: string } | null;
+
 export default function ClientPortalPage() {
   const params = useParams<{ slug: string }>();
   const slug = (params?.slug || "").toLowerCase();
 
   const [phase, setPhase] = useState<"loading" | "login" | "dashboard">("loading");
-  const [data, setData] = useState<{ client: ClientView; stages: Stage[]; percent: number } | null>(null);
+  const [data, setData] = useState<{ client: ClientView; stages: Stage[]; percent: number; linked_unibox: LinkedUnibox } | null>(null);
 
   async function loadMe() {
     try {
@@ -202,11 +205,35 @@ function LoginScreen({ slug, onSuccess }: { slug: string; onSuccess: () => void 
 
 function Dashboard({ slug, data, onLogout, onRefresh }: {
   slug: string;
-  data: { client: ClientView; stages: Stage[]; percent: number };
+  data: { client: ClientView; stages: Stage[]; percent: number; linked_unibox: LinkedUnibox };
   onLogout: () => void;
   onRefresh: () => void;
 }) {
-  const { client, stages, percent } = data;
+  const { client, stages, percent, linked_unibox } = data;
+  const [ssoState, setSsoState] = useState<"idle" | "loading" | "error">("idle");
+  const [ssoError, setSsoError] = useState("");
+
+  async function openUnibox() {
+    setSsoState("loading");
+    setSsoError("");
+    try {
+      const res = await fetch("/api/onboarding-client/unibox-sso", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ slug }),
+      });
+      const d = await res.json();
+      if (res.ok && d.uniboxId) {
+        window.location.href = `/u/${d.uniboxId}`;
+      } else {
+        setSsoState("error");
+        setSsoError(d.error || "No se pudo abrir el Unibox");
+      }
+    } catch {
+      setSsoState("error");
+      setSsoError("Error de conexión");
+    }
+  }
   const isDone = (id: string) => client.completed_stage_ids.includes(id);
   const isCurrent = (id: string) => client.current_stage_id === id;
 
@@ -344,6 +371,76 @@ function Dashboard({ slug, data, onLogout, onRefresh }: {
             )}
           </div>
         </div>
+
+        {/* Mi Unibox card */}
+        {linked_unibox && (
+          <button
+            onClick={openUnibox}
+            disabled={ssoState === "loading"}
+            style={{
+              width: "100%",
+              textAlign: "left",
+              background: "linear-gradient(145deg, #0d2244 0%, #1a3a6e 60%, #2756a8 100%)",
+              border: "none",
+              borderRadius: 20,
+              padding: "22px 26px",
+              boxShadow: "0 8px 28px rgba(13,34,68,0.28)",
+              marginBottom: 20,
+              cursor: ssoState === "loading" ? "wait" : "pointer",
+              color: "#fff",
+              fontFamily: "inherit",
+              display: "flex", alignItems: "center", gap: 18,
+              transition: "transform 0.2s ease, box-shadow 0.2s ease",
+              position: "relative", overflow: "hidden",
+            }}
+            onMouseEnter={(e) => {
+              if (ssoState !== "loading") {
+                (e.currentTarget as HTMLButtonElement).style.transform = "translateY(-1px)";
+                (e.currentTarget as HTMLButtonElement).style.boxShadow = "0 12px 32px rgba(13,34,68,0.35)";
+              }
+            }}
+            onMouseLeave={(e) => {
+              (e.currentTarget as HTMLButtonElement).style.transform = "translateY(0)";
+              (e.currentTarget as HTMLButtonElement).style.boxShadow = "0 8px 28px rgba(13,34,68,0.28)";
+            }}
+          >
+            {/* sparkle accent */}
+            <div style={{
+              position: "absolute", top: -40, right: -40,
+              width: 200, height: 200,
+              background: "radial-gradient(circle at center, rgba(255,255,255,0.12), transparent 70%)",
+              pointerEvents: "none",
+            }} />
+            <div style={{
+              width: 52, height: 52,
+              background: "rgba(255,255,255,0.14)",
+              borderRadius: 14,
+              display: "flex", alignItems: "center", justifyContent: "center",
+              fontSize: 24, flexShrink: 0,
+              border: "1px solid rgba(255,255,255,0.2)",
+            }}>
+              ✉
+            </div>
+            <div style={{ flex: 1, minWidth: 0, position: "relative" }}>
+              <div style={{ fontSize: 11.5, opacity: 0.7, letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 4 }}>
+                Bandeja de correo
+              </div>
+              <div style={{ fontSize: 17, fontWeight: 700, letterSpacing: "-0.02em" }}>
+                Mi Unibox · {linked_unibox.title}
+              </div>
+              <div style={{ fontSize: 12.5, opacity: 0.75, marginTop: 3 }}>
+                {ssoState === "error" ? `⚠ ${ssoError}` : `Accede a tu bandeja unificada — ${linked_unibox.email}`}
+              </div>
+            </div>
+            <div style={{
+              fontSize: 22, opacity: 0.8,
+              flexShrink: 0, paddingRight: 4,
+              position: "relative",
+            }}>
+              {ssoState === "loading" ? "⋯" : "→"}
+            </div>
+          </button>
+        )}
 
         {/* Stages timeline */}
         <div style={{

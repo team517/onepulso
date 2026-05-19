@@ -342,9 +342,22 @@ export default function CalendarPage() {
                             key={e.id}
                             draggable={draggable}
                             onDragStart={(ev) => {
-                              if (!draggable) return;
+                              if (!draggable) {
+                                ev.preventDefault();
+                                return;
+                              }
+                              ev.stopPropagation();
                               ev.dataTransfer.effectAllowed = "move";
                               ev.dataTransfer.setData("text/plain", e.id);
+                              // Imagen fantasma personalizada para feedback visual
+                              try {
+                                const ghost = document.createElement("div");
+                                ghost.textContent = `📅 ${e.contact_name}`;
+                                ghost.style.cssText = "position:absolute;top:-1000px;padding:6px 12px;background:#0071e3;color:#fff;border-radius:8px;font-size:12px;font-weight:700;box-shadow:0 4px 12px rgba(0,113,227,0.4);";
+                                document.body.appendChild(ghost);
+                                ev.dataTransfer.setDragImage(ghost, 0, 0);
+                                setTimeout(() => ghost.remove(), 0);
+                              } catch {}
                               setDraggingEventId(e.id);
                               setDraggingEvent(e);
                             }}
@@ -353,7 +366,11 @@ export default function CalendarPage() {
                               setDraggingEvent(null);
                               setDragOverKey(null);
                             }}
-                            onClick={ev => { ev.stopPropagation(); setSelectedEvent(e); }}
+                            onClick={ev => {
+                              ev.stopPropagation();
+                              // Solo abrir modal si NO estamos arrastrando
+                              if (!isDragging) setSelectedEvent(e);
+                            }}
                             style={{
                               fontSize: 10.5, fontWeight: 600,
                               padding: "3px 7px", borderRadius: 6,
@@ -363,15 +380,20 @@ export default function CalendarPage() {
                               overflow: "hidden",
                               textOverflow: "ellipsis",
                               cursor: draggable ? (isDragging ? "grabbing" : "grab") : "pointer",
-                              opacity: isCancelled ? 0.65 : isDragging ? 0.4 : 1,
+                              opacity: isCancelled ? 0.65 : isDragging ? 0.3 : 1,
                               textDecoration: isCancelled ? "line-through" : "none",
-                              transition: "opacity 0.12s",
+                              transition: "opacity 0.12s, transform 0.12s",
+                              transform: isDragging ? "scale(0.95)" : "scale(1)",
+                              userSelect: "none",
+                              WebkitUserSelect: "none",
+                              position: "relative",
                             }}
                             title={
                               `${e.contact_name} · ${new Date(e.scheduled_at).toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" })} · ${s.label}${e.cancelled_reason === "prospect_replied" ? " (respondió)" : ""}` +
-                              (draggable ? "\nArrastra a otro día para cambiar la fecha" : "")
+                              (draggable ? "\n\n🖱️ Arrastra y suelta en otro día para reprogramar" : "")
                             }
                           >
+                            {draggable && <span style={{ opacity: 0.5, fontSize: 8, marginRight: 3, verticalAlign: "middle" }}>⋮⋮</span>}
                             {s.icon} {new Date(e.scheduled_at).toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" })} · {e.contact_name}
                           </div>
                         );

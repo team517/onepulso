@@ -30,4 +30,14 @@ export async function register() {
   } catch (e: any) {
     console.warn("[instrumentation] linkedin-scheduler skipped:", e?.message);
   }
+
+  // Al arrancar, marcar como "interrupted" los jobs de personalización
+  // que quedaron en "running" tras un restart del servidor.
+  try {
+    const { detectInterruptedJobs } = await import("./lib/personalization");
+    const n = await detectInterruptedJobs();
+    if (n > 0) console.log(`[instrumentation] ${n} jobs de personalizacion marcados como interrupted`);
+  } catch (e: any) {
+    console.warn("[instrumentation] interrupted-job check skipped:", e?.message);
+  }
 }

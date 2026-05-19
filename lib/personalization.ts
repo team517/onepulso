@@ -72,6 +72,64 @@ export async function deleteJob(id: string): Promise<void> {
   await writeJson(JOBS_INDEX, ids.filter((x) => x !== id));
 }
 
+/**
+ * Detecta jobs en estado "running" que llevan más de 5 min sin actualizar
+ * el progreso (probablemente interrumpidos por restart del servidor).
+ * Los marca como "interrupted" para que el usuario pueda reanudarlos.
+ */
+export async function detectInterruptedJobs(): Promise<number> {
+  const all = await listJobs();
+  let touched = 0;
+  const STALE_MS = 5 * 60 * 1000;
+  const now = Date.now();
+  for (const j of all) {
+    if (j.status !== "running") continue;
+    const updated = new Date(j.updated_at).getTime();
+    if (now - updated > STALE_MS) {
+      (j as any).status = "interrupted";
+      j.updated_at = new Date().toISOString();
+      await writeJson(`${JOBS_PREFIX}${j.id}`, j);
+      touched++;
+    }
+  }
+  return touched;
+}
+
+/**
+ * Reanuda un job interrumpido: identifica las filas que NO se procesaron y
+ * llama a runJob con solo esas filas restantes. Mantiene los results ya hechos.
+ */
+export async function resumeJob(jobId: string): Promise<PersonalizationJob> {
+  const job = await getJob(jobId);
+  if (!job) throw new Error("Job no encontrado");
+  if (job.status === "running") throw new Error("El job ya está corriendo");
+  if (job.status === "done") return job;
+
+  // Detectar filas ya procesadas (en results)
+  const doneIndices = new Set(job.results.map((r) => r.row_index));
+  const pending = job.selected_rows.filter((i) => !doneIndices.has(i));
+  if (pending.length === 0) {
+    // Todo procesado, solo falta marcar como done y generar CSV si no existe
+    const { rows } = await readCSVRows(job.file_id);
+    if (!job.result_csv_key) {
+      job.result_csv_key = `personalization-result/${job.id}.csv`;
+      await buildResultCSV(job, rows);
+    }
+    job.status = "done";
+    job.updated_at = new Date().toISOString();
+    await saveJob(job);
+    return job;
+  }
+
+  // Reanudar procesando solo las pendientes
+  job.selected_rows = pending;
+  // No reseteamos results — mantenemos los que ya hay
+  // El progress.done seguirá sumando desde donde estaba (los pending son nuevos)
+  job.status = "running";
+  await saveJob(job);
+  return await runJob(jobId);
+}
+
 /** Aplica un mapping de columnas y un row a un prompt con placeholders. */
 export function applyMapping(prompt: string, row: Record<string, string>, mapping: ColumnMapping): string {
   let out = prompt;

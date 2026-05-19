@@ -244,6 +244,20 @@ export default function PersonalizacionPage() {
     if (runJob?.status === "done") loadHistory();
   }, [runJob?.status]);
 
+  // Auto-polling: si hay jobs activos (pending/running), refrescamos cada 4s
+  // para que veas el progreso aunque cierres y vuelvas a abrir la página.
+  useEffect(() => {
+    const hasActive = history.some((j) => j.status === "pending" || j.status === "running");
+    if (!hasActive) return;
+    const t = setInterval(() => loadHistory(), 4000);
+    return () => clearInterval(t);
+  }, [history]);
+
+  async function resumeInterrupted(id: string) {
+    await fetch(`/api/personalization/jobs/${id}/resume`, { method: "POST" });
+    loadHistory();
+  }
+
   async function deleteHistoryItem(id: string) {
     if (!confirm("¿Eliminar este job del historial? (no afecta a tu CSV original)")) return;
     await fetch(`/api/personalization/jobs/${id}`, { method: "DELETE" });
@@ -461,6 +475,116 @@ export default function PersonalizacionPage() {
             <button onClick={() => { loadSettings(); setSettingsOpen(true); }} style={btnGhost}>⚙️ Ajustes IA</button>
           </div>
         </header>
+
+        {/* PANEL EN VIVO: trabajos en curso (visible siempre que haya alguno) */}
+        {history.filter((j) => j.status === "pending" || j.status === "running" || j.status === "interrupted").length > 0 && (
+          <div style={{
+            background: "linear-gradient(135deg, rgba(0,113,227,0.05), rgba(0,113,227,0.1))",
+            border: "1px solid rgba(0,113,227,0.3)",
+            borderRadius: 12,
+            padding: 14,
+            marginBottom: 20,
+          }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: "var(--accent)", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 10, display: "inline-flex", alignItems: "center", gap: 6 }}>
+              <span style={{ display: "inline-block", width: 7, height: 7, borderRadius: "50%", background: "var(--accent)", animation: "spin 2s linear infinite" }} />
+              Trabajos en curso · Sigue corriendo aunque cierres la pestaña
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              {history.filter((j) => j.status !== "done").map((j) => {
+                const pct = j.selected_count > 0 ? Math.min(100, ((j.progress?.done ?? 0) / j.selected_count) * 100) : 0;
+                const isInterrupted = j.status === "interrupted";
+                return (
+                  <div key={j.id} style={{
+                    background: "#fff",
+                    border: `1px solid ${isInterrupted ? "rgba(245,158,11,0.4)" : "var(--border)"}`,
+                    borderRadius: 9,
+                    padding: 11,
+                  }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, marginBottom: 6 }}>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: 13, fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                          {j.filename}
+                          {isInterrupted && <span style={{ marginLeft: 6, fontSize: 10, padding: "1px 6px", borderRadius: 99, background: "rgba(245,158,11,0.15)", color: "#b45309" }}>interrumpido</span>}
+                          {j.status === "running" && <span style={{ marginLeft: 6, fontSize: 10, padding: "1px 6px", borderRadius: 99, background: "rgba(0,113,227,0.15)", color: "#0071e3" }}>en curso</span>}
+                          {j.status === "pending" && <span style={{ marginLeft: 6, fontSize: 10, padding: "1px 6px", borderRadius: 99, background: "var(--bg-elev-2)", color: "var(--text-dim)" }}>pendiente</span>}
+                        </div>
+                        <div style={{ fontSize: 11.5, color: "var(--text-dim)", marginTop: 2 }}>
+                          {j.progress?.done ?? 0} / {j.selected_count} · ✓ {j.progress?.ok ?? 0} · ✗ {j.progress?.failed ?? 0} · {j.provider}
+                        </div>
+                      </div>
+                      {isInterrupted && (
+                        <button
+                          onClick={() => resumeInterrupted(j.id)}
+                          style={{ ...btnPrimary, fontSize: 11.5, padding: "5px 11px" }}
+                        >▶ Reanudar</button>
+                      )}
+                    </div>
+                    {/* Barra progreso */}
+                    <div style={{ height: 5, background: "var(--bg-elev-3)", borderRadius: 99, overflow: "hidden" }}>
+                      <div style={{
+                        height: "100%", width: `${pct}%`,
+                        background: isInterrupted ? "linear-gradient(90deg, #f59e0b, #d97706)" : "linear-gradient(90deg, #0071e3, #06b6d4)",
+                        transition: "width 0.3s",
+                      }} />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* PANEL: trabajos completados recientemente (con descarga directa) */}
+        {history.filter((j) => j.status === "done").length > 0 && history.filter((j) => j.status === "done").slice(0, 3).some((j) => {
+          // Solo mostrar los muy recientes (últimas 24h) para no llenar la página
+          return Date.now() - new Date(j.updated_at).getTime() < 24 * 60 * 60 * 1000;
+        }) && (
+          <div style={{
+            background: "linear-gradient(135deg, rgba(16,185,129,0.05), rgba(16,185,129,0.1))",
+            border: "1px solid rgba(16,185,129,0.3)",
+            borderRadius: 12,
+            padding: 14,
+            marginBottom: 20,
+          }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: "#047857", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 10 }}>
+              ✓ Listos para descargar
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              {history.filter((j) => j.status === "done")
+                .filter((j) => Date.now() - new Date(j.updated_at).getTime() < 24 * 60 * 60 * 1000)
+                .slice(0, 3)
+                .map((j) => (
+                <div key={j.id} style={{
+                  background: "#fff", border: "1px solid rgba(16,185,129,0.25)",
+                  borderRadius: 9, padding: 11,
+                  display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap",
+                }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 13, fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {j.filename}
+                    </div>
+                    <div style={{ fontSize: 11.5, color: "var(--text-dim)", marginTop: 2 }}>
+                      ✓ {j.progress?.ok ?? 0} mensajes generados · {j.provider} · {fmtRelative(j.updated_at)}
+                    </div>
+                  </div>
+                  <a
+                    href={`/api/personalization/jobs/${j.id}/csv`}
+                    download
+                    style={{
+                      ...btnPrimary,
+                      textDecoration: "none",
+                      fontSize: 12.5,
+                      padding: "8px 16px",
+                      background: "linear-gradient(135deg, #10b981, #047857)",
+                      boxShadow: "0 2px 6px rgba(16,185,129,0.3)",
+                      display: "inline-flex", alignItems: "center", gap: 5,
+                    }}
+                  >⬇ Descargar CSV</a>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* STEP 1: Upload */}
         <Step n={1} label="Sube tu CSV" done={!!file}>

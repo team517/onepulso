@@ -319,18 +319,31 @@ export async function syncAllUniboxes(): Promise<{ uniboxes: number; total_new: 
   return { uniboxes: all.length, total_new: totalNew, errors };
 }
 
-/** Reclasifica todos los mensajes cacheados aplicando isWarmupMessage actual. */
-export async function reclassifyMessages(uniboxId: string): Promise<{ total: number; warmup: number; clean: number }> {
+/** Reclasifica todos los mensajes cacheados:
+ *  - Re-aplica isWarmupMessage() para marcar warmup.
+ *  - Re-aplica isBounceOrFailure() para BORRAR mensajes que matcheen
+ *    (bounces, "test email to check account status", etc.) — la lista
+ *    de patrones ha crecido con el tiempo y los antiguos se han de limpiar.
+ */
+export async function reclassifyMessages(uniboxId: string): Promise<{ total: number; warmup: number; clean: number; purged: number }> {
   const msgsMap = await loadMessagesMap(uniboxId);
-  let total = 0, warmup = 0;
+  let total = 0, warmup = 0, purged = 0;
   for (const accId of Object.keys(msgsMap)) {
-    msgsMap[accId] = msgsMap[accId].map((m) => {
-      const flag = isWarmupMessage({ subject: m.subject, text: m.text, html: m.html, from: m.from });
+    const kept: any[] = [];
+    for (const m of msgsMap[accId]) {
+      // Filtrar mensajes que ahora matchean el filtro bounce/test (test emails
+      // de chequeo de cuenta de Instantly/Smartlead, mailer-daemon, etc.).
+      if (isBounceOrFailure({ from: m.from, fromAddress: m.fromAddress, fromName: m.fromName, subject: m.subject, text: m.text })) {
+        purged++;
+        continue;
+      }
       total++;
+      const flag = isWarmupMessage({ subject: m.subject, text: m.text, html: m.html, from: m.from });
       if (flag) warmup++;
-      return { ...m, is_warmup: flag };
-    });
+      kept.push({ ...m, is_warmup: flag });
+    }
+    msgsMap[accId] = kept;
   }
   await saveMessagesMap(uniboxId, msgsMap);
-  return { total, warmup, clean: total - warmup };
+  return { total, warmup, clean: total - warmup, purged };
 }

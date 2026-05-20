@@ -228,6 +228,19 @@ export function isBounceOrFailure(m: { from?: string; fromAddress?: string; from
     return true;
   }
 
+  // Mails de chequeo automático de estado de cuenta (Instantly / Smartlead /
+  // proveedores de cold email): "Test email to check account status",
+  // "Test email - account status check", etc. NUNCA deben aparecer en la
+  // bandeja del cliente.
+  if (
+    /test\s*email.*(check|verify|confirm).*account\s*status/i.test(subject) ||
+    /test\s*email.*account\s*status/i.test(subject) ||
+    /account\s*status.*test\s*email/i.test(subject) ||
+    /^test\s*email\b.*\bstatus\b/i.test(subject)
+  ) {
+    return true;
+  }
+
   // Contenido: combinación de palabras clave que indican bounce
   const indicators = [
     "address not found",

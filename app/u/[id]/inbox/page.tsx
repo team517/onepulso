@@ -64,7 +64,8 @@ export default function ClientInboxPage() {
       const r = await fetch(`/api/uniboxes/${id}/reclassify`, { method: "POST" });
       if (r.ok && !silent) {
         const d = await r.json();
-        alert(`Re-clasificación completada: ${d.warmup} de ${d.total} mensajes marcados como warmup. Bandeja limpia ✓`);
+        const purgedNote = d.purged ? ` · ${d.purged} test/bounce purgados` : "";
+        alert(`Re-clasificación: ${d.warmup} warmup de ${d.total} totales${purgedNote}. Bandeja limpia ✓`);
       }
       await loadMessages();
     } finally {

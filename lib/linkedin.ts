@@ -25,6 +25,10 @@ export type ScheduledPost = {
   published_at?: string;
   linkedin_post_urn?: string;
   error?: string;
+  /** Timestamp del último intento de publicación. Sirve para el cooldown y la verificación-tras-error. */
+  last_attempt_at?: string;
+  /** Cuántos intentos automáticos ha hecho el scheduler. Si llega a 1 y falla, no se reintenta. */
+  auto_attempts?: number;
   created_at: string;
   updated_at: string;
 };
@@ -205,6 +209,50 @@ async function uploadImageToLinkedIn(
   if (!r.ok && r.status !== 201) {
     const t = await r.text().catch(() => "");
     throw new Error(`upload to media URL failed: ${r.status} ${t}`);
+  }
+}
+
+/**
+ * Tras un fallo de publicación, comprueba en LinkedIn si el post se llegó a
+ * crear realmente. Útil cuando la API devuelve un error de red DESPUÉS de
+ * haber aceptado el post (caso muy común con timeouts). Sin esto, el post
+ * acaba "failed" en nuestra BD pero "publicado" en LinkedIn → al reintentar
+ * sale duplicado.
+ *
+ * Devuelve el URN si encuentra el post; null si no.
+ */
+export async function verifyPublishOnError(post: ScheduledPost, attemptStart: number): Promise<string | null> {
+  try {
+    const auth = await getAuth();
+    if (!auth) return null;
+    // Buscar últimos posts del autor (los más recientes primero)
+    const url = `https://api.linkedin.com/v2/ugcPosts?q=authors&authors=List(${encodeURIComponent(auth.user_urn)})&count=10&sortBy=LAST_MODIFIED`;
+    const r = await fetch(url, {
+      headers: {
+        Authorization: `Bearer ${auth.access_token}`,
+        "X-Restli-Protocol-Version": "2.0.0",
+      },
+    });
+    if (!r.ok) return null;
+    const data: any = await r.json().catch(() => ({}));
+    const elements: any[] = Array.isArray(data?.elements) ? data.elements : [];
+    // Buscar uno cuyo texto coincida y se haya creado en los últimos 5 min
+    const textSnippet = (post.text || "").trim().slice(0, 80);
+    if (!textSnippet) return null;
+    const cutoff = attemptStart - 5 * 60_000; // hasta 5 min antes del intento (margen)
+    for (const el of elements) {
+      const created = Number(el?.created?.time || el?.lastModified?.time || 0);
+      if (created < cutoff) continue;
+      const elText: string =
+        el?.specificContent?.["com.linkedin.ugc.ShareContent"]?.shareCommentary?.text ?? "";
+      if (elText.trim().slice(0, 80) === textSnippet) {
+        const urn = el?.id || el?.urn || null;
+        if (urn) return urn;
+      }
+    }
+    return null;
+  } catch {
+    return null;
   }
 }
 

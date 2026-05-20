@@ -1,4 +1,4 @@
-import { listPosts, publishPost, updatePost, getPost } from "./linkedin";
+import { listPosts, publishPost, updatePost, getPost, verifyPublishOnError } from "./linkedin";
 
 declare global {
   // eslint-disable-next-line no-var
@@ -42,18 +42,29 @@ export async function tick(): Promise<{ checked: number; published: number; fail
     if (p.status !== "scheduled") continue;
     if (!p.scheduled_at) continue;
     if (new Date(p.scheduled_at).getTime() > now) continue;
+    // Si ya tuvo un intento automático previo, NO reintentar: el usuario lo
+    // hará manual desde la UI. Esta es la regla pedida: "que se suba solo una vez".
+    if ((p.auto_attempts ?? 0) >= 1) continue;
     checked++;
 
-    // ATOMIC CLAIM: re-leer el post AHORA mismo y comprobar que sigue siendo "scheduled".
-    // Si otra ejecución (otro tick que se cruzó, llamada manual, etc.) ya lo marcó como
-    // "publishing" o "published", saltamos para evitar duplicados.
+    // ATOMIC CLAIM: re-leer el post AHORA mismo y comprobar que sigue siendo "scheduled"
+    // Y que no ha hecho ya un intento automático. Si otra ejecución se cruzó, saltamos.
     const fresh = await getPost(p.id);
     if (!fresh || fresh.status !== "scheduled") {
       console.log(`[linkedin-scheduler] skip ${p.id}: status ya es ${fresh?.status}`);
       continue;
     }
-    // Marcar como publishing INMEDIATAMENTE (antes de cualquier await pesado)
-    await updatePost(p.id, { status: "publishing" });
+    if ((fresh.auto_attempts ?? 0) >= 1) {
+      console.log(`[linkedin-scheduler] skip ${p.id}: ya tuvo intento automatico previo`);
+      continue;
+    }
+    // Marcar como publishing + incrementar contador de intentos AHORA (atómico)
+    const attemptStart = Date.now();
+    await updatePost(p.id, {
+      status: "publishing",
+      last_attempt_at: new Date(attemptStart).toISOString(),
+      auto_attempts: (fresh.auto_attempts ?? 0) + 1,
+    });
     try {
       const { urn } = await publishPost(fresh);
       await updatePost(p.id, {
@@ -65,9 +76,24 @@ export async function tick(): Promise<{ checked: number; published: number; fail
       published++;
       console.log(`[linkedin-scheduler] published ${p.id}`);
     } catch (e: any) {
-      await updatePost(p.id, { status: "failed", error: e.message });
-      failed++;
-      console.error(`[linkedin-scheduler] failed ${p.id}: ${e.message}`);
+      // CHEQUEO ANTI-DUPLICADO: verificar si el post se llegó a publicar
+      // realmente (error de red TRAS aceptación de LinkedIn). Si lo encuentra
+      // → lo marcamos publicado (no fallido) para no inducir reintentos.
+      const verifiedUrn = await verifyPublishOnError(fresh, attemptStart);
+      if (verifiedUrn) {
+        await updatePost(p.id, {
+          status: "published",
+          published_at: new Date(attemptStart).toISOString(),
+          linkedin_post_urn: verifiedUrn,
+          error: undefined,
+        });
+        published++;
+        console.log(`[linkedin-scheduler] ${p.id} publicó pese al error de red — recuperado urn=${verifiedUrn}`);
+      } else {
+        await updatePost(p.id, { status: "failed", error: e.message });
+        failed++;
+        console.error(`[linkedin-scheduler] failed ${p.id}: ${e.message} (no se reintenta, retry manual)`);
+      }
     }
   }
   return { checked, published, failed };

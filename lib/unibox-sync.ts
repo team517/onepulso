@@ -278,6 +278,19 @@ export async function syncUnibox(uniboxId: string): Promise<{ ok: number; fail: 
   }
 
   await updateUnibox(uniboxId, { last_sync: new Date().toISOString() });
+
+  // Re-clasificar SIEMPRE tras sync: la detección de warmup evoluciona y los
+  // mensajes guardados con algoritmo antiguo se quedaban con is_warmup=false.
+  // Re-aplicarlo a la caché entera mantiene la bandeja limpia siempre.
+  try {
+    const r = await reclassifyMessages(uniboxId);
+    if (r.warmup > 0) {
+      console.log(`[unibox-sync] ${uniboxId}: reclasificación → ${r.warmup}/${r.total} marcados como warmup`);
+    }
+  } catch (e: any) {
+    console.warn(`[unibox-sync] ${uniboxId}: reclassify failed:`, e.message);
+  }
+
   if (total > 0) console.log(`[unibox-sync] ${uniboxId}: ${total} mensajes nuevos · ${ok} cuentas OK · ${fail} con error`);
   return { ok, fail, new: total };
 }

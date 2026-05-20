@@ -14,7 +14,21 @@ export default function ClientInboxPage() {
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [messages, setMessages] = useState<Msg[]>([]);
   const [warmupCount, setWarmupCount] = useState(0);
-  const [showWarmup, setShowWarmup] = useState(false);
+  // Por defecto warmup OCULTO. La preferencia se persiste en localStorage por
+  // unibox, así que si el usuario decide mostrarlos, se queda mostrando entre
+  // recargas; si los oculta, se queda ocultando.
+  const [showWarmup, setShowWarmupState] = useState(false);
+  const [reclassifying, setReclassifying] = useState(false);
+  function setShowWarmup(v: boolean) {
+    setShowWarmupState(v);
+    try { localStorage.setItem(`unibox_show_warmup_${id}`, v ? "1" : "0"); } catch {}
+  }
+  useEffect(() => {
+    try {
+      const v = localStorage.getItem(`unibox_show_warmup_${id}`);
+      if (v === "1") setShowWarmupState(true);
+    } catch {}
+  }, [id]);
   const [selectedAccount, setSelectedAccount] = useState<string | null>(null);
   const [selectedMsg, setSelectedMsg] = useState<any>(null);
   const [search, setSearch] = useState("");
@@ -40,6 +54,36 @@ export default function ClientInboxPage() {
     const r = await fetch(`/api/uniboxes/${id}/accounts`);
     if (r.ok) setAccounts(await r.json());
   }
+
+  /** Re-aplica la detección actual de warmup a toda la caché. Útil cuando
+   *  los mensajes se guardaron con un algoritmo anterior y aparecen como
+   *  no-warmup pese a tener subjects con patrones de warmup obvios. */
+  async function reclassifyNow(silent = false) {
+    setReclassifying(true);
+    try {
+      const r = await fetch(`/api/uniboxes/${id}/reclassify`, { method: "POST" });
+      if (r.ok && !silent) {
+        const d = await r.json();
+        alert(`Re-clasificación completada: ${d.warmup} de ${d.total} mensajes marcados como warmup. Bandeja limpia ✓`);
+      }
+      await loadMessages();
+    } finally {
+      setReclassifying(false);
+    }
+  }
+
+  // Auto-reclasificar SILENCIOSAMENTE al cargar — limpia mensajes antiguos
+  // que se sincronizaron con detección obsoleta.
+  useEffect(() => {
+    if (!me) return;
+    const k = `unibox_reclassified_${id}_${new Date().toDateString()}`;
+    try {
+      if (localStorage.getItem(k)) return; // ya reclasificada hoy
+      localStorage.setItem(k, "1");
+      reclassifyNow(true).catch(() => {});
+    } catch {}
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [me, id]);
 
   async function loadMessages() {
     const p = new URLSearchParams();
@@ -273,10 +317,52 @@ export default function ClientInboxPage() {
             <span>{syncing ? "Sincronizando…" : "Refrescar"}</span>
           </button>
           {warmupCount > 0 && (
-            <button style={linkBtn} onClick={() => setShowWarmup(!showWarmup)}>
-              {showWarmup ? `Ocultar warmup (${warmupCount})` : `Mostrar warmup (${warmupCount})`}
+            <button
+              onClick={() => setShowWarmup(!showWarmup)}
+              title={showWarmup
+                ? "Quitar los mensajes de warmup de la bandeja"
+                : "Volver a mostrar los mensajes de warmup"}
+              style={{
+                display: "inline-flex", alignItems: "center", gap: 6,
+                padding: "6px 12px",
+                background: showWarmup ? "#fff" : "rgba(0,113,227,0.08)",
+                border: showWarmup
+                  ? "1px solid rgba(15,23,42,0.12)"
+                  : "1px solid rgba(0,113,227,0.25)",
+                borderRadius: 999,
+                color: showWarmup ? "#475569" : "#0071e3",
+                fontSize: 12,
+                fontWeight: 600,
+                cursor: "pointer",
+                fontFamily: "inherit",
+                transition: "all 0.15s",
+              }}
+            >
+              {showWarmup ? "🧹" : "🛡"}
+              <span>{showWarmup ? `Ocultar warmup (${warmupCount})` : `Mostrar warmup (${warmupCount})`}</span>
             </button>
           )}
+          <button
+            onClick={() => reclassifyNow(false)}
+            disabled={reclassifying}
+            title="Re-aplica la detección de warmup a todos los mensajes ya descargados (útil si aparecen colados)"
+            style={{
+              display: "inline-flex", alignItems: "center", gap: 5,
+              padding: "6px 12px",
+              background: "transparent",
+              border: "1px solid rgba(15,23,42,0.12)",
+              borderRadius: 999,
+              color: "#475569",
+              fontSize: 12,
+              fontWeight: 500,
+              cursor: reclassifying ? "wait" : "pointer",
+              fontFamily: "inherit",
+              opacity: reclassifying ? 0.6 : 1,
+            }}
+          >
+            <span style={{ animation: reclassifying ? "spin 1s linear infinite" : "none", display: "inline-block" }}>🔍</span>
+            {reclassifying ? "Re-detectando…" : "Re-detectar warmup"}
+          </button>
           {messages.length > 0 && (
             <button
               style={{ ...linkBtn, color: "#dc2626", marginLeft: "auto" }}

@@ -990,14 +990,28 @@ export default function SeguimientosPage() {
     }
   }
 
-  const [fuAiLoading, setFuAiLoading] = useState(false);
-  async function aiGenerateFuBody() {
+  const [fuAiLoading, setFuAiLoading] = useState<null | "suave" | "normal" | "directo">(null);
+  /**
+   * Genera el cuerpo del follow-up con un tono concreto.
+   *   - suave   → recordatorio muy ligero, sin presión, casi un "¿sigues por ahí?".
+   *   - normal  → tono natural y profesional, con CTA claro y un paso concreto.
+   *   - directo → asertivo, pide decisión clara (sí / no / aplaza), sin rodeos.
+   */
+  async function aiGenerateFuBody(tone: "suave" | "normal" | "directo") {
     if (!thread || fuAiLoading) return;
-    setFuAiLoading(true);
+    setFuAiLoading(tone);
     try {
-      const hint = fuSteps.length > 0
+      const stepCtx = fuSteps.length > 0
         ? `Este es el paso ${fuSteps.length + 1} de una secuencia de follow-ups programados. Programado para ${fuWhen || "fecha próxima"}. Aporta valor nuevo, no repitas lo anterior.`
-        : `Este es un follow-up programado para ${fuWhen || "fecha próxima"}. Tono natural, breve, con CTA claro.`;
+        : `Este es un follow-up programado para ${fuWhen || "fecha próxima"}.`;
+
+      const toneInstructions: Record<string, string> = {
+        suave: `TONO: ULTRA SUAVE. Es un recordatorio mínimo, casi indiferente. No incites a cerrar de forma directa. Pregunta abierta tipo "¿sigues por ahí?", "¿te paso info útil?". Sin urgencia, sin presión, sin "te recuerdo". MÁXIMO 2-3 líneas. No menciones reunión salvo que el prospect la haya propuesto antes. La sensación que tiene que dar es "sin compromiso, cuando puedas".`,
+        normal: `TONO: NATURAL Y PROFESIONAL. Retoma el hilo con claridad pero sin presión. Aporta 1 dato útil o referencia un caso concreto del hilo. Propón un paso concreto (10 min de call o respuesta a una pregunta específica). 4-6 líneas. Equilibra cortesía y claridad.`,
+        directo: `TONO: DIRECTO Y ASERTIVO. Sin rodeos. Pide decisión explícita ("sí me interesa avanzar / no es el momento / lo dejamos para Q4"). Frases cortas. 1 CTA claro sin opciones múltiples. Recuérdale el contexto y di concretamente qué necesitas de él. 3-5 líneas. No mendigues.`,
+      };
+
+      const hint = `${stepCtx}\n\n${toneInstructions[tone]}`;
       const r = await fetch("/api/email/ai/reply", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1008,7 +1022,7 @@ export default function SeguimientosPage() {
     } catch (e: any) {
       setFeedback("⚠️ " + e.message);
     } finally {
-      setFuAiLoading(false);
+      setFuAiLoading(null);
       setTimeout(() => setFeedback(null), 4000);
     }
   }
@@ -2158,27 +2172,48 @@ export default function SeguimientosPage() {
                 <input type="datetime-local" className="li-input" value={fuWhen} onChange={(e) => setFuWhen(e.target.value)} />
               </div>
               <div className="li-row">
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6, flexWrap: "wrap", gap: 8 }}>
                   <label className="li-label" style={{ margin: 0 }}>Texto (HTML)</label>
-                  <button
-                    onClick={aiGenerateFuBody}
-                    disabled={fuAiLoading || !thread}
-                    style={{
-                      padding: "5px 12px",
-                      background: "linear-gradient(135deg, rgba(99,102,241,0.1), rgba(0,113,227,0.1))",
-                      border: "1px solid var(--accent)",
-                      borderRadius: 8,
-                      fontSize: 11.5,
-                      fontWeight: 700,
-                      color: "var(--accent)",
-                      cursor: fuAiLoading ? "wait" : "pointer",
-                      fontFamily: "inherit",
-                      opacity: fuAiLoading ? 0.6 : 1,
-                    }}
-                    title="Generar texto con IA basándose en el hilo y la fecha"
-                  >
-                    {fuAiLoading ? "🪄 Creando…" : "✨ Crear con IA"}
-                  </button>
+                  <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+                    <span style={{ fontSize: 10.5, color: "var(--text-faint)", letterSpacing: "0.06em", textTransform: "uppercase", marginRight: 2 }}>
+                      ✨ Crear con IA · tono
+                    </span>
+                    {(["suave", "normal", "directo"] as const).map((tone) => {
+                      const cfg = {
+                        suave:   { label: "Suave",   icon: "🌿", color: "#16a34a", bg: "rgba(34,197,94,0.08)",  border: "rgba(34,197,94,0.3)",  hint: "Recordatorio sutil, sin presión" },
+                        normal:  { label: "Normal",  icon: "💬", color: "#0071e3", bg: "rgba(0,113,227,0.08)",  border: "rgba(0,113,227,0.3)",  hint: "Tono natural con CTA claro" },
+                        directo: { label: "Directo", icon: "⚡", color: "#dc2626", bg: "rgba(239,68,68,0.08)",  border: "rgba(239,68,68,0.3)",  hint: "Asertivo: sí / no / aplazar" },
+                      }[tone];
+                      const active = fuAiLoading === tone;
+                      return (
+                        <button
+                          key={tone}
+                          onClick={() => aiGenerateFuBody(tone)}
+                          disabled={!!fuAiLoading || !thread}
+                          title={cfg.hint}
+                          style={{
+                            padding: "5px 11px",
+                            background: cfg.bg,
+                            border: `1px solid ${cfg.border}`,
+                            borderRadius: 999,
+                            fontSize: 11.5,
+                            fontWeight: 700,
+                            color: cfg.color,
+                            cursor: fuAiLoading ? "wait" : "pointer",
+                            fontFamily: "inherit",
+                            opacity: (fuAiLoading && !active) ? 0.4 : 1,
+                            display: "inline-flex",
+                            alignItems: "center",
+                            gap: 4,
+                            transition: "all 0.15s",
+                          }}
+                        >
+                          <span>{cfg.icon}</span>
+                          <span>{active ? "Creando…" : cfg.label}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
                 <textarea className="li-textarea" rows={10} value={fuBody} onChange={(e) => setFuBody(e.target.value)} />
               </div>

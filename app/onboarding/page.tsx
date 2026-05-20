@@ -154,8 +154,22 @@ export default function OnboardingPage() {
                       </div>
                     </div>
                     <ProgressBar pct={pct} thin />
-                    <div style={{ marginTop: 10, display: "flex", alignItems: "center", gap: 8, fontSize: 11.5, color: "#64748b" }}>
-                      <span>🔗 /o/{c.slug}</span>
+                    <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 4, fontSize: 11.5, color: "#64748b" }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 6, overflow: "hidden" }}>
+                        <span style={{ flexShrink: 0 }}>✉</span>
+                        <span style={{
+                          overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                          color: c.email ? "#0071e3" : "#cbd5e1",
+                          fontWeight: c.email ? 600 : 500,
+                          fontStyle: c.email ? "normal" : "italic",
+                        }}>
+                          {c.email || "(sin email)"}
+                        </span>
+                      </div>
+                      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                        <span style={{ flexShrink: 0 }}>🔗</span>
+                        <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>/o/{c.slug}</span>
+                      </div>
                     </div>
                   </button>
                 );
@@ -325,11 +339,39 @@ function ClientDetail({
       {/* Header card with progress */}
       <div style={card}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
-          <div>
+          <div style={{ minWidth: 0, flex: 1 }}>
             <div style={{ fontSize: 20, fontWeight: 700, color: "#0f172a", letterSpacing: "-0.02em" }}>{client.name}</div>
             <div style={{ fontSize: 13, color: "#64748b", marginTop: 4 }}>{client.project_title || "Sin proyecto"}</div>
+            {/* Email destacado */}
+            <div style={{
+              display: "inline-flex", alignItems: "center", gap: 6,
+              marginTop: 10,
+              padding: "5px 10px",
+              background: client.email ? "rgba(0,113,227,0.08)" : "rgba(245,158,11,0.08)",
+              border: `1px solid ${client.email ? "rgba(0,113,227,0.2)" : "rgba(245,158,11,0.25)"}`,
+              borderRadius: 999,
+              fontSize: 12,
+              color: client.email ? "#0071e3" : "#b45309",
+              fontWeight: 600,
+            }}>
+              ✉ {client.email || "Sin email — añade uno abajo para conectar el Unibox"}
+              {client.email && (
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    navigator.clipboard.writeText(client.email!);
+                  }}
+                  style={{
+                    background: "transparent", border: "none",
+                    cursor: "pointer", padding: "0 0 0 4px",
+                    fontSize: 11, opacity: 0.7,
+                  }}
+                  title="Copiar email"
+                >📋</button>
+              )}
+            </div>
           </div>
-          <div style={{ fontSize: 32, fontWeight: 700, color: pct === 100 ? "#16a34a" : "#0071e3", letterSpacing: "-0.03em" }}>
+          <div style={{ fontSize: 32, fontWeight: 700, color: pct === 100 ? "#16a34a" : "#0071e3", letterSpacing: "-0.03em", flexShrink: 0 }}>
             {pct}%
           </div>
         </div>
@@ -422,8 +464,17 @@ function ClientDetail({
 
       {/* Datos del cliente */}
       <div style={card}>
-        <div style={{ fontSize: 13, fontWeight: 600, color: "#0f172a", marginBottom: 12, letterSpacing: "-0.01em" }}>
-          Datos del cliente
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+          <div style={{ fontSize: 13, fontWeight: 600, color: "#0f172a", letterSpacing: "-0.01em" }}>
+            Datos del cliente
+          </div>
+          <div style={{
+            fontSize: 10.5, color: "#94a3b8", letterSpacing: "0.04em",
+            textTransform: "uppercase", fontWeight: 600,
+            display: "flex", alignItems: "center", gap: 4,
+          }}>
+            ✏ Auto-guardado al salir del campo
+          </div>
         </div>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
           <Field label="Nombre cliente / empresa">

@@ -129,6 +129,8 @@ export default function SeguimientosPage() {
   const [storageStatus, setStorageStatus] = useState<any>(null);
   const [smtpDiag, setSmtpDiag] = useState<any>(null);
   const [smtpDiagLoading, setSmtpDiagLoading] = useState(false);
+  const [fuHealth, setFuHealth] = useState<any>(null);
+  const [fuHealthLoading, setFuHealthLoading] = useState(false);
   const [resendModal, setResendModal] = useState<{ open: boolean; status?: any; saving?: boolean; testing?: boolean; testResult?: any; apiKey: string; fromAddr: string }>({ open: false, apiKey: "", fromAddr: "" });
   const [deepRefreshing, setDeepRefreshing] = useState(false);
   const [lastDeepRefresh, setLastDeepRefresh] = useState<Date | null>(null);
@@ -622,6 +624,21 @@ export default function SeguimientosPage() {
     } finally {
       clearTimeout(hardTimeout);
       setSmtpDiagLoading(false);
+    }
+  }
+
+  async function runFollowupsHealth() {
+    setFuHealthLoading(true);
+    setFuHealth({ loading: true });
+    try {
+      // ?tick=1 fuerza un tick AHORA — si hay vencidos, los envía y devuelve el resultado
+      const r = await fetch("/api/email/followups/health?tick=1", { cache: "no-store" });
+      const j = await r.json();
+      setFuHealth(j);
+    } catch (e: any) {
+      setFuHealth({ error: e.message });
+    } finally {
+      setFuHealthLoading(false);
     }
   }
 
@@ -1277,6 +1294,129 @@ export default function SeguimientosPage() {
         </div>
       )}
 
+      {fuHealth && (
+        <div
+          onClick={() => !fuHealthLoading && setFuHealth(null)}
+          style={{
+            position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)",
+            display: "flex", alignItems: "center", justifyContent: "center",
+            zIndex: 1000, padding: 20,
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              background: "#fff", borderRadius: 14, padding: 24,
+              maxWidth: 720, width: "100%", maxHeight: "85vh", overflowY: "auto",
+              boxShadow: "0 20px 60px rgba(0,0,0,0.3)",
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
+              <h3 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>🩺 Salud del envío de follow-ups</h3>
+              <button
+                onClick={() => !fuHealthLoading && setFuHealth(null)}
+                disabled={fuHealthLoading}
+                style={{ background: "transparent", border: "none", fontSize: 22, cursor: fuHealthLoading ? "not-allowed" : "pointer", opacity: fuHealthLoading ? 0.4 : 1 }}
+              >×</button>
+            </div>
+            {fuHealth.loading ? (
+              <div style={{ padding: "30px 0", textAlign: "center" }}>
+                <div className="loading-pulse" style={{ display: "inline-flex", marginBottom: 12 }}><span/><span/><span/></div>
+                <div style={{ fontSize: 13.5, color: "var(--text-dim)" }}>Forzando un tick del scheduler y comprobando todos los follow-ups…</div>
+              </div>
+            ) : fuHealth.error ? (
+              <div style={{ padding: 16, background: "rgba(239,68,68,0.1)", border: "1px solid rgba(239,68,68,0.3)", borderRadius: 10, color: "#dc2626", fontSize: 13 }}>
+                {fuHealth.error}
+              </div>
+            ) : (
+              <>
+                {fuHealth.diagnosis && (
+                  <div style={{
+                    background: fuHealth.diagnosis.includes("🚨") || fuHealth.diagnosis.includes("❌") ? "rgba(239,68,68,0.1)" :
+                               fuHealth.diagnosis.includes("⚠️") ? "rgba(245,158,11,0.1)" :
+                               "rgba(16,185,129,0.1)",
+                    border: "1px solid",
+                    borderColor: fuHealth.diagnosis.includes("🚨") || fuHealth.diagnosis.includes("❌") ? "rgba(239,68,68,0.3)" :
+                                 fuHealth.diagnosis.includes("⚠️") ? "rgba(245,158,11,0.3)" :
+                                 "rgba(16,185,129,0.3)",
+                    padding: "12px 14px", borderRadius: 10,
+                    fontSize: 13, lineHeight: 1.6, marginBottom: 14,
+                    color: "var(--text)",
+                  }}>
+                    {fuHealth.diagnosis}
+                  </div>
+                )}
+
+                {/* Tick forzado: cuántos envió ahora mismo */}
+                {fuHealth.forced_tick && (
+                  <div style={{
+                    background: "linear-gradient(135deg, rgba(0,113,227,0.08), rgba(59,130,246,0.04))",
+                    border: "1px solid rgba(0,113,227,0.2)",
+                    borderRadius: 10, padding: "10px 14px", marginBottom: 14,
+                    fontSize: 13, color: "#0f172a",
+                  }}>
+                    🚀 Tick forzado · enviados: <b>{fuHealth.forced_tick.sent ?? 0}</b> · fallidos: <b>{fuHealth.forced_tick.failed ?? 0}</b>
+                  </div>
+                )}
+
+                {/* Configuración */}
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, marginBottom: 14 }}>
+                  <Stat label="Scheduler" value={fuHealth.scheduler_alive ? "✅ corriendo" : "⚠️ parado"} ok={fuHealth.scheduler_alive} />
+                  <Stat label="Email config" value={fuHealth.email_configured ? "✅ conectado" : "🚨 falta"} ok={fuHealth.email_configured} />
+                  <Stat label="Resend (relay)" value={fuHealth.resend_configured ? "✅ activo" : "⚠️ no"} ok={fuHealth.resend_configured} />
+                </div>
+
+                {/* Contadores */}
+                {fuHealth.counts && (
+                  <div style={{
+                    display: "grid",
+                    gridTemplateColumns: "repeat(4, 1fr)",
+                    gap: 8, marginBottom: 16,
+                  }}>
+                    <Counter n={fuHealth.counts.total_scheduled} label="Programados" />
+                    <Counter n={fuHealth.counts.overdue} label="Vencidos" red={fuHealth.counts.overdue > 0} />
+                    <Counter n={fuHealth.counts.due_soon_10min} label="≤10 min" />
+                    <Counter n={fuHealth.counts.sent_last_24h} label="Enviados 24h" green={fuHealth.counts.sent_last_24h > 0} />
+                    <Counter n={fuHealth.counts.pending_approval} label="Pendiente aprob." />
+                    <Counter n={fuHealth.counts.sending} label="Enviando" yellow={fuHealth.counts.sending > 0} />
+                    <Counter n={fuHealth.counts.failed} label="Fallidos" red={fuHealth.counts.failed > 0} />
+                    <Counter n={fuHealth.counts.upcoming_24h} label="Próx. 24h" />
+                  </div>
+                )}
+
+                {/* Listas problema */}
+                {fuHealth.overdue?.length > 0 && (
+                  <ListBlock title={`🚨 Vencidos sin enviar (${fuHealth.overdue.length})`} items={fuHealth.overdue} color="#dc2626" />
+                )}
+                {fuHealth.failed?.length > 0 && (
+                  <ListBlock title={`❌ Fallidos (${fuHealth.failed.length})`} items={fuHealth.failed} color="#dc2626" />
+                )}
+                {fuHealth.sent_recent?.length > 0 && (
+                  <ListBlock title={`✓ Enviados en las últimas 24h (${fuHealth.sent_recent.length})`} items={fuHealth.sent_recent} color="#16a34a" />
+                )}
+                {fuHealth.due_soon?.length > 0 && (
+                  <ListBlock title={`⏰ Por enviar en ≤10 min (${fuHealth.due_soon.length})`} items={fuHealth.due_soon} color="#0071e3" />
+                )}
+
+                <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
+                  <button
+                    onClick={runFollowupsHealth}
+                    disabled={fuHealthLoading}
+                    style={{
+                      flex: 1, padding: "10px 14px",
+                      background: "linear-gradient(135deg, #0071e3, #3b82f6)",
+                      color: "#fff", border: "none", borderRadius: 10,
+                      fontSize: 13, fontWeight: 700, cursor: "pointer",
+                      fontFamily: "inherit",
+                    }}
+                  >🔁 Forzar otro tick</button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
       {smtpDiag && (
         <div
           onClick={() => !smtpDiagLoading && setSmtpDiag(null)}
@@ -1456,6 +1596,7 @@ export default function SeguimientosPage() {
               <button onClick={openResendModal} className="seg-tb-icon-btn" title="Configurar Resend (relay SMTP)">📡</button>
               <button onClick={runImapDiag} className="seg-tb-icon-btn" title="Diagnóstico IMAP">📥</button>
               <button onClick={runSmtpDiag} className="seg-tb-icon-btn" title="Diagnóstico SMTP">🔧</button>
+              <button onClick={runFollowupsHealth} className="seg-tb-icon-btn" title="Verificar envío de follow-ups (fuerza un tick)">🩺</button>
               <button
                 onClick={manualSaveCheck}
                 className={`seg-tb-icon-btn ${storageStatus?.postgres?.connected ? "ok" : storageStatus?.has_database_url === false ? "err" : ""}`}
@@ -4314,6 +4455,74 @@ function FailedFollowupCard({
         <button className="btn-ghost-sm" onClick={onCancel}>
           Descartar
         </button>
+      </div>
+    </div>
+  );
+}
+
+/* ───── Helpers para el modal de salud de follow-ups ───── */
+
+function Stat({ label, value, ok }: { label: string; value: string; ok?: boolean }) {
+  return (
+    <div style={{
+      background: "#f8fafc",
+      border: "1px solid rgba(15,23,42,0.08)",
+      borderRadius: 10,
+      padding: "8px 10px",
+    }}>
+      <div style={{ fontSize: 10.5, color: "#64748b", letterSpacing: "0.04em", textTransform: "uppercase", marginBottom: 2 }}>
+        {label}
+      </div>
+      <div style={{ fontSize: 12.5, fontWeight: 600, color: ok === false ? "#dc2626" : "#0f172a" }}>
+        {value}
+      </div>
+    </div>
+  );
+}
+
+function Counter({ n, label, red, green, yellow }: { n: number; label: string; red?: boolean; green?: boolean; yellow?: boolean }) {
+  const color = red ? "#dc2626" : green ? "#16a34a" : yellow ? "#d97706" : "#0f172a";
+  const bg = red ? "rgba(239,68,68,0.06)" : green ? "rgba(34,197,94,0.06)" : yellow ? "rgba(245,158,11,0.06)" : "#f8fafc";
+  return (
+    <div style={{
+      background: bg,
+      border: "1px solid rgba(15,23,42,0.08)",
+      borderRadius: 10,
+      padding: "10px 8px",
+      textAlign: "center",
+    }}>
+      <div style={{ fontSize: 22, fontWeight: 700, color, letterSpacing: "-0.02em", lineHeight: 1.1 }}>{n ?? 0}</div>
+      <div style={{ fontSize: 10.5, color: "#64748b", marginTop: 3, letterSpacing: "0.02em" }}>{label}</div>
+    </div>
+  );
+}
+
+function ListBlock({ title, items, color }: { title: string; items: any[]; color: string }) {
+  return (
+    <div style={{ marginBottom: 14 }}>
+      <div style={{ fontSize: 12, fontWeight: 700, color, marginBottom: 6, letterSpacing: "0.02em" }}>{title}</div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+        {items.slice(0, 5).map((it) => (
+          <div key={it.followup_id} style={{
+            background: "#f8fafc",
+            border: "1px solid rgba(15,23,42,0.06)",
+            borderRadius: 8,
+            padding: "8px 10px",
+            fontSize: 12,
+            lineHeight: 1.5,
+          }}>
+            <div style={{ display: "flex", justifyContent: "space-between", gap: 8, marginBottom: 2 }}>
+              <span style={{ fontWeight: 600, color: "#0f172a", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{it.contact}</span>
+              <span style={{ color: "#64748b", fontSize: 11, flexShrink: 0 }}>{new Date(it.scheduled_at).toLocaleString("es-ES", { dateStyle: "short", timeStyle: "short" })}</span>
+            </div>
+            <div style={{ color: "#475569", fontSize: 11.5, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+              {it.error ? <span style={{ color: "#dc2626" }}>⚠ {it.error}</span> : it.body_preview}
+            </div>
+          </div>
+        ))}
+        {items.length > 5 && (
+          <div style={{ fontSize: 11, color: "#94a3b8", textAlign: "center", padding: 4 }}>… y {items.length - 5} más</div>
+        )}
       </div>
     </div>
   );

@@ -32,21 +32,37 @@ export function startScheduler() {
   safeTick();
 }
 
+/**
+ * BURST PROTECTION: como máximo se publica este número de posts por tick.
+ * Si hay 10 vencidos a la vez (p.ej. plan mensual mal generado o backlog tras
+ * downtime), se reparten 1 cada 30s. Evita el patrón "se sube random todo el
+ * rato" que reporta el usuario.
+ */
+const MAX_PUBLISH_PER_TICK = 1;
+
 export async function tick(): Promise<{ checked: number; published: number; failed: number }> {
   const posts = await listPosts();
   const now = Date.now();
+  // Ordenar candidatos vencidos por scheduled_at ascendente para publicar el
+  // más antiguo primero. Sólo procesamos los `scheduled` con scheduled_at <= now
+  // y sin intento automático previo.
+  const due = posts
+    .filter((p) =>
+      p.status === "scheduled" &&
+      !!p.scheduled_at &&
+      new Date(p.scheduled_at).getTime() <= now &&
+      (p.auto_attempts ?? 0) === 0
+    )
+    .sort((a, b) => new Date(a.scheduled_at!).getTime() - new Date(b.scheduled_at!).getTime());
+
   let published = 0;
   let failed = 0;
   let checked = 0;
-  for (const p of posts) {
-    if (p.status !== "scheduled") continue;
-    if (!p.scheduled_at) continue;
-    if (new Date(p.scheduled_at).getTime() > now) continue;
-    // Si ya tuvo un intento automático previo, NO reintentar: el usuario lo
-    // hará manual desde la UI. Esta es la regla pedida: "que se suba solo una vez".
-    if ((p.auto_attempts ?? 0) >= 1) continue;
+  if (due.length > MAX_PUBLISH_PER_TICK) {
+    console.log(`[linkedin-scheduler] ${due.length} posts vencidos; publicando ${MAX_PUBLISH_PER_TICK} ahora, el resto en próximos ticks`);
+  }
+  for (const p of due.slice(0, MAX_PUBLISH_PER_TICK)) {
     checked++;
-
     // ATOMIC CLAIM: re-leer el post AHORA mismo y comprobar que sigue siendo "scheduled"
     // Y que no ha hecho ya un intento automático. Si otra ejecución se cruzó, saltamos.
     const fresh = await getPost(p.id);

@@ -92,8 +92,13 @@ function targetDates(opts: {
   const { year, month, daysOfWeek, hour, minute } = opts;
   const last = new Date(year, month, 0).getDate();
   const targetDows = new Set(daysOfWeek.map((d) => (d === 7 ? 0 : d))); // map ISO to JS dow
+  // ANTI-BURST: nunca crear posts con fecha en el pasado. Si lo hiciéramos,
+  // el scheduler los detectaría como "vencidos" y los publicaría todos a la
+  // vez en el siguiente tick. Margen: 30 min en el futuro mínimo.
+  const cutoff = Date.now() + 30 * 60_000;
   for (let d = 1; d <= last; d++) {
     const date = new Date(year, month - 1, d, hour, minute, 0, 0);
+    if (date.getTime() < cutoff) continue; // saltar fechas pasadas / inminentes
     if (targetDows.has(date.getDay())) {
       const yyyy = date.getFullYear();
       const mm = String(date.getMonth() + 1).padStart(2, "0");

@@ -545,6 +545,28 @@ export default function LinkedInPage() {
         <div className="li-status">
           <button
             className="btn-ghost"
+            onClick={async () => {
+              const r = await fetch("/api/linkedin/cancel-overdue");
+              const d = await r.json();
+              if (!d.overdue_count) {
+                setFeedback("✓ No hay posts vencidos en la cola.");
+                setTimeout(() => setFeedback(null), 4000);
+                return;
+              }
+              if (!confirm(`Hay ${d.overdue_count} posts con fecha pasada en cola que el scheduler está intentando publicar. ¿Cancelarlos? (se mueven a borrador para reprogramarlos).`)) return;
+              const r2 = await fetch("/api/linkedin/cancel-overdue", { method: "POST" });
+              const d2 = await r2.json();
+              setFeedback(`✓ Cancelados ${d2.cancelled} posts vencidos. Quedan como borrador.`);
+              setTimeout(() => setFeedback(null), 6000);
+              refresh();
+            }}
+            title="Frena el scheduler: cancela los posts vencidos para que dejen de publicarse de golpe"
+            style={{ color: "#dc2626", borderColor: "rgba(220,38,38,0.25)" }}
+          >
+            ⏸ Parar cola
+          </button>
+          <button
+            className="btn-ghost"
             onClick={openCreds}
             title="Configurar API keys (OpenAI, Anthropic, Instantly, LinkedIn)"
           >

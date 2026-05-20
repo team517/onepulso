@@ -136,6 +136,22 @@ export default function ClientInboxPage() {
     }
   }
 
+  /** Borra un mensaje individual de la cache. No toca IMAP remoto. */
+  async function deleteMessage(accountId: string, uid: number, confirmFirst = true) {
+    if (confirmFirst && !confirm("¿Eliminar este mensaje de la bandeja?\n\nSólo se borra de la plataforma. Si vuelve a sincronizarse desde IMAP, reaparecerá.")) return;
+    const r = await fetch(`/api/uniboxes/${id}/messages/${accountId}/${uid}`, { method: "DELETE" });
+    if (r.ok) {
+      // Actualizar local sin esperar al fetch
+      setMessages((prev) => prev.filter((m) => !(m.accountId === accountId && m.uid === uid)));
+      if (selectedMsg && selectedMsg.accountId === accountId && selectedMsg.uid === uid) {
+        setSelectedMsg(null);
+      }
+    } else {
+      const d = await r.json().catch(() => ({}));
+      alert("Error al eliminar: " + (d.error || "desconocido"));
+    }
+  }
+
   async function logout() {
     await fetch("/api/unibox-client/logout", { method: "POST" });
     router.push(`/u/${id}/login`);
@@ -211,8 +227,9 @@ export default function ClientInboxPage() {
   const normMid = (s: string) => (s || "").trim().replace(/^<+|>+$/g, "").toLowerCase();
   const thread = selectedMsg
     ? messages.filter(x => {
-        if (x.accountId !== selectedMsg.accountId) return false;
-        if (x.uid === selectedMsg.uid) return false;
+        // Allow cross-account: si el cliente tiene varios buzones y el hilo
+        // pasa por más de uno, mostramos todos los mensajes relacionados.
+        if (x.accountId === selectedMsg.accountId && x.uid === selectedMsg.uid) return false;
         const selMid = normMid(selectedMsg.messageId);
         const xInReply = normMid(x.inReplyTo);
         const xRefs = (x.references || []).map(normMid);
@@ -381,9 +398,11 @@ export default function ClientInboxPage() {
             const isSelected = selectedMsg && selectedMsg.uid === m.uid && selectedMsg.accountId === m.accountId;
             const acc = accounts.find(a => a.id === m.accountId);
             return (
-              <div key={`${m.accountId}-${m.uid}`}
-                style={{ ...messageItem, ...(isSelected ? activeMessage : {}), ...(m.unread ? unreadMessage : {}) }}
+              <div
+                key={`${m.accountId}-${m.uid}`}
+                style={{ ...messageItem, ...(isSelected ? activeMessage : {}), ...(m.unread ? unreadMessage : {}), position: "relative" }}
                 onClick={() => openMessage(m.accountId, m.uid)}
+                className="unibox-msg-row"
               >
                 <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
                   <div style={{ fontSize: 13, fontWeight: m.unread ? 700 : 500, color: "#0f172a", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>
@@ -398,6 +417,25 @@ export default function ClientInboxPage() {
                 <div style={{ fontSize: 12, color: "#94a3b8", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                   {m.preview}
                 </div>
+                {/* Botón papelera, visible al pasar el ratón */}
+                <button
+                  className="unibox-msg-del"
+                  onClick={(e) => { e.stopPropagation(); deleteMessage(m.accountId, m.uid); }}
+                  title="Eliminar este mensaje"
+                  style={{
+                    position: "absolute",
+                    right: 10, top: 10,
+                    background: "rgba(255,255,255,0.95)",
+                    border: "1px solid rgba(15,23,42,0.12)",
+                    borderRadius: 8,
+                    width: 26, height: 26,
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                    cursor: "pointer", fontSize: 13,
+                    opacity: 0,
+                    transition: "opacity 0.15s",
+                    color: "#dc2626",
+                  }}
+                >🗑</button>
               </div>
             );
           })}
@@ -416,7 +454,24 @@ export default function ClientInboxPage() {
               <h2 style={{ margin: 0, fontSize: 22, fontWeight: 600, color: "#0f172a", letterSpacing: "-0.01em", flex: 1 }}>
                 {selectedMsg.subject || "(sin asunto)"}
               </h2>
-              <button style={replyBtnStyle} onClick={() => replyTo(selectedMsg)}>↩ Responder</button>
+              <div style={{ display: "flex", gap: 8 }}>
+                <button style={replyBtnStyle} onClick={() => replyTo(selectedMsg)}>↩ Responder</button>
+                <button
+                  onClick={() => deleteMessage(selectedMsg.accountId, selectedMsg.uid)}
+                  title="Eliminar este mensaje de la bandeja"
+                  style={{
+                    background: "#fff",
+                    border: "1px solid rgba(220,38,38,0.25)",
+                    borderRadius: 10,
+                    padding: "8px 12px",
+                    color: "#dc2626",
+                    cursor: "pointer",
+                    fontSize: 13,
+                    fontWeight: 600,
+                    fontFamily: "inherit",
+                  }}
+                >🗑 Eliminar</button>
+              </div>
             </div>
             <div style={{ paddingBottom: 18, borderBottom: "1px solid #e2e8f0", marginBottom: 18, fontSize: 13, color: "#64748b" }}>
               <div><b style={{ color: "#0f172a" }}>De:</b> {selectedMsg.from}</div>
@@ -440,20 +495,32 @@ export default function ClientInboxPage() {
             )}
             {thread.length > 0 && (
               <div style={{ marginTop: 28, paddingTop: 18, borderTop: "1px solid #e2e8f0" }}>
-                <div style={{ fontSize: 11, color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 10 }}>
-                  Hilo ({thread.length + 1} mensajes)
-                </div>
-                {thread.map(t => (
-                  <div key={t.uid} style={threadItem} onClick={() => openMessage(t.accountId, t.uid)}>
-                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13 }}>
-                      <span style={{ fontWeight: 500 }}>{t.fromName || t.from}</span>
-                      <span style={{ fontSize: 11, color: "#94a3b8" }}>{fmtDate(t.date)}</span>
-                    </div>
-                    <div style={{ fontSize: 12, color: "#64748b", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                      {t.preview}
-                    </div>
+                <div style={{
+                  display: "flex", alignItems: "center", justifyContent: "space-between",
+                  marginBottom: 12,
+                }}>
+                  <div style={{
+                    fontSize: 11, color: "#0071e3", fontWeight: 700,
+                    textTransform: "uppercase", letterSpacing: "0.06em",
+                    display: "inline-flex", alignItems: "center", gap: 6,
+                  }}>
+                    💬 Conversación ({thread.length + 1} mensajes)
                   </div>
-                ))}
+                </div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                  {thread.map(t => {
+                    const isMine = accounts.some((a) => (a.email || "").toLowerCase() === (t.fromAddress || "").toLowerCase());
+                    return (
+                      <ThreadCard
+                        key={`${t.accountId}-${t.uid}`}
+                        msg={t}
+                        isMine={isMine}
+                        onLoadFull={() => openMessage(t.accountId, t.uid)}
+                        onDelete={() => deleteMessage(t.accountId, t.uid)}
+                      />
+                    );
+                  })}
+                </div>
               </div>
             )}
           </div>
@@ -735,3 +802,126 @@ const editorStyle: React.CSSProperties = {
   borderRadius: "0 0 8px 8px",
   padding: "12px 14px", fontSize: 14, lineHeight: 1.55, outline: "none",
 };
+
+/**
+ * Tarjeta de mensaje dentro del hilo. Carga el cuerpo HTML al expandir.
+ */
+function ThreadCard({
+  msg, isMine, onLoadFull, onDelete,
+}: {
+  msg: any;
+  isMine: boolean;
+  onLoadFull: () => void;
+  onDelete: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [body, setBody] = useState<{ html?: string; text?: string } | null>(null);
+  const [loading, setLoading] = useState(false);
+  const params = useParams<{ id: string }>();
+  const uniboxId = (params?.id || "") as string;
+
+  async function load() {
+    if (body || loading) return;
+    setLoading(true);
+    try {
+      const r = await fetch(`/api/uniboxes/${uniboxId}/messages/${msg.accountId}/${msg.uid}`);
+      if (r.ok) {
+        const d = await r.json();
+        setBody({ html: d.html, text: d.text });
+      }
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function toggle() {
+    setOpen((v) => !v);
+    if (!open) load();
+  }
+
+  return (
+    <div style={{
+      background: "#fff",
+      border: `1px solid ${isMine ? "rgba(0,113,227,0.18)" : "rgba(15,23,42,0.08)"}`,
+      borderLeft: `3px solid ${isMine ? "#0071e3" : "#cbd5e1"}`,
+      borderRadius: 10,
+      overflow: "hidden",
+      transition: "box-shadow 0.15s",
+    }}>
+      <div
+        onClick={toggle}
+        style={{
+          padding: "10px 14px",
+          cursor: "pointer",
+          display: "flex",
+          alignItems: "center",
+          gap: 10,
+          background: open ? "rgba(0,113,227,0.03)" : "transparent",
+        }}
+      >
+        <div style={{
+          width: 28, height: 28, borderRadius: "50%",
+          background: isMine ? "linear-gradient(135deg, #0071e3, #3b82f6)" : "#e2e8f0",
+          color: isMine ? "#fff" : "#475569",
+          display: "flex", alignItems: "center", justifyContent: "center",
+          fontSize: 11, fontWeight: 700,
+          flexShrink: 0,
+        }}>
+          {isMine ? "Tú" : ((msg.fromName || msg.from || "?").charAt(0).toUpperCase())}
+        </div>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
+            <div style={{ fontSize: 13, fontWeight: 600, color: "#0f172a", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+              {isMine && (
+                <span style={{
+                  background: "rgba(0,113,227,0.1)", color: "#0071e3",
+                  padding: "1px 6px", borderRadius: 999, fontSize: 10,
+                  fontWeight: 700, marginRight: 6,
+                }}>ENVIADO</span>
+              )}
+              {msg.fromName || msg.from}
+            </div>
+            <div style={{ fontSize: 11, color: "#94a3b8", flexShrink: 0 }}>
+              {new Date(msg.date).toLocaleString("es", { dateStyle: "short", timeStyle: "short" })}
+            </div>
+          </div>
+          {!open && (
+            <div style={{ fontSize: 12, color: "#64748b", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", marginTop: 2 }}>
+              {msg.preview}
+            </div>
+          )}
+        </div>
+        <div style={{ display: "flex", gap: 4, alignItems: "center", flexShrink: 0 }}>
+          <button
+            onClick={(e) => { e.stopPropagation(); onDelete(); }}
+            title="Eliminar este mensaje"
+            style={{
+              background: "transparent", border: "none",
+              color: "#dc2626", cursor: "pointer", fontSize: 14,
+              padding: 4, opacity: 0.7,
+            }}
+          >🗑</button>
+          <span style={{ fontSize: 12, color: "#94a3b8" }}>{open ? "▴" : "▾"}</span>
+        </div>
+      </div>
+      {open && (
+        <div style={{ padding: "14px 18px 18px", borderTop: "1px solid #f1f5f9" }}>
+          {loading ? (
+            <div style={{ color: "#94a3b8", fontSize: 13 }}>Cargando mensaje…</div>
+          ) : body ? (
+            <div
+              style={{ fontSize: 13.5, lineHeight: 1.6, color: "#1f2937" }}
+              dangerouslySetInnerHTML={{
+                __html: body.html
+                  ? body.html.replace(/<script[\s\S]*?<\/script>/gi, "")
+                  : (body.text || "").replace(/[<>&]/g, (c) => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;" }[c] || c)).replace(/\n/g, "<br>"),
+              }}
+            />
+          ) : (
+            <div style={{ color: "#94a3b8", fontSize: 13 }}>No se pudo cargar el cuerpo. <button onClick={onLoadFull} style={{ background: "transparent", border: "none", color: "#0071e3", cursor: "pointer", textDecoration: "underline" }}>Abrir mensaje</button></div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}

@@ -2181,3 +2181,7 @@ a { text-decoration: none; color: inherit; }
 }
 .brand-c { font-size: 9px; color: var(--text-faint); margin-left: 1px; position: relative; top: -8px; }
 .brand-sub { color: var(--text-faint); font-size: 10.5px; font-weight: 400; margin-top: 3px; letter-spacing: 0.06em; text-transform: uppercase; }
+
+/* Mostrar el botón papelera de la lista de unibox sólo al pasar el ratón. */
+.unibox-msg-row:hover .unibox-msg-del { opacity: 1 !important; }
+.unibox-msg-row .unibox-msg-del:hover { background: #fef2f2 !important; border-color: rgba(220,38,38,0.4) !important; }

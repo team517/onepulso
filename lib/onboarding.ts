@@ -32,6 +32,9 @@ export type Client = {
   password: string;
   /** Email del cliente — sirve para enlazar con un Unibox cuyo client_email coincida. */
   email?: string;
+  /** Password en plano del Unibox (sólo se guarda aquí para poder mostrársela
+   *  al cliente en su portal. El Unibox la guarda hasheada por seguridad). */
+  unibox_password?: string;
   /** Título del proyecto que ven los clientes (ej. "Web onepulso v2"). */
   project_title?: string;
   /** Persona de contacto (nombre) */

@@ -26,10 +26,22 @@ export async function GET(req: NextRequest) {
   const percent = progressPercent(client, stages);
 
   // ¿Tiene un Unibox vinculado por email?
-  let linked_unibox: { id: string; title: string; email: string } | null = null;
+  // Si lo hay, además devolvemos la contraseña en plano si el admin la guardó
+  // (sólo el dueño del portal la verá porque ya validamos su cookie de sesión).
+  let linked_unibox:
+    | { id: string; title: string; email: string; password?: string; login_url: string }
+    | null = null;
   if (client.email) {
     const u = await findUniboxByClientEmail(client.email);
-    if (u) linked_unibox = { id: u.id, title: u.title, email: u.client_email };
+    if (u) {
+      linked_unibox = {
+        id: u.id,
+        title: u.title,
+        email: u.client_email,
+        password: client.unibox_password || undefined,
+        login_url: `/u/${u.id}/login`,
+      };
+    }
   }
 
   return NextResponse.json({

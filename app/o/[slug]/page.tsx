@@ -23,7 +23,13 @@ type ClientView = {
   updated_at: string;
 };
 
-type LinkedUnibox = { id: string; title: string; email: string } | null;
+type LinkedUnibox = {
+  id: string;
+  title: string;
+  email: string;
+  password?: string;
+  login_url: string;
+} | null;
 
 export default function ClientPortalPage() {
   const params = useParams<{ slug: string }>();
@@ -210,31 +216,14 @@ function Dashboard({ slug, data, onLogout, onRefresh }: {
   onRefresh: () => void;
 }) {
   const { client, stages, percent, linked_unibox } = data;
-  const [ssoState, setSsoState] = useState<"idle" | "loading" | "error">("idle");
-  const [ssoError, setSsoError] = useState("");
+  const [credsOpen, setCredsOpen] = useState(false);
+  const [pwdShown, setPwdShown] = useState(false);
+  const [copied, setCopied] = useState<string | null>(null);
 
-  async function openUnibox() {
-    setSsoState("loading");
-    setSsoError("");
-    try {
-      const res = await fetch("/api/onboarding-client/unibox-sso", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ slug }),
-      });
-      const d = await res.json();
-      if (res.ok && d.uniboxId) {
-        // Vinculado → SSO directo a la bandeja
-        window.location.href = `/u/${d.uniboxId}/inbox`;
-        return;
-      }
-      // No vinculado todavía → mensaje claro
-      setSsoState("error");
-      setSsoError(d.error || "Tu bandeja aún no está disponible");
-    } catch {
-      setSsoState("error");
-      setSsoError("Error de conexión");
-    }
+  function copy(text: string, label: string) {
+    navigator.clipboard.writeText(text);
+    setCopied(label);
+    setTimeout(() => setCopied(null), 1800);
   }
   const isDone = (id: string) => client.completed_stage_ids.includes(id);
   const isCurrent = (id: string) => client.current_stage_id === id;
@@ -377,89 +366,168 @@ function Dashboard({ slug, data, onLogout, onRefresh }: {
         {/* Mi Unibox card — siempre visible */}
         {(() => {
           const isLinked = !!linked_unibox;
-          const subtitle = ssoState === "error"
-            ? `⚠ ${ssoError}`
-            : isLinked
-              ? `Accede a tu bandeja unificada — ${linked_unibox!.email}`
-              : client.email
-                ? `Aún no hay bandeja asignada a ${client.email}. Tu gestor te avisará en cuanto esté lista.`
-                : "Pide a tu gestor que vincule tu email para acceder a tu bandeja.";
+          const hasPwd = isLinked && !!linked_unibox!.password;
+          const subtitle = isLinked
+            ? (hasPwd
+                ? "Pulsa para ver tus credenciales y entrar"
+                : "Bandeja vinculada — pide credenciales a tu gestor si no las tienes")
+            : client.email
+              ? `Aún no hay bandeja asignada a ${client.email}. Tu gestor te avisará.`
+              : "Pide a tu gestor que vincule tu email a tu bandeja.";
+
           return (
-            <button
-              onClick={openUnibox}
-              disabled={ssoState === "loading"}
-              style={{
-                width: "100%",
-                textAlign: "left",
-                background: isLinked
-                  ? "linear-gradient(145deg, #0d2244 0%, #1a3a6e 60%, #2756a8 100%)"
-                  : "linear-gradient(145deg, #1e293b 0%, #334155 100%)",
-                border: "none",
-                borderRadius: 20,
-                padding: "22px 26px",
-                boxShadow: isLinked
-                  ? "0 8px 28px rgba(13,34,68,0.28)"
-                  : "0 4px 16px rgba(30,41,59,0.15)",
-                marginBottom: 20,
-                cursor: ssoState === "loading" ? "wait" : "pointer",
-                color: "#fff",
-                fontFamily: "inherit",
-                display: "flex", alignItems: "center", gap: 18,
-                transition: "transform 0.2s ease, box-shadow 0.2s ease",
-                position: "relative", overflow: "hidden",
-                opacity: isLinked ? 1 : 0.88,
-              }}
-              onMouseEnter={(e) => {
-                if (ssoState !== "loading") {
-                  (e.currentTarget as HTMLButtonElement).style.transform = "translateY(-1px)";
-                  (e.currentTarget as HTMLButtonElement).style.boxShadow = isLinked
-                    ? "0 12px 32px rgba(13,34,68,0.35)"
-                    : "0 8px 24px rgba(30,41,59,0.25)";
-                }
-              }}
-              onMouseLeave={(e) => {
-                (e.currentTarget as HTMLButtonElement).style.transform = "translateY(0)";
-                (e.currentTarget as HTMLButtonElement).style.boxShadow = isLinked
-                  ? "0 8px 28px rgba(13,34,68,0.28)"
-                  : "0 4px 16px rgba(30,41,59,0.15)";
-              }}
-            >
-              {/* sparkle accent */}
-              <div style={{
-                position: "absolute", top: -40, right: -40,
-                width: 200, height: 200,
-                background: "radial-gradient(circle at center, rgba(255,255,255,0.12), transparent 70%)",
-                pointerEvents: "none",
-              }} />
-              <div style={{
-                width: 52, height: 52,
-                background: "rgba(255,255,255,0.14)",
-                borderRadius: 14,
-                display: "flex", alignItems: "center", justifyContent: "center",
-                fontSize: 24, flexShrink: 0,
-                border: "1px solid rgba(255,255,255,0.2)",
-              }}>
-                ✉
-              </div>
-              <div style={{ flex: 1, minWidth: 0, position: "relative" }}>
-                <div style={{ fontSize: 11.5, opacity: 0.7, letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 4 }}>
-                  Bandeja de correo
+            <div style={{ marginBottom: 20 }}>
+              <button
+                onClick={() => isLinked && setCredsOpen((v) => !v)}
+                disabled={!isLinked}
+                style={{
+                  width: "100%",
+                  textAlign: "left",
+                  background: isLinked
+                    ? "linear-gradient(145deg, #0d2244 0%, #1a3a6e 60%, #2756a8 100%)"
+                    : "linear-gradient(145deg, #1e293b 0%, #334155 100%)",
+                  border: "none",
+                  borderRadius: credsOpen && isLinked ? "20px 20px 0 0" : 20,
+                  padding: "22px 26px",
+                  boxShadow: isLinked
+                    ? "0 8px 28px rgba(13,34,68,0.28)"
+                    : "0 4px 16px rgba(30,41,59,0.15)",
+                  cursor: isLinked ? "pointer" : "default",
+                  color: "#fff",
+                  fontFamily: "inherit",
+                  display: "flex", alignItems: "center", gap: 18,
+                  transition: "transform 0.2s ease, box-shadow 0.2s ease, border-radius 0.25s ease",
+                  position: "relative", overflow: "hidden",
+                  opacity: isLinked ? 1 : 0.88,
+                }}
+              >
+                {/* sparkle accent */}
+                <div style={{
+                  position: "absolute", top: -40, right: -40,
+                  width: 200, height: 200,
+                  background: "radial-gradient(circle at center, rgba(255,255,255,0.12), transparent 70%)",
+                  pointerEvents: "none",
+                }} />
+                <div style={{
+                  width: 52, height: 52,
+                  background: "rgba(255,255,255,0.14)",
+                  borderRadius: 14,
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  fontSize: 24, flexShrink: 0,
+                  border: "1px solid rgba(255,255,255,0.2)",
+                }}>
+                  ✉
                 </div>
-                <div style={{ fontSize: 17, fontWeight: 700, letterSpacing: "-0.02em" }}>
-                  {isLinked ? `Mi Unibox · ${linked_unibox!.title}` : "Mi Unibox"}
+                <div style={{ flex: 1, minWidth: 0, position: "relative" }}>
+                  <div style={{ fontSize: 11.5, opacity: 0.7, letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 4 }}>
+                    Bandeja de correo
+                  </div>
+                  <div style={{ fontSize: 17, fontWeight: 700, letterSpacing: "-0.02em" }}>
+                    {isLinked ? `Mi Unibox · ${linked_unibox!.title}` : "Mi Unibox"}
+                  </div>
+                  <div style={{ fontSize: 12.5, opacity: 0.75, marginTop: 3 }}>
+                    {subtitle}
+                  </div>
                 </div>
-                <div style={{ fontSize: 12.5, opacity: 0.75, marginTop: 3 }}>
-                  {subtitle}
+                <div style={{
+                  fontSize: 18, opacity: 0.8,
+                  flexShrink: 0, paddingRight: 4,
+                  position: "relative",
+                  transform: credsOpen ? "rotate(180deg)" : "rotate(0deg)",
+                  transition: "transform 0.25s ease",
+                }}>
+                  {isLinked ? "▾" : "🔒"}
                 </div>
-              </div>
-              <div style={{
-                fontSize: 22, opacity: 0.8,
-                flexShrink: 0, paddingRight: 4,
-                position: "relative",
-              }}>
-                {ssoState === "loading" ? "⋯" : isLinked ? "→" : "🔒"}
-              </div>
-            </button>
+              </button>
+
+              {/* Panel desplegable con credenciales */}
+              {isLinked && credsOpen && (
+                <div style={{
+                  background: "#fff",
+                  border: "1px solid rgba(15,23,42,0.08)",
+                  borderTop: "none",
+                  borderRadius: "0 0 20px 20px",
+                  padding: "20px 22px",
+                  boxShadow: "0 8px 24px rgba(15,23,42,0.06)",
+                }}>
+                  <div style={{
+                    fontSize: 11.5, fontWeight: 700, color: "#64748b",
+                    letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 12,
+                  }}>
+                    🔑 Tus credenciales del Unibox
+                  </div>
+
+                  {/* Email row */}
+                  <div style={credRow}>
+                    <div style={credLabel}>Email</div>
+                    <div style={credValueWrap}>
+                      <code style={credValue}>{linked_unibox!.email}</code>
+                      <button onClick={() => copy(linked_unibox!.email, "Email")} style={copyBtn}>
+                        {copied === "Email" ? "✓" : "📋"}
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Password row */}
+                  <div style={credRow}>
+                    <div style={credLabel}>Contraseña</div>
+                    <div style={credValueWrap}>
+                      {linked_unibox!.password ? (
+                        <>
+                          <code style={credValue}>
+                            {pwdShown ? linked_unibox!.password : "••••••••••"}
+                          </code>
+                          <button onClick={() => setPwdShown((v) => !v)} style={copyBtn} title={pwdShown ? "Ocultar" : "Ver"}>
+                            {pwdShown ? "🙈" : "👁"}
+                          </button>
+                          <button onClick={() => copy(linked_unibox!.password!, "Contraseña")} style={copyBtn}>
+                            {copied === "Contraseña" ? "✓" : "📋"}
+                          </button>
+                        </>
+                      ) : (
+                        <div style={{ color: "#94a3b8", fontSize: 12.5, fontStyle: "italic" }}>
+                          Tu gestor aún no te la ha compartido por aquí — pídesela.
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  <a
+                    href={linked_unibox!.login_url}
+                    style={{
+                      display: "block",
+                      width: "100%",
+                      textAlign: "center",
+                      marginTop: 14,
+                      padding: "13px 18px",
+                      background: "linear-gradient(135deg, #0071e3, #3b82f6)",
+                      color: "#fff",
+                      textDecoration: "none",
+                      borderRadius: 12,
+                      fontSize: 14.5,
+                      fontWeight: 700,
+                      letterSpacing: "-0.01em",
+                      boxShadow: "0 4px 14px rgba(0,113,227,0.3)",
+                      transition: "transform 0.15s ease, box-shadow 0.15s ease",
+                    }}
+                    onMouseEnter={(e) => {
+                      (e.currentTarget as HTMLAnchorElement).style.transform = "translateY(-1px)";
+                      (e.currentTarget as HTMLAnchorElement).style.boxShadow = "0 6px 18px rgba(0,113,227,0.4)";
+                    }}
+                    onMouseLeave={(e) => {
+                      (e.currentTarget as HTMLAnchorElement).style.transform = "translateY(0)";
+                      (e.currentTarget as HTMLAnchorElement).style.boxShadow = "0 4px 14px rgba(0,113,227,0.3)";
+                    }}
+                  >
+                    Entrar en Unibox →
+                  </a>
+
+                  <div style={{ fontSize: 11.5, color: "#94a3b8", marginTop: 10, textAlign: "center" }}>
+                    Te llevará a la pantalla de login. Copia tus credenciales y pégalas.
+                  </div>
+                </div>
+              )}
+            </div>
           );
         })()}
 
@@ -637,4 +705,56 @@ const labelBase: React.CSSProperties = {
   marginBottom: 7,
   letterSpacing: "0.05em",
   textTransform: "uppercase",
+};
+
+const credRow: React.CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: 12,
+  padding: "10px 0",
+  borderBottom: "1px solid rgba(15,23,42,0.06)",
+};
+
+const credLabel: React.CSSProperties = {
+  fontSize: 11,
+  fontWeight: 700,
+  color: "#64748b",
+  letterSpacing: "0.05em",
+  textTransform: "uppercase",
+  width: 90,
+  flexShrink: 0,
+};
+
+const credValueWrap: React.CSSProperties = {
+  flex: 1,
+  display: "flex",
+  alignItems: "center",
+  gap: 6,
+  minWidth: 0,
+};
+
+const credValue: React.CSSProperties = {
+  flex: 1,
+  fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
+  fontSize: 13,
+  background: "#f8fafc",
+  padding: "8px 12px",
+  borderRadius: 8,
+  border: "1px solid rgba(15,23,42,0.08)",
+  color: "#0f172a",
+  overflow: "hidden",
+  textOverflow: "ellipsis",
+  whiteSpace: "nowrap",
+  userSelect: "all",
+};
+
+const copyBtn: React.CSSProperties = {
+  background: "#fff",
+  border: "1px solid rgba(15,23,42,0.12)",
+  borderRadius: 8,
+  padding: "6px 10px",
+  cursor: "pointer",
+  fontSize: 13,
+  color: "#475569",
+  flexShrink: 0,
 };

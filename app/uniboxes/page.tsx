@@ -12,11 +12,24 @@ type Unibox = {
   last_sync?: string | null;
 };
 
+type OnboardingClient = {
+  id: string;
+  name: string;
+  slug: string;
+  email?: string;
+  contact_name?: string;
+  project_title?: string;
+};
+
 export default function UniboxesAdminPage() {
   const [items, setItems] = useState<Unibox[]>([]);
   const [loading, setLoading] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
   const [createdInfo, setCreatedInfo] = useState<{ url: string; email: string; password: string } | null>(null);
+
+  // Clientes del onboarding (para seleccionarlos en el form)
+  const [onboardingClients, setOnboardingClients] = useState<OnboardingClient[]>([]);
+  const [selectedClientId, setSelectedClientId] = useState<string>("");
 
   // form state
   const [title, setTitle] = useState("");
@@ -31,7 +44,26 @@ export default function UniboxesAdminPage() {
     if (r.ok) setItems(await r.json());
     setLoading(false);
   }
-  useEffect(() => { load(); }, []);
+  async function loadOnboardingClients() {
+    try {
+      const r = await fetch("/api/onboarding/clients");
+      if (r.ok) {
+        const d = await r.json();
+        setOnboardingClients(d.clients || []);
+      }
+    } catch {}
+  }
+  useEffect(() => { load(); loadOnboardingClients(); }, []);
+
+  /** Aplica los datos de un cliente onboarding al formulario */
+  function pickClient(clientId: string) {
+    setSelectedClientId(clientId);
+    if (!clientId) return; // "(otro / introducir manualmente)"
+    const c = onboardingClients.find((x) => x.id === clientId);
+    if (!c) return;
+    if (!title) setTitle(`Bandeja de ${c.name}`);
+    if (c.email) setClientEmail(c.email);
+  }
 
   function genPwd() {
     const chars = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789";
@@ -52,6 +84,17 @@ export default function UniboxesAdminPage() {
       });
       const data = await r.json();
       if (!r.ok) throw new Error(data.error || "Error");
+
+      // Si el email coincide con un cliente del onboarding, le guardamos el
+      // password en plano para que se lo pueda mostrar a sí mismo en /o/[slug].
+      try {
+        await fetch("/api/onboarding/clients/by-email", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email: clientEmail, unibox_password: clientPassword }),
+        });
+      } catch {}
+
       setCreatedInfo({
         url: `${window.location.origin}/u/${data.id}/login`,
         email: clientEmail,
@@ -59,7 +102,9 @@ export default function UniboxesAdminPage() {
       });
       setShowCreate(false);
       setTitle(""); setClientEmail(""); setClientPassword("");
+      setSelectedClientId("");
       await load();
+      await loadOnboardingClients();
     } catch (e: any) {
       setError(e.message);
     } finally {
@@ -133,6 +178,40 @@ export default function UniboxesAdminPage() {
             <div style={modalCard} onClick={(e) => e.stopPropagation()}>
               <h2 style={{ margin: "0 0 16px", fontSize: 18 }}>Nueva unibox</h2>
               <form onSubmit={handleCreate}>
+                {onboardingClients.length > 0 && (
+                  <>
+                    <label style={labelStyle}>
+                      Cliente del onboarding (opcional)
+                    </label>
+                    <select
+                      value={selectedClientId}
+                      onChange={(e) => pickClient(e.target.value)}
+                      style={{
+                        ...inputStyle,
+                        cursor: "pointer",
+                        backgroundImage:
+                          "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%2364748b' d='M6 8L1 3h10z'/%3E%3C/svg%3E\")",
+                        backgroundRepeat: "no-repeat",
+                        backgroundPosition: "right 14px center",
+                        appearance: "none",
+                        WebkitAppearance: "none",
+                        paddingRight: 36,
+                      }}
+                    >
+                      <option value="">— Otro / introducir manualmente —</option>
+                      {onboardingClients.map((c) => (
+                        <option key={c.id} value={c.id} disabled={!c.email}>
+                          {c.name}{c.email ? ` · ${c.email}` : " · (sin email)"}
+                        </option>
+                      ))}
+                    </select>
+                    <div style={{ fontSize: 11.5, color: "#94a3b8", marginTop: 4 }}>
+                      Si lo eliges, se auto-rellena el email y al crear se guardan
+                      las credenciales en su portal /o/{onboardingClients.find((c) => c.id === selectedClientId)?.slug || "[slug]"}.
+                    </div>
+                  </>
+                )}
+
                 <label style={labelStyle}>Título / Nombre del cliente</label>
                 <input style={inputStyle} value={title} onChange={(e) => setTitle(e.target.value)}
                   placeholder="Cliente ACME" required />

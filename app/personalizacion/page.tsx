@@ -263,6 +263,17 @@ export default function PersonalizacionPage() {
     loadHistory();
   }
 
+  async function pauseRunning(id: string) {
+    await fetch(`/api/personalization/jobs/${id}/pause`, { method: "POST" });
+    loadHistory();
+  }
+
+  async function restartFromScratch(id: string) {
+    if (!confirm("¿Reiniciar este trabajo desde cero?\n\nSe borrarán los mensajes ya generados y volverá a procesar todos los leads desde el principio. Esto consume tokens del LLM otra vez.")) return;
+    await fetch(`/api/personalization/jobs/${id}/restart`, { method: "POST" });
+    loadHistory();
+  }
+
   async function deleteHistoryItem(id: string) {
     if (!confirm("¿Eliminar este job del historial? (no afecta a tu CSV original)")) return;
     await fetch(`/api/personalization/jobs/${id}`, { method: "DELETE" });
@@ -482,7 +493,7 @@ export default function PersonalizacionPage() {
         </header>
 
         {/* PANEL EN VIVO: trabajos en curso (visible siempre que haya alguno) */}
-        {history.filter((j) => j.status === "pending" || j.status === "running" || j.status === "interrupted").length > 0 && (
+        {history.filter((j) => j.status === "pending" || j.status === "running" || j.status === "interrupted" || j.status === "paused").length > 0 && (
           <div style={{
             background: "linear-gradient(135deg, rgba(0,113,227,0.05), rgba(0,113,227,0.1))",
             border: "1px solid rgba(0,113,227,0.3)",
@@ -512,17 +523,39 @@ export default function PersonalizacionPage() {
                           {isInterrupted && <span style={{ marginLeft: 6, fontSize: 10, padding: "1px 6px", borderRadius: 99, background: "rgba(245,158,11,0.15)", color: "#b45309" }}>interrumpido</span>}
                           {j.status === "running" && <span style={{ marginLeft: 6, fontSize: 10, padding: "1px 6px", borderRadius: 99, background: "rgba(0,113,227,0.15)", color: "#0071e3" }}>en curso</span>}
                           {j.status === "pending" && <span style={{ marginLeft: 6, fontSize: 10, padding: "1px 6px", borderRadius: 99, background: "var(--bg-elev-2)", color: "var(--text-dim)" }}>pendiente</span>}
+                          {j.status === "paused" && <span style={{ marginLeft: 6, fontSize: 10, padding: "1px 6px", borderRadius: 99, background: "rgba(148,163,184,0.2)", color: "#475569" }}>pausado</span>}
                         </div>
                         <div style={{ fontSize: 11.5, color: "var(--text-dim)", marginTop: 2 }}>
                           {j.progress?.done ?? 0} / {j.selected_count} · ✓ {j.progress?.ok ?? 0} · ✗ {j.progress?.failed ?? 0} · {j.provider}
                         </div>
                       </div>
-                      {isInterrupted && (
+                      {/* Acciones según estado */}
+                      <div style={{ display: "flex", gap: 5, flexWrap: "wrap", justifyContent: "flex-end" }}>
+                        {(j.status === "running" || j.status === "pending") && (
+                          <button
+                            onClick={() => pauseRunning(j.id)}
+                            title="Pausar el trabajo. Los mensajes ya hechos se conservan."
+                            style={jobBtn("#f59e0b", "rgba(245,158,11,0.08)")}
+                          >⏸ Parar</button>
+                        )}
+                        {(j.status === "interrupted" || j.status === "paused") && (
+                          <button
+                            onClick={() => resumeInterrupted(j.id)}
+                            title="Continuar desde donde se quedó"
+                            style={jobBtn("#0071e3", "rgba(0,113,227,0.08)")}
+                          >▶ Reanudar</button>
+                        )}
                         <button
-                          onClick={() => resumeInterrupted(j.id)}
-                          style={{ ...btnPrimary, fontSize: 11.5, padding: "5px 11px" }}
-                        >▶ Reanudar</button>
-                      )}
+                          onClick={() => restartFromScratch(j.id)}
+                          title="Empezar de cero (borra los mensajes ya generados)"
+                          style={jobBtn("#475569", "rgba(15,23,42,0.04)")}
+                        >↻ Reiniciar</button>
+                        <button
+                          onClick={() => deleteHistoryItem(j.id)}
+                          title="Eliminar este trabajo del historial"
+                          style={jobBtn("#dc2626", "rgba(239,68,68,0.06)")}
+                        >🗑 Eliminar</button>
+                      </div>
                     </div>
                     {/* Barra progreso */}
                     <div style={{ height: 5, background: "var(--bg-elev-3)", borderRadius: 99, overflow: "hidden" }}>
@@ -1385,6 +1418,21 @@ const btnGhostSm: React.CSSProperties = {
   fontSize: 12, fontWeight: 600, cursor: "pointer",
   fontFamily: "inherit",
 };
+/** Helper para los botones de acción en cards de jobs activos (parar / reanudar / reiniciar / eliminar). */
+function jobBtn(color: string, bg: string): React.CSSProperties {
+  return {
+    padding: "5px 10px",
+    fontSize: 11.5,
+    fontWeight: 700,
+    border: `1px solid ${color}33`, // alpha 0.2 sobre el color
+    background: bg,
+    color,
+    borderRadius: 8,
+    cursor: "pointer",
+    fontFamily: "inherit",
+    whiteSpace: "nowrap",
+  };
+}
 const lbl: React.CSSProperties = {
   display: "block", fontSize: 11, fontWeight: 700,
   color: "var(--text-dim)", textTransform: "uppercase",

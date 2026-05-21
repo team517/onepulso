@@ -32,11 +32,14 @@ export type PersonalizationJob = {
   file_id: string;
   filename: string;
   total_rows: number;
+  /** Filas pendientes de procesar (se va recortando según avanza el resume). */
   selected_rows: number[];
+  /** Filas seleccionadas originalmente (inmutable, sirve para Reiniciar). */
+  original_selected_rows?: number[];
   mapping: ColumnMapping;
   prompt: string;
   provider: AIProvider;
-  status: "pending" | "running" | "done" | "error" | "cancelled";
+  status: "pending" | "running" | "done" | "error" | "cancelled" | "interrupted" | "paused";
   progress: { done: number; ok: number; failed: number };
   error?: string;
   created_at: string;
@@ -351,6 +354,7 @@ export async function createJob(input: {
     filename: input.filename,
     total_rows: input.total_rows,
     selected_rows: input.selected_rows,
+    original_selected_rows: [...input.selected_rows], // copia para "Reiniciar"
     mapping: input.mapping,
     prompt: input.prompt,
     provider: input.provider,
@@ -364,9 +368,45 @@ export async function createJob(input: {
   return job;
 }
 
+/** Marca un job como "paused". El loop de runJob lo detecta al inicio del
+ *  siguiente lote y aborta el procesamiento. El watchdog NO reanuda
+ *  jobs pausados (sólo los "interrupted"). */
+export async function pauseJob(jobId: string): Promise<PersonalizationJob | null> {
+  const job = await getJob(jobId);
+  if (!job) return null;
+  if (job.status !== "running" && job.status !== "pending") return job;
+  (job as any).status = "paused";
+  job.updated_at = new Date().toISOString();
+  await saveJob(job);
+  return job;
+}
+
+/** Reinicia un job desde cero: limpia resultados, restaura selected_rows
+ *  al conjunto original y lo deja en estado "pending". Lanza runJob en
+ *  background si autoStart=true (por defecto). */
+export async function restartJob(jobId: string, autoStart = true): Promise<PersonalizationJob | null> {
+  const job = await getJob(jobId);
+  if (!job) return null;
+  const original = job.original_selected_rows ?? job.selected_rows;
+  job.selected_rows = [...original];
+  job.results = [];
+  job.progress = { done: 0, ok: 0, failed: 0 };
+  (job as any).status = "pending";
+  job.error = undefined;
+  job.result_csv_key = undefined;
+  job.updated_at = new Date().toISOString();
+  await saveJob(job);
+  if (autoStart) {
+    runJob(jobId).catch((e) => console.error(`[personalization] restart ${jobId} fatal:`, e?.message || e));
+  }
+  return job;
+}
+
 /** Ejecuta un job procesando filas EN PARALELO en lotes.
  *  Con concurrencia 6, 1000 leads se procesan en ~3-4 min en vez de 50.
- *  Persiste el estado tras cada lote para que el progreso sea visible. */
+ *  Persiste el estado tras cada lote para que el progreso sea visible.
+ *  Comprueba al inicio de CADA lote si el job fue pausado o eliminado
+ *  externamente — si es así, aborta limpiamente. */
 export async function runJob(jobId: string, onProgress?: (j: PersonalizationJob) => void): Promise<PersonalizationJob> {
   let job = await getJob(jobId);
   if (!job) throw new Error("Job no encontrado");
@@ -380,6 +420,19 @@ export async function runJob(jobId: string, onProgress?: (j: PersonalizationJob)
   const CONCURRENCY = 6; // 6 llamadas LLM simultáneas (balance velocidad vs rate-limit)
 
   for (let i = 0; i < job.selected_rows.length; i += CONCURRENCY) {
+    // CANCELACIÓN COOPERATIVA: antes de cada lote, re-leer el estado.
+    // Si alguien (UI, watchdog) lo marcó como paused/cancelled/eliminado,
+    // salimos limpiamente sin perder los results ya escritos.
+    const fresh = await getJob(jobId);
+    if (!fresh) {
+      console.log(`[personalization] job ${jobId} eliminado durante ejecución — abortando`);
+      return job;
+    }
+    if (fresh.status === "paused" || fresh.status === "cancelled") {
+      console.log(`[personalization] job ${jobId} pausado/cancelado — abortando lote`);
+      return fresh;
+    }
+
     const batch = job.selected_rows.slice(i, i + CONCURRENCY);
     const results = await Promise.allSettled(
       batch.map(async (idx) => {
@@ -408,6 +461,22 @@ export async function runJob(jobId: string, onProgress?: (j: PersonalizationJob)
         job.progress.failed++;
       }
       job.progress.done++;
+    }
+    // Antes de guardar, re-verificar el estado en DB: si alguien pausó/canceló/
+    // eliminó el job durante este lote, NO sobrescribimos su estado con "running".
+    const latest = await getJob(jobId);
+    if (!latest) {
+      console.log(`[personalization] job ${jobId} eliminado durante lote — abortando sin guardar`);
+      return job;
+    }
+    if (latest.status === "paused" || latest.status === "cancelled") {
+      // Preservar el estado externo pero guardar el progreso conseguido.
+      latest.results = job.results;
+      latest.progress = job.progress;
+      latest.updated_at = new Date().toISOString();
+      await saveJob(latest);
+      console.log(`[personalization] job ${jobId} pausado externamente — progreso guardado, abortando`);
+      return latest;
     }
     job.updated_at = new Date().toISOString();
     await saveJob(job);

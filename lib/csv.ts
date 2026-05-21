@@ -48,6 +48,71 @@ export async function saveCSV(filename: string, buffer: Buffer): Promise<CSVMeta
   return meta;
 }
 
+/** Guarda SOLO el blob (sin parsear). Devuelve file_id rápido para que el
+ *  cliente abra el SSE de parsing con progreso por lotes. */
+export async function saveCSVBlobOnly(filename: string, buffer: Buffer): Promise<{ file_id: string; size: number; filename: string }> {
+  const file_id = randomUUID();
+  await writeBlob(`${CSV_BLOB_PREFIX}${file_id}`, buffer, "text/csv");
+  return { file_id, size: buffer.length, filename };
+}
+
+/** Cuenta líneas del CSV de manera rápida (sin parsear celdas). Sirve como
+ *  total estimado para la barra de progreso. */
+export async function estimateRowCount(file_id: string): Promise<number> {
+  const text = await readCSVText(file_id);
+  // Aproximación: número de \n menos la cabecera. Sobrestima en CSVs con
+  // campos multi-línea entrecomillados, pero es suficiente para la barra.
+  const newlines = (text.match(/\n/g) || []).length;
+  return Math.max(0, newlines - 1);
+}
+
+/**
+ * Parsea el CSV emitiendo progreso por chunks de N filas. Diseñado para SSE:
+ * el caller emite cada chunk al cliente para mover la barra.
+ *
+ * - onChunk(loaded, totalEstimate): se llama cada `chunkSize` filas procesadas.
+ * - Al final guarda metadata en csv-meta y retorna el CSVMetadata final.
+ */
+export async function parseCSVStreamed(
+  file_id: string,
+  filename: string,
+  onChunk: (loaded: number, totalEstimate: number) => Promise<void> | void,
+  chunkSize = 100,
+): Promise<CSVMetadata> {
+  const totalEstimate = await estimateRowCount(file_id);
+  const text = await readCSVText(file_id);
+
+  const allRows = parseCSV(text); // Parse completo (rápido en memoria).
+  const columns = allRows[0] ?? [];
+  const dataRows = allRows.slice(1);
+
+  // Reportar por chunks para visualizar progreso.
+  let loaded = 0;
+  for (let i = 0; i < dataRows.length; i += chunkSize) {
+    loaded = Math.min(dataRows.length, i + chunkSize);
+    await onChunk(loaded, Math.max(totalEstimate, dataRows.length));
+    // Pequeño yield para que el SSE flushee (en server async loop)
+    await new Promise((res) => setImmediate(res));
+  }
+
+  const preview: Array<Record<string, string>> = [];
+  for (const r of dataRows.slice(0, 3)) {
+    const obj: Record<string, string> = {};
+    columns.forEach((c, i) => (obj[c] = r[i] ?? ""));
+    preview.push(obj);
+  }
+
+  const meta: CSVMetadata = {
+    file_id,
+    filename,
+    columns,
+    row_count: dataRows.length,
+    preview,
+  };
+  await writeJson(`${CSV_META_PREFIX}${file_id}`, meta);
+  return meta;
+}
+
 async function readCSVText(file_id: string): Promise<string> {
   const blob = await readBlob(`${CSV_BLOB_PREFIX}${file_id}`);
   if (!blob) {

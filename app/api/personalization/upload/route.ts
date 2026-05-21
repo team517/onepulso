@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { saveCSV } from "@/lib/csv";
+import { saveCSVBlobOnly } from "@/lib/csv";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -7,7 +7,10 @@ export const maxDuration = 60;
 
 const MAX_SIZE = 20 * 1024 * 1024;
 
-/** POST /api/personalization/upload — sube un CSV (binario crudo + x-filename) */
+/** POST /api/personalization/upload — sube un CSV (binario crudo + x-filename).
+ *  Sólo guarda los bytes y devuelve el file_id de inmediato. El parseo se
+ *  hace después via /api/personalization/upload/parse-stream (SSE) que
+ *  emite progreso por lotes de 100 filas. */
 export async function POST(req: Request) {
   const filenameRaw = req.headers.get("x-filename");
   if (!filenameRaw) return NextResponse.json({ error: "Falta x-filename" }, { status: 400 });
@@ -26,14 +29,12 @@ export async function POST(req: Request) {
   }
 
   try {
-    const meta = await saveCSV(filename, buffer);
+    const meta = await saveCSVBlobOnly(filename, buffer);
     return NextResponse.json({
       ok: true,
       file_id: meta.file_id,
       filename: meta.filename,
-      columns: meta.columns,
-      row_count: meta.row_count,
-      preview: meta.preview,
+      size: meta.size,
     });
   } catch (e: any) {
     return NextResponse.json({ error: e.message }, { status: 500 });

@@ -42,6 +42,7 @@ REGLAS:
 export default function PersonalizacionPage() {
   const [file, setFile] = useState<any>(null);
   const [uploading, setUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState<{ phase: "uploading" | "parsing"; loaded: number; total: number } | null>(null);
   const [mapping, setMapping] = useState<Mapping>({});
   const [prompt, setPrompt] = useState(DEFAULT_PROMPT);
   const [provider, setProvider] = useState<"claude" | "deepseek">("claude");
@@ -295,34 +296,74 @@ export default function PersonalizacionPage() {
       return;
     }
     setUploading(true);
+    setUploadProgress({ phase: "uploading", loaded: 0, total: f.size });
     try {
-      const ab = await f.arrayBuffer();
-      const r = await fetch("/api/personalization/upload", {
-        method: "POST",
-        headers: {
-          "x-filename": encodeURIComponent(f.name),
-          "Content-Type": f.type || "text/csv",
+      // FASE 1: upload con barra de progreso real (XHR para pillar bytes subidos)
+      const uploadResult = await new Promise<{ file_id: string; filename: string; size: number }>(
+        (resolve, reject) => {
+          const xhr = new XMLHttpRequest();
+          xhr.open("POST", "/api/personalization/upload");
+          xhr.setRequestHeader("x-filename", encodeURIComponent(f.name));
+          xhr.setRequestHeader("Content-Type", f.type || "text/csv");
+          xhr.upload.onprogress = (e) => {
+            if (e.lengthComputable) {
+              setUploadProgress({ phase: "uploading", loaded: e.loaded, total: e.total });
+            }
+          };
+          xhr.onload = () => {
+            try {
+              const j = JSON.parse(xhr.responseText);
+              if (xhr.status >= 200 && xhr.status < 300 && j.ok) resolve(j);
+              else reject(new Error(j.error || `HTTP ${xhr.status}`));
+            } catch (e: any) {
+              reject(new Error("Respuesta inválida"));
+            }
+          };
+          xhr.onerror = () => reject(new Error("Error de red"));
+          xhr.send(f);
         },
-        body: ab,
-      });
-      const j = await r.json();
-      if (!r.ok) {
-        alert("Error: " + (j.error || `HTTP ${r.status}`));
-        return;
-      }
-      setFile(j);
+      );
+
+      // FASE 2: parseo en streaming (SSE) — la barra ahora cuenta filas procesadas
+      setUploadProgress({ phase: "parsing", loaded: 0, total: 0 });
+      const meta = await new Promise<{ file_id: string; filename: string; columns: string[]; row_count: number; preview: any[] }>(
+        (resolve, reject) => {
+          const url = `/api/personalization/upload/parse-stream?file_id=${encodeURIComponent(uploadResult.file_id)}&filename=${encodeURIComponent(uploadResult.filename)}`;
+          const es = new EventSource(url);
+          es.addEventListener("progress", (ev: MessageEvent) => {
+            try {
+              const d = JSON.parse(ev.data);
+              setUploadProgress({ phase: "parsing", loaded: d.loaded, total: d.total_estimate });
+            } catch {}
+          });
+          es.addEventListener("done", (ev: MessageEvent) => {
+            es.close();
+            try { resolve(JSON.parse(ev.data)); } catch (e: any) { reject(e); }
+          });
+          es.addEventListener("error", (ev: MessageEvent) => {
+            es.close();
+            try {
+              const d = ev.data ? JSON.parse(ev.data) : null;
+              reject(new Error(d?.message || "Error parseando CSV"));
+            } catch {
+              reject(new Error("Error de stream"));
+            }
+          });
+        },
+      );
+
+      setFile(meta);
       // Auto-mapeo: buscar columnas que coincidan con los hints
       const auto: Mapping = {};
       for (const field of STANDARD_FIELDS) {
-        const col = j.columns.find((c: string) =>
+        const col = meta.columns.find((c: string) =>
           field.hints.some((h) => c.toLowerCase().replace(/[\s_-]/g, "") === h.replace(/[\s_-]/g, ""))
         );
         if (col) auto[field.key] = col;
       }
-      // Fallback: buscar coincidencias parciales
       for (const field of STANDARD_FIELDS) {
         if (auto[field.key]) continue;
-        const col = j.columns.find((c: string) =>
+        const col = meta.columns.find((c: string) =>
           field.hints.some((h) => c.toLowerCase().includes(h.toLowerCase()))
         );
         if (col) auto[field.key] = col;
@@ -334,6 +375,7 @@ export default function PersonalizacionPage() {
       alert("Error: " + e.message);
     } finally {
       setUploading(false);
+      setUploadProgress(null);
     }
   }
 
@@ -641,13 +683,57 @@ export default function PersonalizacionPage() {
               >
                 <div style={{ fontSize: 36, marginBottom: 8 }}>📊</div>
                 <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 4 }}>
-                  {uploading ? "Subiendo…" : "Click o arrastra un CSV"}
+                  {uploading
+                    ? (uploadProgress?.phase === "parsing" ? "Cargando leads…" : "Subiendo CSV…")
+                    : "Click o arrastra un CSV"}
                 </div>
                 <div style={{ fontSize: 12, color: "var(--text-faint)" }}>
                   Hasta 20 MB · Cualquier formato (separador comma, semicolon, tab)
                 </div>
                 <input ref={fileRef} type="file" accept=".csv,.tsv" hidden onChange={(e) => onPickFile(e.target.files?.[0])} />
               </label>
+
+              {/* Barra de progreso visible mientras sube/parsea */}
+              {uploading && uploadProgress && (
+                <div style={{
+                  marginTop: 14, padding: "12px 14px",
+                  background: "linear-gradient(135deg, rgba(0,113,227,0.05), rgba(0,113,227,0.1))",
+                  border: "1px solid rgba(0,113,227,0.25)",
+                  borderRadius: 10,
+                }}>
+                  <div style={{
+                    display: "flex", justifyContent: "space-between", marginBottom: 6,
+                    fontSize: 12, fontWeight: 700, color: "var(--accent)",
+                  }}>
+                    <span>
+                      {uploadProgress.phase === "uploading"
+                        ? `📤 Subiendo bytes al servidor`
+                        : `🔍 Cargando leads del CSV (lotes de 100)`}
+                    </span>
+                    <span>
+                      {uploadProgress.phase === "uploading"
+                        ? `${(uploadProgress.loaded / 1024 / 1024).toFixed(1)} / ${(uploadProgress.total / 1024 / 1024).toFixed(1)} MB`
+                        : `${uploadProgress.loaded.toLocaleString("es")} / ${(uploadProgress.total || uploadProgress.loaded).toLocaleString("es")} leads`}
+                    </span>
+                  </div>
+                  <div style={{ height: 8, background: "rgba(0,113,227,0.12)", borderRadius: 99, overflow: "hidden" }}>
+                    <div style={{
+                      width: uploadProgress.total > 0
+                        ? `${Math.min(100, (uploadProgress.loaded / uploadProgress.total) * 100)}%`
+                        : "30%",
+                      height: "100%",
+                      background: "linear-gradient(90deg, #0071e3, #06b6d4)",
+                      transition: "width 0.2s",
+                      animation: uploadProgress.total === 0 ? "pulse 1.5s ease-in-out infinite" : "none",
+                    }} />
+                  </div>
+                  {uploadProgress.phase === "parsing" && (
+                    <div style={{ fontSize: 11, color: "var(--text-dim)", marginTop: 6 }}>
+                      Procesando todas las filas para no dejarse ninguna. No cierres la pestaña.
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           ) : (
             <div style={{

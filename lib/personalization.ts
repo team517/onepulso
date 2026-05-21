@@ -199,11 +199,12 @@ EJEMPLO de output correcto:
  * Estilo inline forzado para los <p> del email. Sin esto, Gmail/Outlook/
  * Apple Mail aplican su margin por defecto encima del del navegador y
  * los gaps entre párrafos se inflan al doble.
- *   - margin 0 0 12px 0  → mismo gap visible en todos los clientes (~12px)
- *   - line-height 1.5    → legible, mismo aire interno que el preview
- *   - font: hereda del wrapper para no forzar fuente
+ *   - margin 0 0 6px 0   → gap mínimo entre párrafos, look compacto estilo
+ *                          email humano (no maquetado HTML).
+ *   - line-height 1.45   → legible pero más apretado, no infla la altura.
+ *   - font: hereda del wrapper para no forzar fuente.
  */
-const P_STYLE = 'style="margin:0 0 12px 0;line-height:1.5;"';
+const P_STYLE = 'style="margin:0 0 6px 0;line-height:1.45;"';
 
 /** Aplica el style inline a todo <p> que no lo tenga ya. */
 function applyParagraphStyles(html: string): string {

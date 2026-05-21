@@ -195,28 +195,49 @@ EJEMPLO de output correcto:
 <p>¿Te va bien <strong>15 minutos esta semana</strong> para ver si encaja?</p>
 <p>Un saludo,<br>Xavi</p>`;
 
+/**
+ * Estilo inline forzado para los <p> del email. Sin esto, Gmail/Outlook/
+ * Apple Mail aplican su margin por defecto encima del del navegador y
+ * los gaps entre párrafos se inflan al doble.
+ *   - margin 0 0 12px 0  → mismo gap visible en todos los clientes (~12px)
+ *   - line-height 1.5    → legible, mismo aire interno que el preview
+ *   - font: hereda del wrapper para no forzar fuente
+ */
+const P_STYLE = 'style="margin:0 0 12px 0;line-height:1.5;"';
+
+/** Aplica el style inline a todo <p> que no lo tenga ya. */
+function applyParagraphStyles(html: string): string {
+  // Eliminar <p>...</p> vacíos que producen huecos enormes en email
+  html = html.replace(/<p[^>]*>\s*(?:&nbsp;)?\s*<\/p>/gi, "");
+  // Reemplazar <br><br>+ por un solo <br> (gaps innecesarios)
+  html = html.replace(/(<br\s*\/?>\s*){2,}/gi, "<br>");
+  // Añadir style a <p> que no tiene atributo style
+  html = html.replace(/<p(?![^>]*\bstyle=)([^>]*)>/gi, (_m, attrs) => `<p${attrs} ${P_STYLE}>`);
+  return html;
+}
+
 /** Asegura que el output del LLM tiene estructura HTML con <p>.
- *  Si llega texto plano con saltos de línea, lo convierte a párrafos. */
+ *  Si llega texto plano con saltos de línea, lo convierte a párrafos.
+ *  Aplica style inline a cada <p> para que el email renderice igual que
+ *  el preview en cualquier cliente (Gmail / Outlook / Apple Mail). */
 function ensureStructuredOutput(raw: string): string {
   let s = raw.trim();
-  // Si ya tiene <p>, asumimos que está bien
-  if (/<p[\s>]/i.test(s)) return s;
+  // Si ya tiene <p>, lo dejamos pero aplicamos estilos inline.
+  if (/<p[\s>]/i.test(s)) return applyParagraphStyles(s);
   // Quitar markdown code fences accidentales
   s = s.replace(/^```(?:html)?\s*/i, "").replace(/```\s*$/i, "").trim();
-  // Si quedó vacío, devolver tal cual
   if (!s) return s;
   // Split por dobles saltos de línea (párrafos)
   const blocks = s.split(/\n\s*\n+/).map((b) => b.trim()).filter(Boolean);
   if (blocks.length > 1) {
-    return blocks.map((b) => `<p>${b.replace(/\n/g, "<br>")}</p>`).join("\n");
+    return applyParagraphStyles(blocks.map((b) => `<p>${b.replace(/\n/g, "<br>")}</p>`).join(""));
   }
   // Solo 1 bloque pero tiene saltos simples → cada línea es un párrafo
   const lines = s.split(/\n+/).map((l) => l.trim()).filter(Boolean);
   if (lines.length > 1) {
-    return lines.map((l) => `<p>${l}</p>`).join("\n");
+    return applyParagraphStyles(lines.map((l) => `<p>${l}</p>`).join(""));
   }
-  // Una sola línea — envolver en un <p>
-  return `<p>${s}</p>`;
+  return applyParagraphStyles(`<p>${s}</p>`);
 }
 
 /** Genera un mensaje personalizado para un row concreto. Usado por preview y por el job runner. */
@@ -348,10 +369,11 @@ export async function runJob(jobId: string, onProgress?: (j: PersonalizationJob)
 
 /** Genera el CSV resultado con todas las columnas originales + personalized_message */
 async function buildResultCSV(job: PersonalizationJob, allRows: Record<string, string>[]) {
-  // Mapa row_index → message
+  // Mapa row_index → message (aplicando estilos inline a los <p> para que el
+  // email se vea como el preview, no con gaps gigantes entre párrafos).
   const messageMap = new Map<number, string>();
   for (const r of job.results) {
-    if (!r.error) messageMap.set(r.row_index, r.message);
+    if (!r.error) messageMap.set(r.row_index, applyParagraphStyles(r.message));
     else messageMap.set(r.row_index, `[ERROR: ${r.error}]`);
   }
   // Columnas: las originales + personalized_message al final

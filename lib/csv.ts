@@ -187,8 +187,7 @@ export async function readCSVAsAccounts(
 // CSV parser robusto. Tolera comillas sueltas en mitad de campos no entrecomillados
 // (típico en datos reales con O'Connor, "premium", etc.) reconociendo apertura de
 // comillas SÓLO al principio del campo, y cierre SÓLO si lo siguiente es delim/newline/EOF.
-// Si tras parsear hay muchas menos filas que saltos de línea (señal de que algo se
-// pegó), reintenta en modo "naive" (split por línea sin parsear comillas).
+// Maneja correctamente saltos de línea dentro de campos entrecomillados.
 function parseCSV(text: string): string[][] {
   if (text.charCodeAt(0) === 0xfeff) text = text.slice(1);
   const firstLine = text.split(/\r?\n/, 1)[0] ?? "";
@@ -199,13 +198,7 @@ function parseCSV(text: string): string[][] {
   if (semicolonCount > commaCount && semicolonCount >= tabCount) delim = ";";
   else if (tabCount > commaCount && tabCount > semicolonCount) delim = "\t";
 
-  const newlineCount = (text.match(/\n/g) ?? []).length;
-  const rows = strictParse(text, delim);
-  if (newlineCount > 50 && rows.length < newlineCount * 0.6) {
-    console.warn(`[csv] parser estricto sacó ${rows.length} filas pero hay ${newlineCount} saltos de línea; reintentando modo naive`);
-    return naiveParse(text, delim);
-  }
-  return rows;
+  return strictParse(text, delim);
 }
 
 function strictParse(text: string, delim: string): string[][] {
@@ -243,12 +236,3 @@ function strictParse(text: string, delim: string): string[][] {
   return rows;
 }
 
-function naiveParse(text: string, delim: string): string[][] {
-  const lines = text.split(/\r?\n/);
-  const rows: string[][] = [];
-  for (const line of lines) {
-    if (!line.trim()) continue;
-    rows.push(line.split(delim).map((s) => s.replace(/^"(.*)"$/, "$1")));
-  }
-  return rows;
-}

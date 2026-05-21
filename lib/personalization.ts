@@ -74,14 +74,15 @@ export async function deleteJob(id: string): Promise<void> {
 }
 
 /**
- * Detecta jobs en estado "running" que llevan más de 5 min sin actualizar
- * el progreso (probablemente interrumpidos por restart del servidor).
- * Los marca como "interrupted" para que el usuario pueda reanudarlos.
+ * Detecta jobs en estado "running" que llevan más de 2 min sin actualizar
+ * el progreso (probablemente interrumpidos por restart del servidor o un
+ * lote LLM colgado). Los marca como "interrupted" para que el watchdog
+ * los reanude automáticamente.
  */
-export async function detectInterruptedJobs(): Promise<number> {
+export async function detectInterruptedJobs(staleMinutes = 2): Promise<number> {
   const all = await listJobs();
   let touched = 0;
-  const STALE_MS = 5 * 60 * 1000;
+  const STALE_MS = staleMinutes * 60 * 1000;
   const now = Date.now();
   for (const j of all) {
     if (j.status !== "running") continue;
@@ -94,6 +95,57 @@ export async function detectInterruptedJobs(): Promise<number> {
     }
   }
   return touched;
+}
+
+/**
+ * Watchdog: arranca un loop que cada N ms:
+ *  1) Marca jobs running-pero-sin-progreso como "interrupted".
+ *  2) Reanuda automáticamente cualquier job en estado "interrupted".
+ *
+ * Se llama desde instrumentation.ts al arrancar el servidor. Idempotente.
+ */
+declare global {
+  // eslint-disable-next-line no-var
+  var __personalizationWatchdog: NodeJS.Timeout | undefined;
+  // eslint-disable-next-line no-var
+  var __personalizationWatchdogRunning: boolean | undefined;
+}
+
+export function startPersonalizationWatchdog(intervalMs = 60_000) {
+  if (globalThis.__personalizationWatchdog) return;
+  console.log(`[personalization-watchdog] starting (${intervalMs}ms tick — auto-resume jobs atascados)`);
+
+  const safeTick = async () => {
+    if (globalThis.__personalizationWatchdogRunning) return;
+    globalThis.__personalizationWatchdogRunning = true;
+    try {
+      await watchdogTick();
+    } catch (e: any) {
+      console.error("[personalization-watchdog] tick error:", e?.message || e);
+    } finally {
+      globalThis.__personalizationWatchdogRunning = false;
+    }
+  };
+
+  globalThis.__personalizationWatchdog = setInterval(safeTick, intervalMs);
+  safeTick();
+}
+
+async function watchdogTick() {
+  // 1) Marcar jobs running atascados (sin progreso >2 min) como interrupted
+  const marked = await detectInterruptedJobs(2);
+  if (marked > 0) console.log(`[personalization-watchdog] ${marked} jobs marcados como interrupted`);
+
+  // 2) Buscar todos los interrupted y relanzarlos en background
+  const all = await listJobs();
+  for (const j of all) {
+    if ((j as any).status !== "interrupted") continue;
+    // Resume en background — no esperamos a que termine
+    console.log(`[personalization-watchdog] auto-resume job ${j.id} (${j.progress.done}/${j.selected_rows.length})`);
+    resumeJob(j.id).catch((e) => {
+      console.error(`[personalization-watchdog] resume ${j.id} fallo:`, e?.message || e);
+    });
+  }
 }
 
 /**
@@ -126,7 +178,10 @@ export async function resumeJob(jobId: string): Promise<PersonalizationJob> {
   job.selected_rows = pending;
   // No reseteamos results — mantenemos los que ya hay
   // El progress.done seguirá sumando desde donde estaba (los pending son nuevos)
-  job.status = "running";
+  // IMPORTANTE: dejamos status como "pending" (no "running"). runJob() se
+  // encarga de setearlo a "running" — si lo hacemos aquí, runJob lanza error
+  // "Job ya en ejecución" al detectar el estado.
+  job.status = "pending";
   await saveJob(job);
   return await runJob(jobId);
 }

@@ -31,13 +31,17 @@ export async function register() {
     console.warn("[instrumentation] linkedin-scheduler skipped:", e?.message);
   }
 
-  // Al arrancar, marcar como "interrupted" los jobs de personalización
-  // que quedaron en "running" tras un restart del servidor.
+  // Personalización: marcar como "interrupted" los jobs en running tras un
+  // restart Y arrancar el watchdog que los auto-reanuda cada 60s. Así, si
+  // un job se queda atascado (LLM colgado, deploy en caliente, OOM, etc.)
+  // se retoma solo sin intervención manual.
   try {
-    const { detectInterruptedJobs } = await import("./lib/personalization");
-    const n = await detectInterruptedJobs();
-    if (n > 0) console.log(`[instrumentation] ${n} jobs de personalizacion marcados como interrupted`);
+    const { detectInterruptedJobs, startPersonalizationWatchdog } = await import("./lib/personalization");
+    const n = await detectInterruptedJobs(2);
+    if (n > 0) console.log(`[instrumentation] ${n} jobs de personalizacion marcados como interrupted en boot`);
+    startPersonalizationWatchdog(60_000);
+    console.log("[instrumentation] personalization-watchdog started on boot (auto-resume cada 60s)");
   } catch (e: any) {
-    console.warn("[instrumentation] interrupted-job check skipped:", e?.message);
+    console.warn("[instrumentation] personalization watchdog skipped:", e?.message);
   }
 }

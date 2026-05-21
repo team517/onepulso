@@ -184,11 +184,13 @@ export async function readCSVAsAccounts(
   return out;
 }
 
-// Minimal RFC 4180 CSV parser (handles quoted fields, embedded newlines, "")
+// CSV parser robusto. Tolera comillas sueltas en mitad de campos no entrecomillados
+// (típico en datos reales con O'Connor, "premium", etc.) reconociendo apertura de
+// comillas SÓLO al principio del campo, y cierre SÓLO si lo siguiente es delim/newline/EOF.
+// Si tras parsear hay muchas menos filas que saltos de línea (señal de que algo se
+// pegó), reintenta en modo "naive" (split por línea sin parsear comillas).
 function parseCSV(text: string): string[][] {
-  // Detectar BOM y eliminarlo
   if (text.charCodeAt(0) === 0xfeff) text = text.slice(1);
-  // Detectar delimitador: si la primera línea tiene más punto-y-comas que comas, usar ;
   const firstLine = text.split(/\r?\n/, 1)[0] ?? "";
   const commaCount = (firstLine.match(/,/g) ?? []).length;
   const semicolonCount = (firstLine.match(/;/g) ?? []).length;
@@ -197,60 +199,56 @@ function parseCSV(text: string): string[][] {
   if (semicolonCount > commaCount && semicolonCount >= tabCount) delim = ";";
   else if (tabCount > commaCount && tabCount > semicolonCount) delim = "\t";
 
+  const newlineCount = (text.match(/\n/g) ?? []).length;
+  const rows = strictParse(text, delim);
+  if (newlineCount > 50 && rows.length < newlineCount * 0.6) {
+    console.warn(`[csv] parser estricto sacó ${rows.length} filas pero hay ${newlineCount} saltos de línea; reintentando modo naive`);
+    return naiveParse(text, delim);
+  }
+  return rows;
+}
+
+function strictParse(text: string, delim: string): string[][] {
   const rows: string[][] = [];
   let cur: string[] = [];
   let field = "";
   let inQuotes = false;
+  let fieldStart = true;
   let i = 0;
   const len = text.length;
   while (i < len) {
     const ch = text[i];
     if (inQuotes) {
       if (ch === '"') {
-        if (text[i + 1] === '"') {
-          field += '"';
-          i += 2;
-          continue;
+        if (text[i + 1] === '"') { field += '"'; i += 2; continue; }
+        const next = text[i + 1];
+        if (next === undefined || next === delim || next === "\n" || next === "\r") {
+          inQuotes = false; i++; continue;
         }
-        inQuotes = false;
-        i++;
-        continue;
+        // Comilla literal dentro de campo entrecomillado
+        field += '"'; i++; continue;
       }
-      field += ch;
-      i++;
-      continue;
+      field += ch; i++; continue;
     }
-    if (ch === '"') {
-      inQuotes = true;
-      i++;
-      continue;
+    if (ch === '"' && fieldStart) {
+      inQuotes = true; fieldStart = false; i++; continue;
     }
-    if (ch === delim) {
-      cur.push(field);
-      field = "";
-      i++;
-      continue;
-    }
-    if (ch === "\r") {
-      i++;
-      continue;
-    }
-    if (ch === "\n") {
-      cur.push(field);
-      rows.push(cur);
-      cur = [];
-      field = "";
-      i++;
-      continue;
-    }
-    field += ch;
-    i++;
+    if (ch === delim) { cur.push(field); field = ""; fieldStart = true; i++; continue; }
+    if (ch === "\r") { i++; continue; }
+    if (ch === "\n") { cur.push(field); rows.push(cur); cur = []; field = ""; fieldStart = true; i++; continue; }
+    field += ch; fieldStart = false; i++;
   }
-  if (field.length > 0 || cur.length > 0) {
-    cur.push(field);
-    rows.push(cur);
-  }
-  // Filtrar filas vacías al final del archivo
+  if (field.length > 0 || cur.length > 0) { cur.push(field); rows.push(cur); }
   while (rows.length > 0 && rows[rows.length - 1].every((c) => !c.trim())) rows.pop();
+  return rows;
+}
+
+function naiveParse(text: string, delim: string): string[][] {
+  const lines = text.split(/\r?\n/);
+  const rows: string[][] = [];
+  for (const line of lines) {
+    if (!line.trim()) continue;
+    rows.push(line.split(delim).map((s) => s.replace(/^"(.*)"$/, "$1")));
+  }
   return rows;
 }

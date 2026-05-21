@@ -380,7 +380,10 @@ function csvEscape(s: string): string {
   return str;
 }
 
-// Mini parser CSV (mismo que csv.ts, duplicado para no importar)
+// Parser CSV robusto. Tolera comillas sueltas en mitad de campos no entrecomillados
+// (típico en CSVs reales con nombres tipo O'Connor, descripciones con "premium", etc.).
+// Si después de parsear las filas resultantes son menos de la mitad de los saltos de
+// línea, se reintenta en modo "naive" (split por líneas, sin parsear comillas).
 function parseCSV(text: string): string[][] {
   if (text.charCodeAt(0) === 0xfeff) text = text.slice(1);
   const firstLine = text.split(/\r?\n/, 1)[0] ?? "";
@@ -391,28 +394,66 @@ function parseCSV(text: string): string[][] {
   if (semicolonCount > commaCount && semicolonCount >= tabCount) delim = ";";
   else if (tabCount > commaCount && tabCount > semicolonCount) delim = "\t";
 
+  const newlineCount = (text.match(/\n/g) ?? []).length;
+
+  const rows = strictParse(text, delim);
+
+  // Sanity check: si parseamos < 60% del número de saltos de línea, algo se nos
+  // quedó pegado por una comilla mal cerrada. Re-parseamos en modo naive.
+  if (newlineCount > 50 && rows.length < newlineCount * 0.6) {
+    console.warn(`[csv] parser estricto sacó ${rows.length} filas pero hay ${newlineCount} saltos de línea; reintentando modo naive`);
+    return naiveParse(text, delim);
+  }
+  return rows;
+}
+
+function strictParse(text: string, delim: string): string[][] {
   const rows: string[][] = [];
   let cur: string[] = [];
   let field = "";
   let inQuotes = false;
+  let fieldStart = true; // si estamos al principio de un campo (para reconocer apertura de comillas)
   let i = 0;
   const len = text.length;
   while (i < len) {
     const ch = text[i];
     if (inQuotes) {
       if (ch === '"') {
+        // Comilla escapada ""
         if (text[i + 1] === '"') { field += '"'; i += 2; continue; }
-        inQuotes = false; i++; continue;
+        // Comilla de cierre SÓLO si lo siguiente es delim / newline / EOF.
+        // Si no, es una comilla literal suelta dentro del campo.
+        const next = text[i + 1];
+        if (next === undefined || next === delim || next === "\n" || next === "\r") {
+          inQuotes = false; i++; continue;
+        }
+        // Comilla literal dentro de campo entrecomillado
+        field += '"'; i++; continue;
       }
       field += ch; i++; continue;
     }
-    if (ch === '"') { inQuotes = true; i++; continue; }
-    if (ch === delim) { cur.push(field); field = ""; i++; continue; }
+    if (ch === '"' && fieldStart) {
+      inQuotes = true; fieldStart = false; i++; continue;
+    }
+    if (ch === delim) { cur.push(field); field = ""; fieldStart = true; i++; continue; }
     if (ch === "\r") { i++; continue; }
-    if (ch === "\n") { cur.push(field); rows.push(cur); cur = []; field = ""; i++; continue; }
-    field += ch; i++;
+    if (ch === "\n") { cur.push(field); rows.push(cur); cur = []; field = ""; fieldStart = true; i++; continue; }
+    field += ch; fieldStart = false; i++;
   }
   if (field.length > 0 || cur.length > 0) { cur.push(field); rows.push(cur); }
   while (rows.length > 0 && rows[rows.length - 1].every((c) => !c.trim())) rows.pop();
+  return rows;
+}
+
+/** Parser de respaldo: una fila por línea, separador estricto, comillas ignoradas. */
+function naiveParse(text: string, delim: string): string[][] {
+  const lines = text.split(/\r?\n/);
+  const rows: string[][] = [];
+  for (const line of lines) {
+    if (!line.trim()) continue;
+    // Splitt simple; si un campo contiene el delim entre comillas, se romperá.
+    // Es el coste de aceptar CSVs malformados pero al menos no perdemos filas.
+    rows.push(line.split(delim).map((s) => s.replace(/^"(.*)"$/, "$1")));
+  }
   return rows;
 }

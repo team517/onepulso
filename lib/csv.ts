@@ -1,4 +1,5 @@
 import { randomUUID } from "crypto";
+import Papa from "papaparse";
 import { readBlob, writeBlob, readJson, writeJson } from "./storage";
 
 const CSV_BLOB_PREFIX = "csv/";
@@ -184,55 +185,51 @@ export async function readCSVAsAccounts(
   return out;
 }
 
-// CSV parser robusto. Tolera comillas sueltas en mitad de campos no entrecomillados
-// (típico en datos reales con O'Connor, "premium", etc.) reconociendo apertura de
-// comillas SÓLO al principio del campo, y cierre SÓLO si lo siguiente es delim/newline/EOF.
-// Maneja correctamente saltos de línea dentro de campos entrecomillados.
+/**
+ * Parser CSV usando Papa Parse con DOBLE pasada y auto-recuperación.
+ *
+ * - Pasada A: con comillas activas. Maneja correctamente campos con saltos
+ *   de línea internos legítimamente entrecomillados (descripciones largas).
+ * - Pasada B (fallback): con quoteChar inexistente. Cada \n es fin de fila.
+ *   Maneja CSVs mal formados con comillas sin cerrar que normalmente harían
+ *   que el parser se trague miles de filas.
+ *
+ * Heurística: si A tiene errores de comillas Y B saca MUCHAS más filas
+ * (más del 50%), el archivo está malformado y usamos B. En caso contrario,
+ * A es correcto (es CSV bien formado con campos multi-línea).
+ */
 function parseCSV(text: string): string[][] {
   if (text.charCodeAt(0) === 0xfeff) text = text.slice(1);
-  const firstLine = text.split(/\r?\n/, 1)[0] ?? "";
-  const commaCount = (firstLine.match(/,/g) ?? []).length;
-  const semicolonCount = (firstLine.match(/;/g) ?? []).length;
-  const tabCount = (firstLine.match(/\t/g) ?? []).length;
-  let delim = ",";
-  if (semicolonCount > commaCount && semicolonCount >= tabCount) delim = ";";
-  else if (tabCount > commaCount && tabCount > semicolonCount) delim = "\t";
 
-  return strictParse(text, delim);
-}
+  const passA = Papa.parse<string[]>(text, {
+    header: false,
+    skipEmptyLines: "greedy",
+    delimiter: "",
+    quoteChar: '"',
+    escapeChar: '"',
+  });
+  const rowsA = (passA.data || []).filter((r) => r && r.length > 0);
+  const hasQuoteErrors = (passA.errors || []).some((e) => e.code === "MissingQuotes" || e.type === "Quotes");
 
-function strictParse(text: string, delim: string): string[][] {
-  const rows: string[][] = [];
-  let cur: string[] = [];
-  let field = "";
-  let inQuotes = false;
-  let fieldStart = true;
-  let i = 0;
-  const len = text.length;
-  while (i < len) {
-    const ch = text[i];
-    if (inQuotes) {
-      if (ch === '"') {
-        if (text[i + 1] === '"') { field += '"'; i += 2; continue; }
-        const next = text[i + 1];
-        if (next === undefined || next === delim || next === "\n" || next === "\r") {
-          inQuotes = false; i++; continue;
-        }
-        // Comilla literal dentro de campo entrecomillado
-        field += '"'; i++; continue;
-      }
-      field += ch; i++; continue;
-    }
-    if (ch === '"' && fieldStart) {
-      inQuotes = true; fieldStart = false; i++; continue;
-    }
-    if (ch === delim) { cur.push(field); field = ""; fieldStart = true; i++; continue; }
-    if (ch === "\r") { i++; continue; }
-    if (ch === "\n") { cur.push(field); rows.push(cur); cur = []; field = ""; fieldStart = true; i++; continue; }
-    field += ch; fieldStart = false; i++;
+  // Si no hay errores de comillas → pasada A es fiable.
+  if (!hasQuoteErrors) return rowsA;
+
+  // Hay errores de comillas. Probamos B con quoting deshabilitado y comparamos.
+  const passB = Papa.parse<string[]>(text, {
+    header: false,
+    skipEmptyLines: "greedy",
+    delimiter: "",
+    quoteChar: String.fromCharCode(1), // SOH: nunca aparece en CSV real → quoting OFF
+  });
+  const rowsB = (passB.data || []).filter((r) => r && r.length > 0);
+
+  // Si B saca significativamente más filas, A se trago contenido por comilla
+  // mal cerrada → usamos B (aunque rompa algun multi-line legítimo, prevalece
+  // no perder leads enteros).
+  if (rowsB.length > rowsA.length * 1.5) {
+    console.warn(`[csv] comillas malformadas detectadas; fallback sin quoting (${rowsA.length} → ${rowsB.length} filas)`);
+    return rowsB;
   }
-  if (field.length > 0 || cur.length > 0) { cur.push(field); rows.push(cur); }
-  while (rows.length > 0 && rows[rows.length - 1].every((c) => !c.trim())) rows.pop();
-  return rows;
+  return rowsA;
 }
 

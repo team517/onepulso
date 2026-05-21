@@ -9,6 +9,7 @@
  *  6. Descargar CSV con la columna nueva 'personalized_message'
  */
 import { randomUUID } from "crypto";
+import Papa from "papaparse";
 import { readJson, writeJson, readBlob, writeBlob } from "./storage";
 import { generateText, AIProvider } from "./ai-providers";
 
@@ -403,63 +404,35 @@ function csvEscape(s: string): string {
   return str;
 }
 
-// Parser CSV robusto. Tolera comillas sueltas en mitad de campos no entrecomillados
-// (típico en CSVs reales con nombres tipo O'Connor, descripciones con "premium", etc.)
-// reconociendo apertura de comillas SÓLO al principio del campo, y cierre SÓLO si lo
-// siguiente es delim / newline / EOF.
+/**
+ * Parser CSV usando Papa Parse con DOBLE pasada y auto-recuperación.
+ * Ver explicación en lib/csv.ts (misma lógica duplicada para no importar
+ * cruzado y no exportar funciones internas).
+ */
 function parseCSV(text: string): string[][] {
   if (text.charCodeAt(0) === 0xfeff) text = text.slice(1);
-  const firstLine = text.split(/\r?\n/, 1)[0] ?? "";
-  const commaCount = (firstLine.match(/,/g) ?? []).length;
-  const semicolonCount = (firstLine.match(/;/g) ?? []).length;
-  const tabCount = (firstLine.match(/\t/g) ?? []).length;
-  let delim = ",";
-  if (semicolonCount > commaCount && semicolonCount >= tabCount) delim = ";";
-  else if (tabCount > commaCount && tabCount > semicolonCount) delim = "\t";
+  const passA = Papa.parse<string[]>(text, {
+    header: false,
+    skipEmptyLines: "greedy",
+    delimiter: "",
+    quoteChar: '"',
+    escapeChar: '"',
+  });
+  const rowsA = (passA.data || []).filter((r) => r && r.length > 0);
+  const hasQuoteErrors = (passA.errors || []).some((e) => e.code === "MissingQuotes" || e.type === "Quotes");
+  if (!hasQuoteErrors) return rowsA;
 
-  // Strict parse maneja correctamente:
-  //  - Campos entre comillas con saltos de línea internos (descripciones largas).
-  //  - Comillas sueltas a mitad de campo no entrecomillado.
-  //  - Comillas escapadas dobles ("").
-  // No usamos fallback "naive" porque rompe legítimos campos multi-línea.
-  return strictParse(text, delim);
-}
-
-function strictParse(text: string, delim: string): string[][] {
-  const rows: string[][] = [];
-  let cur: string[] = [];
-  let field = "";
-  let inQuotes = false;
-  let fieldStart = true; // si estamos al principio de un campo (para reconocer apertura de comillas)
-  let i = 0;
-  const len = text.length;
-  while (i < len) {
-    const ch = text[i];
-    if (inQuotes) {
-      if (ch === '"') {
-        // Comilla escapada ""
-        if (text[i + 1] === '"') { field += '"'; i += 2; continue; }
-        // Comilla de cierre SÓLO si lo siguiente es delim / newline / EOF.
-        // Si no, es una comilla literal suelta dentro del campo.
-        const next = text[i + 1];
-        if (next === undefined || next === delim || next === "\n" || next === "\r") {
-          inQuotes = false; i++; continue;
-        }
-        // Comilla literal dentro de campo entrecomillado
-        field += '"'; i++; continue;
-      }
-      field += ch; i++; continue;
-    }
-    if (ch === '"' && fieldStart) {
-      inQuotes = true; fieldStart = false; i++; continue;
-    }
-    if (ch === delim) { cur.push(field); field = ""; fieldStart = true; i++; continue; }
-    if (ch === "\r") { i++; continue; }
-    if (ch === "\n") { cur.push(field); rows.push(cur); cur = []; field = ""; fieldStart = true; i++; continue; }
-    field += ch; fieldStart = false; i++;
+  const passB = Papa.parse<string[]>(text, {
+    header: false,
+    skipEmptyLines: "greedy",
+    delimiter: "",
+    quoteChar: String.fromCharCode(1),
+  });
+  const rowsB = (passB.data || []).filter((r) => r && r.length > 0);
+  if (rowsB.length > rowsA.length * 1.5) {
+    console.warn(`[csv personalization] comillas malformadas; fallback sin quoting (${rowsA.length} → ${rowsB.length} filas)`);
+    return rowsB;
   }
-  if (field.length > 0 || cur.length > 0) { cur.push(field); rows.push(cur); }
-  while (rows.length > 0 && rows[rows.length - 1].every((c) => !c.trim())) rows.pop();
-  return rows;
+  return rowsA;
 }
 

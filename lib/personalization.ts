@@ -495,41 +495,32 @@ export async function runJob(jobId: string, onProgress?: (j: PersonalizationJob)
 
 /** Genera el CSV resultado con todas las columnas originales + personalized_message */
 async function buildResultCSV(job: PersonalizationJob, allRows: Record<string, string>[]) {
-  // Mapa row_index → message (aplicando estilos inline + aplanando whitespace
-  // para que cada celda sea UNA SOLA LÍNEA — clave para que importadores tipo
-  // Instantly / Smartlead / Lemlist no rechacen el CSV con error
-  // "data has whitespace".
+  // Mapa row_index → message. SOLO aplanamos whitespace en EL MENSAJE NUEVO
+  // (es HTML, los \n entre tags son irrelevantes para el render, y rompen
+  // importadores tipo Instantly/Smartlead). Las celdas originales del CSV
+  // se preservan EXACTAMENTE como vinieron, sin tocarlas.
   const messageMap = new Map<number, string>();
   for (const r of job.results) {
     if (!r.error) messageMap.set(r.row_index, flattenCellHtml(applyParagraphStyles(r.message)));
     else messageMap.set(r.row_index, `[ERROR: ${r.error.replace(/\s+/g, " ")}]`);
   }
-  // Columnas: las originales + personalized_message al final
+  // Columnas: las originales tal cual + personalized_message AL FINAL.
   const cols = allRows.length > 0 ? Object.keys(allRows[0]) : [];
   const headerCols = [...cols, "personalized_message"];
 
   const lines: string[] = [headerCols.map(csvEscape).join(",")];
-  // Solo escribimos las filas seleccionadas
   for (const idx of job.selected_rows) {
     const row = allRows[idx];
     if (!row) continue;
-    // Aplanar whitespace en TODAS las celdas (no solo el mensaje). Esto evita
-    // que celdas con \r\n internos del CSV original rompan el importador.
-    const vals = cols.map((c) => csvEscape(flattenCellText(row[c] ?? "")));
+    // CELDAS ORIGINALES: pasadas literalmente por csvEscape (sólo escape de
+    // comillas / saltos válidos, sin transformar el contenido).
+    const vals = cols.map((c) => csvEscape(row[c] ?? ""));
+    // CELDA NUEVA: el mensaje personalizado generado, aplanado.
     vals.push(csvEscape(messageMap.get(idx) ?? ""));
     lines.push(vals.join(","));
   }
   const csv = lines.join("\r\n");
   await writeBlob(job.result_csv_key!, Buffer.from(csv, "utf-8"), "text/csv");
-}
-
-/** Aplanar celda de texto a una sola línea (sin \n internos) y trim.
- *  No tocar comillas — csvEscape se encarga. */
-function flattenCellText(s: string): string {
-  return String(s ?? "")
-    .replace(/[\r\n\t]+/g, " ")  // saltos de línea / tabs → espacio
-    .replace(/[ ]{2,}/g, " ")    // multiples espacios → uno
-    .trim();
 }
 
 /** Aplana HTML conservando la estructura visual (<p>, <br>, <strong>...).

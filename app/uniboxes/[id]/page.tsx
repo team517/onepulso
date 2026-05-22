@@ -11,6 +11,8 @@ export default function UniboxAdminDetailPage() {
   const [unibox, setUnibox] = useState<any>(null);
   const [accounts, setAccounts] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [onboardingClient, setOnboardingClient] = useState<{ unibox_password?: string; slug?: string; name?: string } | null>(null);
+  const [copyToast, setCopyToast] = useState<string | null>(null);
 
   // CSV upload
   const fileInput = useRef<HTMLInputElement>(null);
@@ -29,9 +31,38 @@ export default function UniboxAdminDetailPage() {
       fetch(`/api/uniboxes/${id}`),
       fetch(`/api/uniboxes/${id}/accounts`),
     ]);
-    if (uRes.ok) setUnibox(await uRes.json());
+    if (uRes.ok) {
+      const u = await uRes.json();
+      setUnibox(u);
+      // Buscar el cliente del onboarding cuyo email coincida — para poder
+      // ofrecer "Copiar credenciales" con la password en plano si fue creado
+      // desde el flow integrado.
+      if (u?.client_email) {
+        try {
+          const r = await fetch(`/api/onboarding/clients/by-email?email=${encodeURIComponent(u.client_email)}`);
+          if (r.ok) {
+            const d = await r.json();
+            setOnboardingClient(d.client);
+          }
+        } catch {}
+      }
+    }
     if (aRes.ok) setAccounts(await aRes.json());
     setLoading(false);
+  }
+
+  async function copyCredentials() {
+    if (!unibox) return;
+    const url = `${window.location.origin}/u/${id}/login`;
+    const password = onboardingClient?.unibox_password;
+    const lines = [
+      `URL: ${url}`,
+      `Usuario: ${unibox.client_email}`,
+      password ? `Contraseña: ${password}` : `Contraseña: (no guardada — usa la que pusiste al crear el Unibox)`,
+    ];
+    await navigator.clipboard.writeText(lines.join("\n"));
+    setCopyToast(password ? "✓ URL + usuario + contraseña copiados" : "✓ URL + usuario copiados (contraseña no guardada)");
+    setTimeout(() => setCopyToast(null), 3000);
   }
   useEffect(() => { if (id) load(); }, [id]);
 
@@ -181,6 +212,20 @@ export default function UniboxAdminDetailPage() {
             </div>
           </div>
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "flex-end" }}>
+            <button
+              style={{
+                ...btnGhost,
+                color: "#0071e3",
+                borderColor: "rgba(0,113,227,0.3)",
+                background: onboardingClient?.unibox_password
+                  ? "linear-gradient(135deg, rgba(0,113,227,0.06), rgba(0,113,227,0.02))"
+                  : "#fff",
+              }}
+              onClick={copyCredentials}
+              title={onboardingClient?.unibox_password
+                ? "Copia URL + usuario + contraseña al portapapeles"
+                : "Copia URL + usuario (la contraseña no está guardada — solo se guarda si creas el Unibox desde Onboarding o lo enlazas a un cliente)"}
+            >📋 Copiar credenciales</button>
             <button style={btnGhost} onClick={() => fileInput.current?.click()}>+ Subir CSV</button>
             <button style={btnPrimary} onClick={syncAll} disabled={accounts.length === 0}>↻ Sincronizar todo</button>
             <button
@@ -255,6 +300,20 @@ export default function UniboxAdminDetailPage() {
             <b>✓ {uploadResult.added} cuenta(s) añadida(s)</b> ·
             {uploadResult.skipped_dup || 0} duplicada(s) · {uploadResult.skipped_err || 0} con error
             <button style={{ ...btnGhost, marginLeft: 12 }} onClick={() => setUploadView("idle")}>Cerrar</button>
+          </div>
+        )}
+
+        {/* Toast: copiar credenciales */}
+        {copyToast && (
+          <div style={{
+            position: "fixed", bottom: 24, left: "50%", transform: "translateX(-50%)",
+            background: "#0f172a", color: "#fff",
+            padding: "10px 20px", borderRadius: 10,
+            fontSize: 13.5, fontWeight: 500,
+            boxShadow: "0 8px 24px rgba(15,23,42,0.25)",
+            zIndex: 1000,
+          }}>
+            {copyToast}
           </div>
         )}
 

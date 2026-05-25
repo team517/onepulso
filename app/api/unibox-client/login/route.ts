@@ -15,7 +15,9 @@ export async function POST(req: NextRequest) {
   // If a uniboxId is provided (login from /u/[id]/login), verify it matches.
   let unibox = uniboxId ? await getUnibox(uniboxId) : null;
   if (!unibox) unibox = await findUniboxByClientEmail(email);
-  if (!unibox || unibox.client_email !== email) {
+  // Comparación case-insensitive — uniboxes antiguos pudieron guardar el
+  // email en mayúsculas mixtas; createUnibox actual ya lo lowercaseifica.
+  if (!unibox || unibox.client_email.toLowerCase() !== email) {
     return NextResponse.json({ error: "Credenciales incorrectas" }, { status: 401 });
   }
   if (!verifyPassword(password, unibox.client_password, unibox.client_password_salt)) {

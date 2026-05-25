@@ -66,7 +66,8 @@ export async function requireClientForUnibox(req: NextRequest, uniboxId: string)
   const session = getSessionFromRequest(req);
   if (!session || session.uniboxId !== uniboxId) return null;
   const u = await getUnibox(uniboxId);
-  if (!u || u.client_email !== session.clientEmail) return null;
+  // Comparación case-insensitive por compatibilidad con uniboxes antiguos.
+  if (!u || u.client_email.toLowerCase() !== (session.clientEmail || "").toLowerCase()) return null;
   return session;
 }
 

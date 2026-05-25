@@ -24,6 +24,15 @@ export function middleware(req: NextRequest) {
     return NextResponse.next();
   }
 
+  // /api/uniboxes/* es compartido entre admin y cliente: cada endpoint
+  // hace su propio check (requireAdmin || requireClientForUnibox). Si el
+  // middleware bloquea aquí, los CLIENTES (con cookie unibox_session pero
+  // sin onepulso_session) reciben un 302 a /login y la inbox carga 0
+  // cuentas. Dejamos pasar y confiamos en el endpoint-level auth.
+  if (pathname.startsWith("/api/uniboxes/")) {
+    return NextResponse.next();
+  }
+
   // Portal público de onboarding: /o/[slug] (login + dashboard del cliente)
   // y sus APIs propias — usan cookie por-slug (onboarding_client_<slug>)
   if (pathname.startsWith("/o/") || pathname.startsWith("/api/onboarding-client/")) {

@@ -52,7 +52,15 @@ export default function ClientInboxPage() {
 
   async function loadAccounts() {
     const r = await fetch(`/api/uniboxes/${id}/accounts`);
-    if (r.ok) setAccounts(await r.json());
+    if (r.ok) {
+      setAccounts(await r.json());
+    } else if (r.status === 401) {
+      // Sesión expirada / inválida → forzar login.
+      console.warn("[unibox] 401 al cargar cuentas — sesión inválida, redirigiendo a login");
+      router.push(`/u/${id}/login`);
+    } else {
+      console.error("[unibox] error cargando cuentas:", r.status);
+    }
   }
 
   /** Re-aplica la detección actual de warmup a toda la caché. Útil cuando

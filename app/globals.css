@@ -1,3 +1,8 @@
+/* OnePulso Design System — Plus Jakarta Sans + Inter + JetBrains Mono.
+ * IMPORTANT: @import debe ser la primera regla del archivo (CSS spec).
+ * No mover de aquí. */
+@import url("https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap");
+
 /* =========================================================
    onepulso · White & Blue Design System
    ========================================================= */
@@ -144,9 +149,6 @@
   background: #e2e8f0;
   margin: 0 2px;
 }
-
-/* OnePulso Design System — Plus Jakarta Sans + Inter + JetBrains Mono */
-@import url("https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap");
 
 :root {
   /* Page backgrounds (mapeo: bg/bg-elev → surfaces del design system) */

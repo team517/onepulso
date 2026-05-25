@@ -10,7 +10,7 @@ type NoteEl = ElementBase & { type: "note"; width: number; height: number; text:
 type TextEl = ElementBase & { type: "text"; text: string; fontSize: number; color: string };
 type ImageEl = ElementBase & { type: "image"; width: number; height: number; src_key: string };
 type ShapeKind = "rect" | "circle" | "diamond" | "triangle";
-type ShapeEl = ElementBase & { type: "shape"; shape: ShapeKind; width: number; height: number; fill: string; stroke: string };
+type ShapeEl = ElementBase & { type: "shape"; shape: ShapeKind; width: number; height: number; fill: string; stroke: string; text?: string };
 type Side = "top" | "right" | "bottom" | "left";
 type ArrowEl = ElementBase & {
   type: "arrow";
@@ -892,7 +892,7 @@ export default function EstudioCanvasPage() {
                     editing={editingId === el.id}
                     zoom={viewport.zoom}
                     onMouseDown={(e) => startDragElement(e, el)}
-                    onDoubleClick={() => { if (el.type === "note" || el.type === "text") setEditingId(el.id); }}
+                    onDoubleClick={() => { if (el.type === "note" || el.type === "text" || el.type === "shape") setEditingId(el.id); }}
                     onTextChange={(text) => patchElement(el.id, { text } as any)}
                     onTextBlur={() => setEditingId(null)}
                     onResize={(w, h) => patchElement(el.id, { width: w, height: h } as any)}
@@ -1088,30 +1088,82 @@ function RenderElement({
     );
   }
   if (el.type === "shape") {
+    const w = el.width, h = el.height;
+    // Texto centrado dentro de la forma. En triángulos lo bajamos un poco
+    // para que no se salga por la punta superior.
+    const textPad = el.shape === "triangle" ? "30% 12px 12px 12px" : "12px";
+    const textBox = (
+      <div
+        onDoubleClick={(e) => { e.stopPropagation(); onDoubleClick(); }}
+        style={{
+          position: "absolute",
+          inset: 0,
+          padding: textPad,
+          display: "flex", alignItems: "center", justifyContent: "center",
+          textAlign: "center",
+          fontSize: 14, lineHeight: 1.35,
+          color: "#0f172a", fontWeight: 500,
+          pointerEvents: editing ? "auto" : "none",
+          overflow: "hidden",
+          wordBreak: "break-word",
+        }}
+      >
+        {editing ? (
+          <textarea
+            autoFocus
+            value={el.text || ""}
+            onChange={(e) => onTextChange(e.target.value)}
+            onBlur={onTextBlur}
+            onMouseDown={(e) => e.stopPropagation()}
+            placeholder="Escribe aquí…"
+            style={{
+              width: "100%", height: "100%",
+              border: "none", outline: "none",
+              background: "transparent",
+              resize: "none",
+              textAlign: "center",
+              fontSize: 14, lineHeight: 1.35,
+              color: "#0f172a", fontWeight: 500,
+              fontFamily: "inherit",
+              padding: 0,
+            }}
+          />
+        ) : el.text ? (
+          <div style={{ whiteSpace: "pre-wrap" }}>{el.text}</div>
+        ) : (
+          <div style={{ color: "rgba(15,23,42,0.3)", fontStyle: "italic", fontSize: 12.5 }}>
+            Doble click para escribir
+          </div>
+        )}
+      </div>
+    );
+
     if (el.shape === "rect" || el.shape === "circle") {
       return (
         <div
           onMouseDown={onMouseDown}
           style={{
             ...baseStyle, ...selectedOutline,
-            width: el.width, height: el.height,
+            width: w, height: h,
             background: el.fill,
             border: `2px solid ${el.stroke}`,
             borderRadius: el.shape === "circle" ? "50%" : 8,
           }}
-        />
+        >
+          {textBox}
+        </div>
       );
     }
-    // Diamond / triangle: SVG para no perder el border
-    const w = el.width, h = el.height;
+    // Diamond / triangle: SVG para la forma + overlay de texto centrado.
     const points = el.shape === "diamond"
       ? `${w / 2},2 ${w - 2},${h / 2} ${w / 2},${h - 2} 2,${h / 2}`
       : `${w / 2},2 ${w - 2},${h - 2} 2,${h - 2}`;
     return (
       <div onMouseDown={onMouseDown} style={{ ...baseStyle, ...selectedOutline, width: w, height: h }}>
-        <svg width={w} height={h} style={{ display: "block", overflow: "visible" }}>
+        <svg width={w} height={h} style={{ display: "block", overflow: "visible", position: "absolute", inset: 0 }}>
           <polygon points={points} fill={el.fill} stroke={el.stroke} strokeWidth={2} strokeLinejoin="round" />
         </svg>
+        {textBox}
       </div>
     );
   }

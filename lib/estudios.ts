@@ -48,6 +48,8 @@ export type ShapeElement = ElementBase & {
   height: number;
   fill: string;
   stroke: string;
+  /** Texto opcional dentro de la forma. Centrado vertical/horizontalmente. */
+  text?: string;
 };
 
 export type ArrowElement = ElementBase & {

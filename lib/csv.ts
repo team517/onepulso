@@ -23,6 +23,8 @@ export type CSVMetadata = {
   /** Desglose: cada columna y cuántos emails se encontraron en ella.
    *  Ordenado de mayor a menor. Permite al usuario ver dónde están los emails. */
   emails_by_column?: Array<{ column: string; count: number }>;
+  /** Modo de parsing usado: incluye delimitador detectado y eventuales rescates. */
+  parse_mode?: string;
   preview: Array<Record<string, string>>;
 };
 
@@ -142,13 +144,29 @@ export async function parseCSVStreamed(
   const totalEstimate = await estimateRowCount(file_id);
   const text = await readCSVText(file_id);
 
+  // DETECCIÓN MANUAL del delimitador desde la primera línea — más fiable
+  // que el auto-detect de Papa cuando el archivo es grande. Contamos
+  // ocurrencias de cada candidato (, ; \t |) y elegimos el mayor.
+  const firstNewline = text.indexOf("\n");
+  const firstLine = firstNewline > 0 ? text.slice(0, firstNewline) : text.slice(0, 500);
+  const commaCount = (firstLine.match(/,/g) || []).length;
+  const semiCount = (firstLine.match(/;/g) || []).length;
+  const tabCount = (firstLine.match(/\t/g) || []).length;
+  const pipeCount = (firstLine.match(/\|/g) || []).length;
+  let delimiter = ",";
+  let maxCount = commaCount;
+  if (semiCount > maxCount) { delimiter = ";"; maxCount = semiCount; }
+  if (tabCount  > maxCount) { delimiter = "\t"; maxCount = tabCount; }
+  if (pipeCount > maxCount) { delimiter = "|"; maxCount = pipeCount; }
+  const delimLabel = delimiter === "\t" ? "TAB" : delimiter === " " ? "SPC" : delimiter;
+
   // Hacemos las DOS pasadas y reportamos cuál ganó para diagnóstico.
-  let parseMode = "estricto";
+  let parseMode = `estricto · delim=${delimLabel}`;
   let parseErrors = 0;
   const passA = Papa.parse<string[]>(text, {
     header: false,
     skipEmptyLines: "greedy",
-    delimiter: "",
+    delimiter, // FORZADO en vez de "" auto-detect
     quoteChar: '"',
     escapeChar: '"',
   });
@@ -160,17 +178,18 @@ export async function parseCSVStreamed(
     const passB = Papa.parse<string[]>(text, {
       header: false,
       skipEmptyLines: "greedy",
-      delimiter: "",
+      delimiter,
       quoteChar: String.fromCharCode(1),
     });
     const rowsB = (passB.data || []).filter((r) => r && r.length > 0);
     if (rowsB.length > rowsA.length * 1.5) {
       allRows = rowsB;
-      parseMode = "sin-quoting (rescate)";
+      parseMode = `rescate-sin-quoting · delim=${delimLabel}`;
     } else {
-      parseMode = `estricto-con-${parseErrors}-warnings`;
+      parseMode = `estricto · delim=${delimLabel} · ${parseErrors} warnings`;
     }
   }
+  console.log(`[csv parse] file=${filename} delim=${delimLabel} mode=${parseMode} rowsA=${rowsA.length} dataRows=${allRows.length - 1}`);
   const columns = allRows[0] ?? [];
   const dataRows = allRows.slice(1);
 
@@ -261,6 +280,7 @@ export async function parseCSVStreamed(
       .map((count, i) => ({ column: columns[i] || `(col ${i})`, count }))
       .filter((e) => e.count > 0)
       .sort((a, b) => b.count - a.count),
+    parse_mode: parseMode,
     preview,
   };
   await writeJson(`${CSV_META_PREFIX}${file_id}`, meta);

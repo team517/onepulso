@@ -799,6 +799,20 @@ export default function PersonalizacionPage() {
                   <div style={{ fontSize: 14.5, fontWeight: 700, color: "#047857" }}>✓ CSV cargado: {file.filename}</div>
                   <div style={{ fontSize: 13, color: "#047857", marginTop: 3, fontWeight: 600 }}>
                     📊 <strong>{file.row_count.toLocaleString()} leads</strong> cargados completos · <strong>{file.columns.length}</strong> columnas detectadas
+                    {file.parse_mode && (
+                      <span style={{
+                        marginLeft: 10,
+                        fontSize: 10.5,
+                        fontFamily: "var(--font-mono)",
+                        color: file.parse_mode.includes("rescate") ? "#b45309" : "#0f172a",
+                        background: file.parse_mode.includes("rescate") ? "rgba(245,158,11,0.12)" : "rgba(15,23,42,0.06)",
+                        padding: "2px 8px",
+                        borderRadius: 99,
+                        fontWeight: 600,
+                      }}>
+                        {file.parse_mode}
+                      </span>
+                    )}
                   </div>
                   {typeof file.email_count === "number" && (
                     <>

@@ -52,6 +52,7 @@ export async function GET(req: NextRequest) {
           at_symbols: meta.at_symbols,
           email_columns: meta.email_columns,
           emails_by_column: meta.emails_by_column,
+          parse_mode: meta.parse_mode,
           preview: meta.preview,
         });
       } catch (e: any) {

@@ -31,7 +31,7 @@ export default function DashboardNav() {
       {/* Brand */}
       <div className="dash-nav-brand">
         <div className="dash-nav-logo">
-          <span className="dash-nav-logo-mark">⚡</span>
+          <span className="dash-nav-logo-mark" style={{ fontFamily: "var(--font-sans)" }}>O</span>
         </div>
         <div>
           <div className="dash-brand-word">onepulso<span className="dash-brand-c">©</span></div>

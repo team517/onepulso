@@ -56,6 +56,12 @@ export type ArrowElement = ElementBase & {
   endX: number;
   endY: number;
   stroke: string;
+  /** Conexiones opcionales a elementos. Si están, los endpoints se calculan
+   *  dinámicamente desde la posición/tamaño del elemento al renderizar. */
+  fromId?: string;
+  toId?: string;
+  fromSide?: "top" | "right" | "bottom" | "left";
+  toSide?: "top" | "right" | "bottom" | "left";
 };
 
 export type Element =

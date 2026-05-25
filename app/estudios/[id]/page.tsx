@@ -10,7 +10,14 @@ type NoteEl = ElementBase & { type: "note"; width: number; height: number; text:
 type TextEl = ElementBase & { type: "text"; text: string; fontSize: number; color: string };
 type ImageEl = ElementBase & { type: "image"; width: number; height: number; src_key: string };
 type ShapeEl = ElementBase & { type: "shape"; shape: "rect" | "circle"; width: number; height: number; fill: string; stroke: string };
-type ArrowEl = ElementBase & { type: "arrow"; endX: number; endY: number; stroke: string };
+type Side = "top" | "right" | "bottom" | "left";
+type ArrowEl = ElementBase & {
+  type: "arrow";
+  endX: number; endY: number;
+  stroke: string;
+  fromId?: string; toId?: string;
+  fromSide?: Side; toSide?: Side;
+};
 type Element = NoteEl | TextEl | ImageEl | ShapeEl | ArrowEl;
 
 type Estudio = {
@@ -52,6 +59,19 @@ export default function EstudioCanvasPage() {
   const dragRef = useRef<{ id: string; startMouseX: number; startMouseY: number; startElX: number; startElY: number } | null>(null);
   const panRef = useRef<{ startMouseX: number; startMouseY: number; startViewX: number; startViewY: number } | null>(null);
   const canvasRef = useRef<HTMLDivElement>(null);
+
+  // Estado de creación de conexión: cuando el usuario arrastra desde un handle
+  const [connecting, setConnecting] = useState<{
+    fromId: string;
+    fromSide: Side;
+    fromPoint: { x: number; y: number };
+    mousePoint: { x: number; y: number }; // world coords
+    hoverElId?: string;
+    hoverSide?: Side;
+  } | null>(null);
+
+  // Hover sobre elementos para mostrar handles
+  const [hoverElId, setHoverElId] = useState<string | null>(null);
 
   /* ───── Load ───── */
   useEffect(() => {
@@ -166,6 +186,125 @@ export default function EstudioCanvasPage() {
   function nextZ() {
     return elements.length > 0 ? Math.max(...elements.map((e) => e.z || 0)) + 1 : 1;
   }
+
+  /** Calcula la BBox de un elemento en coords de mundo (x, y, w, h). */
+  function bbox(el: Element): { x: number; y: number; w: number; h: number } {
+    if (el.type === "note" || el.type === "image" || el.type === "shape") {
+      return { x: el.x, y: el.y, w: el.width, h: el.height };
+    }
+    if (el.type === "text") {
+      // Aproximación; el texto no tiene width definido — usamos longitud * fontSize.
+      const w = Math.max(100, (el.text || "Texto").length * el.fontSize * 0.6);
+      return { x: el.x, y: el.y, w, h: el.fontSize * 1.5 };
+    }
+    return { x: el.x, y: el.y, w: 1, h: 1 };
+  }
+
+  /** Punto de anclaje en un lado del bbox (centro de ese lado). */
+  function anchorPoint(el: Element, side: Side): { x: number; y: number } {
+    const b = bbox(el);
+    switch (side) {
+      case "top":    return { x: b.x + b.w / 2, y: b.y };
+      case "right":  return { x: b.x + b.w,     y: b.y + b.h / 2 };
+      case "bottom": return { x: b.x + b.w / 2, y: b.y + b.h };
+      case "left":   return { x: b.x,           y: b.y + b.h / 2 };
+    }
+  }
+
+  /** Dado un punto de mundo y un elemento, devuelve el side más cercano (top/right/bottom/left). */
+  function nearestSide(el: Element, p: { x: number; y: number }): Side {
+    const b = bbox(el);
+    const cx = b.x + b.w / 2;
+    const cy = b.y + b.h / 2;
+    const dx = p.x - cx;
+    const dy = p.y - cy;
+    if (Math.abs(dx) > Math.abs(dy)) return dx > 0 ? "right" : "left";
+    return dy > 0 ? "bottom" : "top";
+  }
+
+  /** Resuelve los puntos final del arrow al renderizar:
+   *  - Si tiene fromId, usa anchorPoint(elementoFrom, fromSide)
+   *  - Si tiene toId, usa anchorPoint(elementoTo, toSide)
+   *  - Si no, usa (x,y) y (endX,endY) directos.
+   */
+  function resolveArrow(a: ArrowEl): { from: { x: number; y: number }; to: { x: number; y: number } } {
+    let from = { x: a.x, y: a.y };
+    let to = { x: a.endX, y: a.endY };
+    if (a.fromId) {
+      const ref = elements.find((e) => e.id === a.fromId);
+      if (ref) from = anchorPoint(ref, a.fromSide || "right");
+    }
+    if (a.toId) {
+      const ref = elements.find((e) => e.id === a.toId);
+      if (ref) to = anchorPoint(ref, a.toSide || "left");
+    }
+    return { from, to };
+  }
+
+  /** Empieza arrastrar desde un handle de conexión. */
+  function startConnect(e: React.MouseEvent, el: Element, side: Side) {
+    e.stopPropagation();
+    const pt = anchorPoint(el, side);
+    setConnecting({
+      fromId: el.id,
+      fromSide: side,
+      fromPoint: pt,
+      mousePoint: pt,
+    });
+  }
+
+  /** Mientras conecto, actualizo el punto del ratón en coords de mundo. */
+  useEffect(() => {
+    if (!connecting) return;
+    function onMove(e: MouseEvent) {
+      const rect = canvasRef.current?.getBoundingClientRect();
+      if (!rect) return;
+      const sx = e.clientX - rect.left;
+      const sy = e.clientY - rect.top;
+      const world = { x: (sx - viewport.x) / viewport.zoom, y: (sy - viewport.y) / viewport.zoom };
+
+      // Detectar si pasa por encima de algún elemento (excepto el origen)
+      let hoverElId: string | undefined;
+      let hoverSide: Side | undefined;
+      for (let i = elements.length - 1; i >= 0; i--) {
+        const el = elements[i];
+        if (el.id === connecting!.fromId) continue;
+        if (el.type === "arrow") continue;
+        const b = bbox(el);
+        if (world.x >= b.x && world.x <= b.x + b.w && world.y >= b.y && world.y <= b.y + b.h) {
+          hoverElId = el.id;
+          hoverSide = nearestSide(el, world);
+          break;
+        }
+      }
+      setConnecting((c) => c ? { ...c, mousePoint: world, hoverElId, hoverSide } : null);
+    }
+    function onUp() {
+      setConnecting((c) => {
+        if (!c) return null;
+        const newArrow: ArrowEl = {
+          id: uid(), type: "arrow",
+          x: c.fromPoint.x, y: c.fromPoint.y,
+          endX: c.mousePoint.x, endY: c.mousePoint.y,
+          z: nextZ(),
+          stroke: "#0f172a",
+          fromId: c.fromId,
+          fromSide: c.fromSide,
+          toId: c.hoverElId,
+          toSide: c.hoverSide,
+        };
+        setElements((arr) => [...arr, newArrow]);
+        return null;
+      });
+    }
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+    return () => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [connecting, viewport, elements]);
 
   async function uploadImageFile(file: File, dropX?: number, dropY?: number) {
     if (!file.type.startsWith("image/")) return;
@@ -526,25 +665,101 @@ export default function EstudioCanvasPage() {
             inset: 0,
             transformOrigin: "0 0",
             transform: `translate(${viewport.x}px, ${viewport.y}px) scale(${viewport.zoom})`,
+            pointerEvents: "none",
           }}
         >
-          {elements
-            .slice()
-            .sort((a, b) => (a.z || 0) - (b.z || 0))
-            .map((el) => (
-              <RenderElement
-                key={el.id}
-                el={el}
-                selected={selectedId === el.id}
-                editing={editingId === el.id}
-                zoom={viewport.zoom}
-                onMouseDown={(e) => startDragElement(e, el)}
-                onDoubleClick={() => { if (el.type === "note" || el.type === "text") setEditingId(el.id); }}
-                onTextChange={(text) => patchElement(el.id, { text } as any)}
-                onTextBlur={() => setEditingId(null)}
-                onResize={(w, h) => patchElement(el.id, { width: w, height: h } as any)}
+          {/* SVG de flechas (siempre debajo, pero por encima del fondo) */}
+          <svg
+            style={{
+              position: "absolute",
+              left: -50000, top: -50000,
+              width: 100000, height: 100000,
+              overflow: "visible",
+              pointerEvents: "none",
+            }}
+          >
+            <defs>
+              <marker id="arrowhead" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
+                <path d="M0,0 L0,6 L9,3 z" fill="#0f172a" />
+              </marker>
+              <marker id="arrowhead-blue" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
+                <path d="M0,0 L0,6 L9,3 z" fill="#0071e3" />
+              </marker>
+            </defs>
+            {elements.filter((e) => e.type === "arrow").map((a) => {
+              const arr = a as ArrowEl;
+              const { from, to } = resolveArrow(arr);
+              const isSelected = selectedId === arr.id;
+              const sx = from.x + 50000, sy = from.y + 50000;
+              const ex = to.x + 50000, ey = to.y + 50000;
+              return (
+                <g key={arr.id} style={{ pointerEvents: "auto", cursor: "pointer" }}
+                   onMouseDown={(e) => { e.stopPropagation(); setSelectedId(arr.id); }}>
+                  <line
+                    x1={sx} y1={sy} x2={ex} y2={ey}
+                    stroke={isSelected ? "#0071e3" : arr.stroke}
+                    strokeWidth={isSelected ? 3 : 2}
+                    markerEnd={`url(#${isSelected ? "arrowhead-blue" : "arrowhead"})`}
+                  />
+                  {/* Línea invisible más gruesa para facilitar el click */}
+                  <line x1={sx} y1={sy} x2={ex} y2={ey}
+                    stroke="transparent" strokeWidth={14} />
+                </g>
+              );
+            })}
+            {/* Flecha temporal mientras se está conectando */}
+            {connecting && (
+              <line
+                x1={connecting.fromPoint.x + 50000}
+                y1={connecting.fromPoint.y + 50000}
+                x2={connecting.mousePoint.x + 50000}
+                y2={connecting.mousePoint.y + 50000}
+                stroke="#0071e3"
+                strokeWidth={2.5}
+                strokeDasharray="6 4"
+                markerEnd="url(#arrowhead-blue)"
               />
-            ))}
+            )}
+          </svg>
+
+          {/* Elementos */}
+          <div style={{ position: "absolute", inset: 0, pointerEvents: "none" }}>
+            {elements
+              .filter((e) => e.type !== "arrow")
+              .slice()
+              .sort((a, b) => (a.z || 0) - (b.z || 0))
+              .map((el) => (
+                <div
+                  key={el.id}
+                  style={{ position: "absolute", left: 0, top: 0, pointerEvents: "auto" }}
+                  onMouseEnter={() => setHoverElId(el.id)}
+                  onMouseLeave={() => setHoverElId((cur) => (cur === el.id ? null : cur))}
+                >
+                  <RenderElement
+                    el={el}
+                    selected={selectedId === el.id}
+                    editing={editingId === el.id}
+                    zoom={viewport.zoom}
+                    onMouseDown={(e) => startDragElement(e, el)}
+                    onDoubleClick={() => { if (el.type === "note" || el.type === "text") setEditingId(el.id); }}
+                    onTextChange={(text) => patchElement(el.id, { text } as any)}
+                    onTextBlur={() => setEditingId(null)}
+                    onResize={(w, h) => patchElement(el.id, { width: w, height: h } as any)}
+                  />
+                  {/* Connection handles — visibles si está seleccionado o con hover */}
+                  {(selectedId === el.id || hoverElId === el.id) && (el.type === "note" || el.type === "shape" || el.type === "image" || el.type === "text") && (
+                    <ConnectionHandles
+                      el={el}
+                      bbox={bbox(el)}
+                      zoom={viewport.zoom}
+                      isHoverTarget={connecting?.hoverElId === el.id}
+                      activeSide={connecting?.hoverElId === el.id ? connecting.hoverSide : undefined}
+                      onStart={(side, e) => startConnect(e, el, side)}
+                    />
+                  )}
+                </div>
+              ))}
+          </div>
         </div>
       </div>
     </div>
@@ -709,4 +924,58 @@ function RenderElement({
     );
   }
   return null;
+}
+
+/**
+ * 4 dots en los lados de un elemento para iniciar una conexión.
+ * Cuando el elemento es target de un connecting drag, el handle del lado
+ * más cercano se resalta para indicar dónde se va a anclar.
+ */
+function ConnectionHandles({
+  el, bbox, zoom, isHoverTarget, activeSide, onStart,
+}: {
+  el: Element;
+  bbox: { x: number; y: number; w: number; h: number };
+  zoom: number;
+  isHoverTarget: boolean;
+  activeSide?: "top" | "right" | "bottom" | "left";
+  onStart: (side: "top" | "right" | "bottom" | "left", e: React.MouseEvent) => void;
+}) {
+  const { x, y, w, h } = bbox;
+  const size = 12 / zoom;
+  const half = size / 2;
+  const sides: Array<{ side: "top" | "right" | "bottom" | "left"; cx: number; cy: number }> = [
+    { side: "top",    cx: x + w / 2, cy: y },
+    { side: "right",  cx: x + w,     cy: y + h / 2 },
+    { side: "bottom", cx: x + w / 2, cy: y + h },
+    { side: "left",   cx: x,         cy: y + h / 2 },
+  ];
+  return (
+    <>
+      {sides.map(({ side, cx, cy }) => {
+        const isActive = activeSide === side && isHoverTarget;
+        return (
+          <div
+            key={side}
+            onMouseDown={(e) => onStart(side, e)}
+            title={`Conectar (${side})`}
+            style={{
+              position: "absolute",
+              left: cx - half, top: cy - half,
+              width: size, height: size,
+              borderRadius: "50%",
+              background: isActive ? "#0071e3" : "#fff",
+              border: `${2 / zoom}px solid #0071e3`,
+              cursor: "crosshair",
+              boxShadow: isActive
+                ? `0 0 0 ${4 / zoom}px rgba(0,113,227,0.25)`
+                : `0 1px 3px rgba(15,23,42,0.15)`,
+              zIndex: 100,
+              transition: "background 0.1s, box-shadow 0.1s",
+            }}
+          />
+        );
+      })}
+    </>
+  );
 }

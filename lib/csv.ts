@@ -13,26 +13,29 @@ export type CSVMetadata = {
   /** Columna(s) detectada(s) como email (al menos 30% de celdas con
    *  formato email válido en una muestra). */
   email_columns?: string[];
-  /** Total de emails encontrados (todos, incluyendo múltiples por celda). */
+  /** Total de emails encontrados con formato válido user@host.tld */
   email_count?: number;
-  /** Filas con al menos 1 email. */
+  /** Filas con al menos 1 email válido. */
   rows_with_email?: number;
+  /** Total de símbolos @ (incluye handles sociales y otros @). Métrica de
+   *  control cruzada con Excel — debería coincidir con tu cuenta visual. */
+  at_symbols?: number;
   preview: Array<Record<string, string>>;
 };
 
 /**
- * Detección de email PERMISIVA. Acepta:
- *  - Emails sueltos: alice@acme.com
- *  - Embebidos en texto: "Contact: alice@acme.com, John Doe"
- *  - Múltiples por celda: "a@x.com; b@y.com"
- *  - Con cualquier TLD: .io, .museum, .co.uk, .es, etc.
- *  - Trim automático de espacios/comillas alrededor.
+ * Detección de email ULTRA PERMISIVA. Cuenta cualquier patrón
+ *   <algo no-espacio>@<algo no-espacio>.<algo no-espacio>
+ * sin restricciones de caracteres. Acepta:
+ *  - Acentos en username (josé@empresa.es)
+ *  - Internacionales (用户@日本.jp)
+ *  - TLDs con números o exóticos
+ *  - mailto: prefijos
+ *  - Comillas/paréntesis alrededor
  *
- * Lo único que descartamos: cadenas sin punto detrás del @ (foo@bar
- * sin dominio completo). Esto evita falsos positivos en handles tipo
- * Twitter @usuario.
+ * Solo descartamos: handles sociales (@usuario sin dominio completo).
  */
-const EMAIL_RE_GLOBAL = /[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,24}/g;
+const EMAIL_RE_GLOBAL = /[^\s,;<>"'()\[\]{}]+@[^\s,;<>"'()\[\]{}]+\.[^\s,;<>"'()\[\]{}]+/g;
 
 /** ¿La celda contiene al menos UN email válido en cualquier posición? */
 function isEmail(v: string): boolean {
@@ -42,12 +45,21 @@ function isEmail(v: string): boolean {
   return EMAIL_RE_GLOBAL.test(s);
 }
 
-/** Cuenta todos los emails encontrados en la celda (puede haber varios). */
+/** Cuenta todos los emails con formato user@host.tld en la celda. */
 function countEmailsInCell(v: string): number {
   const s = String(v ?? "");
   if (!s.includes("@")) return 0;
   const m = s.match(EMAIL_RE_GLOBAL);
   return m ? m.length : 0;
+}
+
+/** Cuenta TODOS los símbolos @ — métrica de validación cruzada con Excel
+ *  (=SUMPRODUCT(LEN(A:A)-LEN(SUBSTITUTE(A:A,"@",""))) en Excel da este número). */
+function countAtSymbols(v: string): number {
+  const s = String(v ?? "");
+  let n = 0;
+  for (const ch of s) if (ch === "@") n++;
+  return n;
 }
 
 /**
@@ -113,7 +125,7 @@ export async function estimateRowCount(file_id: string): Promise<number> {
 export async function parseCSVStreamed(
   file_id: string,
   filename: string,
-  onChunk: (info: { loaded: number; totalEstimate: number; emails: number; rowsWithEmail: number }) => Promise<void> | void,
+  onChunk: (info: { loaded: number; totalEstimate: number; emails: number; rowsWithEmail: number; atSymbols: number }) => Promise<void> | void,
   chunkSize = 100,
 ): Promise<CSVMetadata> {
   const totalEstimate = await estimateRowCount(file_id);
@@ -146,8 +158,9 @@ export async function parseCSVStreamed(
   // email detectadas) — así no perdemos ningún email aunque esté en una
   // columna inesperada (notas, descripción, etc.).
   let loaded = 0;
-  let totalEmails = 0;       // suma de TODOS los emails encontrados
-  let rowsWithEmail = 0;     // filas que tienen al menos 1
+  let totalEmails = 0;       // suma de emails con formato válido user@host.tld
+  let rowsWithEmail = 0;     // filas con al menos 1 email
+  let totalAtSymbols = 0;    // todos los @ del CSV — cuenta cruzada con Excel
   for (let i = 0; i < dataRows.length; i += chunkSize) {
     const end = Math.min(dataRows.length, i + chunkSize);
     for (let r = i; r < end; r++) {
@@ -155,6 +168,7 @@ export async function parseCSVStreamed(
       let rowEmails = 0;
       for (const cell of row) {
         rowEmails += countEmailsInCell(cell);
+        totalAtSymbols += countAtSymbols(cell);
       }
       totalEmails += rowEmails;
       if (rowEmails > 0) rowsWithEmail++;
@@ -165,6 +179,7 @@ export async function parseCSVStreamed(
       totalEstimate: Math.max(totalEstimate, dataRows.length),
       emails: totalEmails,
       rowsWithEmail,
+      atSymbols: totalAtSymbols,
     });
     await new Promise((res) => setImmediate(res));
   }
@@ -184,6 +199,7 @@ export async function parseCSVStreamed(
     email_columns: emailColIdx.map((i) => columns[i]).filter(Boolean),
     email_count: totalEmails,
     rows_with_email: rowsWithEmail,
+    at_symbols: totalAtSymbols,
     preview,
   };
   await writeJson(`${CSV_META_PREFIX}${file_id}`, meta);

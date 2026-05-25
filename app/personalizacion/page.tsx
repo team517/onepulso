@@ -754,24 +754,36 @@ export default function PersonalizacionPage() {
                     📊 <strong>{file.row_count.toLocaleString()} leads</strong> cargados completos · <strong>{file.columns.length}</strong> columnas detectadas
                   </div>
                   {typeof file.email_count === "number" && (
-                    <div style={{ fontSize: 12.5, color: "#047857", marginTop: 4, fontWeight: 500 }}>
-                      📧 <strong>{file.email_count.toLocaleString()}</strong> emails encontrados en total
-                      {typeof file.rows_with_email === "number" && (
-                        <span style={{ marginLeft: 6 }}>
-                          · <strong>{file.rows_with_email.toLocaleString()}</strong> filas con email
-                        </span>
+                    <>
+                      <div style={{ fontSize: 12.5, color: "#047857", marginTop: 4, fontWeight: 500 }}>
+                        📧 <strong>{file.email_count.toLocaleString()}</strong> emails encontrados en total
+                        {typeof file.rows_with_email === "number" && (
+                          <span style={{ marginLeft: 6 }}>
+                            · <strong>{file.rows_with_email.toLocaleString()}</strong> filas con email
+                          </span>
+                        )}
+                        {typeof file.rows_with_email === "number" && file.row_count > file.rows_with_email && (
+                          <span style={{ color: "#b45309", marginLeft: 6 }}>
+                            · {(file.row_count - file.rows_with_email).toLocaleString()} sin email
+                          </span>
+                        )}
+                        {file.email_columns && file.email_columns.length > 0 && (
+                          <span style={{ color: "var(--text-dim)", marginLeft: 8, fontWeight: 500 }}>
+                            (columna{file.email_columns.length > 1 ? "s" : ""} detectada{file.email_columns.length > 1 ? "s" : ""}: {file.email_columns.join(", ")})
+                          </span>
+                        )}
+                      </div>
+                      {typeof file.at_symbols === "number" && (
+                        <div style={{ fontSize: 11.5, color: "var(--text-dim)", marginTop: 3 }}>
+                          @ totales en el CSV (validación cruzada con Excel): <strong style={{ color: "#0f172a" }}>{file.at_symbols.toLocaleString()}</strong>
+                          {file.at_symbols !== file.email_count && (
+                            <span style={{ color: "#b45309", marginLeft: 6 }}>
+                              ({(file.at_symbols - (file.email_count || 0)).toLocaleString()} no tienen formato user@host.tld — probablemente handles sociales)
+                            </span>
+                          )}
+                        </div>
                       )}
-                      {typeof file.rows_with_email === "number" && file.row_count > file.rows_with_email && (
-                        <span style={{ color: "#b45309", marginLeft: 6 }}>
-                          · {(file.row_count - file.rows_with_email).toLocaleString()} sin email
-                        </span>
-                      )}
-                      {file.email_columns && file.email_columns.length > 0 && (
-                        <span style={{ color: "var(--text-dim)", marginLeft: 8, fontWeight: 500 }}>
-                          (columna{file.email_columns.length > 1 ? "s" : ""} detectada{file.email_columns.length > 1 ? "s" : ""}: {file.email_columns.join(", ")})
-                        </span>
-                      )}
-                    </div>
+                    </>
                   )}
                 </div>
                 <button onClick={() => { setFile(null); setMapping({}); setPreviewResult(null); setRunJob(null); }} style={btnGhostSm}>Cambiar</button>

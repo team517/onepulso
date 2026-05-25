@@ -259,8 +259,8 @@ export default function ClientInboxPage() {
     : [];
 
   return (
-    <div style={appStyle}>
-      <aside style={sidebarStyle}>
+    <div style={appStyle} className="unibox-app">
+      <aside style={sidebarStyle} className={`unibox-sidebar ${selectedMsg ? "is-hidden-mobile" : ""}`}>
         <div style={brandRow}>
           <div style={logoMark}>✉</div>
           <div>
@@ -305,7 +305,7 @@ export default function ClientInboxPage() {
         </button>
       </aside>
 
-      <section style={listPaneStyle}>
+      <section style={listPaneStyle} className={`unibox-list ${selectedMsg ? "is-hidden-mobile" : ""}`}>
         <div style={toolbarStyle}>
           <input
             type="text"
@@ -450,16 +450,25 @@ export default function ClientInboxPage() {
         </div>
       </section>
 
-      <section style={viewPaneStyle}>
+      <section style={viewPaneStyle} className={`unibox-view ${!selectedMsg ? "is-hidden-mobile" : ""}`}>
         {!selectedMsg ? (
           <div style={placeholderStyle}>
             <div style={{ fontSize: 48, opacity: 0.3, marginBottom: 12 }}>✉</div>
             <div>Selecciona un mensaje para verlo</div>
           </div>
         ) : (
-          <div style={{ padding: "28px 36px", overflowY: "auto", height: "100%" }}>
-            <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 16 }}>
-              <h2 style={{ margin: 0, fontSize: 22, fontWeight: 600, color: "#0f172a", letterSpacing: "-0.01em", flex: 1 }}>
+          <div style={{ padding: "28px 36px", overflowY: "auto", height: "100%" }} className="unibox-view-inner">
+            {/* Botón volver (solo móvil) */}
+            <button
+              onClick={() => setSelectedMsg(null)}
+              className="unibox-back-mobile"
+              aria-label="Volver a la bandeja"
+            >
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+              <span>Volver</span>
+            </button>
+            <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 16, gap: 10, flexWrap: "wrap" }}>
+              <h2 style={{ margin: 0, fontSize: 22, fontWeight: 600, color: "#0f172a", letterSpacing: "-0.01em", flex: 1, minWidth: 200 }}>
                 {selectedMsg.subject || "(sin asunto)"}
               </h2>
               <div style={{ display: "flex", gap: 8 }}>

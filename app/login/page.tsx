@@ -107,12 +107,12 @@ export default function LoginPage() {
             justifyContent: "center",
             width: "56px",
             height: "56px",
-            background: "linear-gradient(145deg, #0d2244, #1a3a6e)",
+            background: "linear-gradient(135deg, #f9a603 0%, #f59e3a 30%, #d15cfe 100%)",
             borderRadius: "16px",
             marginBottom: "20px",
-            boxShadow: "0 8px 24px rgba(13,34,68,0.25), 0 2px 6px rgba(13,34,68,0.15)",
+            boxShadow: "0 8px 28px rgba(209,92,254,0.35), 0 2px 6px rgba(13,34,68,0.1)",
           }}>
-            <span style={{ fontSize: "24px", lineHeight: 1 }}>⚡</span>
+            <span style={{ fontSize: "22px", lineHeight: 1, color: "#fff", fontWeight: 800, fontFamily: "'Plus Jakarta Sans', sans-serif" }}>O</span>
           </div>
 
           <h1 style={{

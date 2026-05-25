@@ -112,15 +112,15 @@ function LoginScreen({ slug, onSuccess }: { slug: string; onSuccess: () => void 
       fontFamily: "-apple-system, 'SF Pro Text', 'Helvetica Neue', Arial, sans-serif",
       WebkitFontSmoothing: "antialiased",
     }}>
-      {/* Decorative blobs */}
+      {/* Decorative blobs con brand gradient */}
       <div style={{
         position: "fixed", top: "10%", left: "15%", width: 500, height: 500,
-        background: "radial-gradient(ellipse at center, rgba(0,113,227,0.08) 0%, transparent 70%)",
+        background: "radial-gradient(ellipse at center, rgba(249,166,3,0.12) 0%, transparent 70%)",
         pointerEvents: "none", zIndex: 0,
       }} />
       <div style={{
         position: "fixed", bottom: "10%", right: "15%", width: 400, height: 400,
-        background: "radial-gradient(ellipse at center, rgba(59,130,246,0.06) 0%, transparent 70%)",
+        background: "radial-gradient(ellipse at center, rgba(209,92,254,0.12) 0%, transparent 70%)",
         pointerEvents: "none", zIndex: 0,
       }} />
 
@@ -129,11 +129,11 @@ function LoginScreen({ slug, onSuccess }: { slug: string; onSuccess: () => void 
           <div style={{
             display: "inline-flex", alignItems: "center", justifyContent: "center",
             width: 56, height: 56,
-            background: "linear-gradient(145deg, #0d2244, #1a3a6e)",
+            background: "linear-gradient(135deg, #f9a603 0%, #f59e3a 30%, #d15cfe 100%)",
             borderRadius: 16, marginBottom: 20,
-            boxShadow: "0 8px 24px rgba(13,34,68,0.25)",
+            boxShadow: "0 8px 28px rgba(209,92,254,0.35)",
           }}>
-            <span style={{ fontSize: 24 }}>⚡</span>
+            <span style={{ fontSize: 22, fontWeight: 800, fontFamily: "'Plus Jakarta Sans', sans-serif", color: "#fff" }}>O</span>
           </div>
           <h1 style={{
             color: "#0f172a", fontSize: 28, fontWeight: 700,
@@ -323,7 +323,12 @@ function Dashboard({ slug, data, onLogout, onRefresh }: {
             <div style={{ display: "flex", alignItems: "baseline", gap: 10, marginBottom: 10 }}>
               <div style={{
                 fontSize: 56, fontWeight: 700,
-                color: percent === 100 ? "#16a34a" : "#0071e3",
+                background: percent === 100
+                  ? "linear-gradient(135deg, #16a34a, #22c55e)"
+                  : "linear-gradient(135deg, #f9a603 0%, #f59e3a 30%, #d15cfe 100%)",
+                WebkitBackgroundClip: "text",
+                backgroundClip: "text",
+                WebkitTextFillColor: "transparent",
                 letterSpacing: "-0.04em", lineHeight: 1,
               }}>
                 {percent}<span style={{ fontSize: 28, opacity: 0.6 }}>%</span>
@@ -340,9 +345,9 @@ function Dashboard({ slug, data, onLogout, onRefresh }: {
                 width: `${percent}%`, height: "100%",
                 background: percent === 100
                   ? "linear-gradient(90deg, #22c55e, #16a34a)"
-                  : "linear-gradient(90deg, #0071e3, #3b82f6, #60a5fa)",
+                  : "linear-gradient(90deg, #f9a603 0%, #f59e3a 30%, #d15cfe 100%)",
                 transition: "width 0.6s cubic-bezier(.4,0,.2,1)",
-                boxShadow: "0 2px 8px rgba(0,113,227,0.3)",
+                boxShadow: "0 2px 12px rgba(209,92,254,0.35)",
               }} />
             </div>
 

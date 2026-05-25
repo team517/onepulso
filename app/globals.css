@@ -303,6 +303,15 @@ a { text-decoration: none; color: inherit; }
   gap: 2px;
 }
 
+/* Línea fina con gradiente brand arriba del sidebar para acento de marca */
+.dash-nav::before {
+  content: "";
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 3px;
+  background: var(--g-brand);
+}
+
 .dash-nav-brand {
   display: flex;
   align-items: center;
@@ -512,6 +521,16 @@ a { text-decoration: none; color: inherit; }
   border-bottom: 1px solid var(--border);
   background: var(--surface);
   flex-shrink: 0;
+  position: relative;
+}
+/* Hilo brand abajo del header (acento sutil del design system) */
+.dash-page-header::after {
+  content: "";
+  position: absolute;
+  left: 0; right: 0; bottom: -1px;
+  height: 2px;
+  background: var(--g-brand);
+  opacity: 0.65;
 }
 
 .dash-page-title {

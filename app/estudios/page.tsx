@@ -68,7 +68,7 @@ export default function EstudiosPage() {
           </div>
           <button onClick={createNew} disabled={creating} style={{
             padding: "10px 18px",
-            background: "#0071e3",
+            background: "linear-gradient(135deg, #f9a603 0%, #f59e3a 30%, #d15cfe 100%)",
             border: "none",
             borderRadius: 10,
             color: "#fff",
@@ -76,7 +76,7 @@ export default function EstudiosPage() {
             fontWeight: 600,
             cursor: creating ? "wait" : "pointer",
             letterSpacing: "-0.01em",
-            boxShadow: "0 2px 6px rgba(0,113,227,0.25)",
+            boxShadow: "0 4px 14px rgba(209,92,254,0.25), 0 1px 0 rgba(0,0,0,0.08) inset",
             fontFamily: "inherit",
           }}>
             + Nuevo estudio

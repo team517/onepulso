@@ -203,7 +203,7 @@ export default function UniboxAdminDetailPage() {
       <DashboardNav />
       <div className="dash-content" style={mainStyle}>
         <Link href="/uniboxes" style={backStyle}>← Volver</Link>
-        <div style={headerStyle}>
+        <div style={headerStyle} className="uniboxes-detail-header">
           <div>
             <h1 style={h1Style}>{unibox.title}</h1>
             <div style={subStyle}>

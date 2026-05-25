@@ -71,7 +71,7 @@ export default function OnboardingPage() {
       <DashboardNav />
       <main style={{ flex: 1, padding: "32px 40px", overflow: "auto" }}>
         {/* Header */}
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 28 }}>
+        <div className="onboarding-header" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 28, gap: 12, flexWrap: "wrap" }}>
           <div>
             <h1 style={{ margin: 0, fontSize: 32, fontWeight: 700, letterSpacing: "-0.04em", color: "#0f172a" }}>
               Onboarding

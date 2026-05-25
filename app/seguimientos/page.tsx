@@ -1671,9 +1671,9 @@ export default function SeguimientosPage() {
             ))}
           </nav>
 
-          <div className={`seg-main-2col ${tab === "secuencias" ? "seg-main-1col" : ""}`}>
+          <div className={`seg-main-2col ${tab === "secuencias" ? "seg-main-1col" : ""} ${thread || view === "compose" ? "has-thread" : ""}`}>
             {tab !== "secuencias" && (
-            <aside className="seg-sidebar">
+            <aside className="seg-sidebar seg-list-col">
               <input
                 className="li-input"
                 style={{ marginBottom: 12 }}
@@ -1706,7 +1706,17 @@ export default function SeguimientosPage() {
             </aside>
             )}
 
-            <main className="seg-content seg-content-2col">
+            <main className="seg-content seg-content-2col seg-thread-col">
+              {(thread || view === "compose") && (
+                <button
+                  onClick={() => { setThread(null); setView("list"); }}
+                  className="seg-back-mobile"
+                  aria-label="Volver a la lista"
+                >
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+                  <span>Volver a la lista</span>
+                </button>
+              )}
               {view === "compose" && (
                 <ComposeView
                   to={to}

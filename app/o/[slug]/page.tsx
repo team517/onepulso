@@ -254,9 +254,9 @@ function Dashboard({ slug, data, onLogout, onRefresh }: {
       <div style={{ maxWidth: 760, margin: "0 auto" }}>
 
         {/* Top bar */}
-        <div style={{
+        <div className="portal-topbar" style={{
           display: "flex", alignItems: "center", justifyContent: "space-between",
-          marginBottom: 32,
+          marginBottom: 32, gap: 10, flexWrap: "wrap",
         }}>
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
             <div style={{

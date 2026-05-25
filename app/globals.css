@@ -2850,3 +2850,193 @@ h1.page-title {
 /* === OnePulso: scroll behavior smooth === */
 html { scroll-behavior: smooth; }
 
+
+/* =========================================================
+   📱 AJUSTES MOVIL POR PAGINA — Seguimientos / Onboarding / Unibox
+   ========================================================= */
+
+/* Defaults fuera de media query — ocultos en desktop */
+.seg-back-mobile { display: none; }
+
+@media (max-width: 900px) {
+
+  /* Botón volver a la lista en seguimientos — visible solo en móvil */
+  .seg-back-mobile {
+    display: inline-flex;
+    align-items: center; gap: 6px;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 9px;
+    padding: 7px 12px;
+    color: var(--t2);
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    margin-bottom: 14px;
+    font-family: inherit;
+  }
+
+  /* === SEGUIMIENTOS === */
+  /* Header: pasar a column, padding reducido, botones se envuelven */
+  .seg-header {
+    padding: 12px 14px !important;
+    flex-wrap: wrap !important;
+    gap: 8px !important;
+  }
+  .dash-page-title { font-size: 16px !important; }
+  .seg-status {
+    flex-wrap: wrap !important;
+    gap: 4px !important;
+    width: 100%;
+    justify-content: flex-start !important;
+  }
+  /* Tabs scrollables horizontalmente, sin texto cortado */
+  .seg-tabs {
+    padding: 0 4px !important;
+    gap: 0 !important;
+  }
+  .seg-tab { padding: 10px 12px !important; font-size: 12px !important; }
+
+  /* Layout 2-col → 1-col stack */
+  .seg-main-2col {
+    grid-template-columns: 1fr !important;
+    grid-template-rows: 1fr !important;
+    height: auto !important;
+  }
+  /* Cuando hay un thread abierto en móvil, ocultar la lista y mostrar
+     solo el thread. Cuando no hay thread, mostrar la lista. */
+  .seg-main-2col.has-thread .seg-list-col { display: none !important; }
+  .seg-main-2col:not(.has-thread) .seg-thread-col { display: none !important; }
+  .seg-content-2col { padding: 14px !important; }
+
+  /* Toolbar de seguimientos — botones más pequeños y wrap */
+  .seg-tb-btn, .seg-tb-icon-btn {
+    height: 32px !important;
+    min-width: 32px !important;
+    padding: 4px 8px !important;
+    font-size: 12px !important;
+  }
+
+  /* Thread item: padding reducido */
+  .seg-thread-item { padding: 10px 12px !important; }
+  .seg-thread-subject { font-size: 13.5px !important; }
+  .seg-thread-preview { font-size: 12px !important; -webkit-line-clamp: 2; line-clamp: 2; }
+
+
+  /* === ONBOARDING ADMIN === */
+  /* La grid 1fr / 1.6fr ya se aplana via catch-all global, pero el header
+     "+ Nuevo cliente" + "Gestionar fases" necesita más aire. */
+  .onboarding-header { flex-direction: column !important; align-items: stretch !important; gap: 12px !important; }
+  .onboarding-header > div:last-child { display: flex; flex-wrap: wrap; gap: 8px; }
+  .onboarding-header button { flex: 1 1 auto; min-width: 0; justify-content: center; }
+
+
+  /* === UNIBOX ADMIN /uniboxes === */
+  /* Lista de uniboxes: grid auto-fill 320px → 1 col en móvil */
+  [class*="dash-content"] > div[style*="repeat(auto-fill, minmax(320px"] {
+    grid-template-columns: 1fr !important;
+  }
+
+  /* === UNIBOX DETAIL /uniboxes/[id] === */
+  /* Header con título + botones: stack vertical */
+  .uniboxes-detail-header {
+    flex-direction: column !important;
+    align-items: stretch !important;
+    gap: 14px !important;
+  }
+  .uniboxes-detail-header > div:last-child {
+    flex-wrap: wrap !important;
+    gap: 6px !important;
+  }
+  .uniboxes-detail-header > div:last-child button,
+  .uniboxes-detail-header > div:last-child a {
+    font-size: 12px !important;
+    padding: 7px 10px !important;
+  }
+
+  /* Stats row 3 cols → 1 col en móvil estrecho, 3 cols compactas en md */
+  [style*="repeat(3, 1fr)"] {
+    grid-template-columns: 1fr !important;
+    gap: 8px !important;
+  }
+
+
+  /* === ONBOARDING PORTAL CLIENTE /o/[slug] === */
+  /* Las tarjetas de credenciales y la timeline se ven OK con catch-all,
+     pero el header "Hola PABLO" + botón cerrar necesita stack. */
+  .portal-topbar {
+    flex-wrap: wrap !important;
+    gap: 10px !important;
+  }
+
+
+  /* === PERSONALIZACIÓN === */
+  /* Step wizard: reducir padding */
+  [class*="personalizacion-step"] { padding: 14px !important; }
+  /* Los selects de mapeo se quedan estrechos: 1 col */
+  [style*="grid-template-columns: repeat(auto-fit, minmax(180px"],
+  [style*="grid-template-columns: repeat(auto-fit, minmax(200px"],
+  [style*="grid-template-columns: repeat(auto-fit, minmax(220px"] {
+    grid-template-columns: 1fr 1fr !important;
+  }
+
+  /* Tarjetas de "Trabajos en curso" y "Listos para descargar" */
+  [class*="job-card"] {
+    flex-direction: column !important;
+    align-items: stretch !important;
+  }
+  [class*="job-card"] > div:last-child {
+    flex-wrap: wrap !important;
+    gap: 6px !important;
+  }
+
+
+  /* === ESTUDIOS LISTA === */
+  /* Grid auto-fill 280px → 1 col en móvil estrecho */
+  main[style*="padding"] > div[style*="repeat(auto-fill, minmax(280px"] {
+    grid-template-columns: 1fr !important;
+  }
+
+
+  /* === BOTONES EN HEADER GLOBAL — siempre wrap === */
+  .dash-page-header {
+    flex-wrap: wrap !important;
+    gap: 8px !important;
+  }
+  .dash-page-header > div:last-child {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+
+  /* === Modal previews / details === */
+  details {
+    max-width: 100%;
+    overflow-x: auto;
+  }
+  details > div[style*="grid-template-columns"] {
+    grid-template-columns: 1fr 1fr !important;
+  }
+
+
+  /* === Asegurar que NINGÚN main hace overflow horizontal === */
+  main, [class*="dash-content"] {
+    max-width: 100vw;
+    overflow-x: hidden;
+  }
+  /* Forzar a contenedores con padding lateral grande a quepar */
+  main > * { max-width: 100%; }
+}
+
+
+/* === Pantallas MUY pequeñas (≤ 400px) === */
+@media (max-width: 400px) {
+  .stat-grid { grid-template-columns: 1fr !important; }
+  .seg-tab { padding: 9px 8px !important; font-size: 11.5px !important; }
+  .seg-tab-icon { display: none; }
+
+  h1.page-title, .dash-page-title { font-size: 15px !important; }
+  .stat-card-value { font-size: 19px !important; }
+}
+

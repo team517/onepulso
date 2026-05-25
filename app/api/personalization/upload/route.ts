@@ -30,6 +30,7 @@ export async function POST(req: Request) {
 
   try {
     const meta = await saveCSVBlobOnly(filename, buffer);
+    console.log(`[csv upload] file=${filename} receivedBytes=${buffer.length} (${(buffer.length / 1024 / 1024).toFixed(2)} MB) file_id=${meta.file_id}`);
     return NextResponse.json({
       ok: true,
       file_id: meta.file_id,

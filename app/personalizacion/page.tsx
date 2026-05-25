@@ -311,7 +311,10 @@ export default function PersonalizacionPage() {
           const xhr = new XMLHttpRequest();
           xhr.open("POST", "/api/personalization/upload");
           xhr.setRequestHeader("x-filename", encodeURIComponent(f.name));
-          xhr.setRequestHeader("Content-Type", f.type || "text/csv");
+          // application/octet-stream: forzar tratamiento binario para que ningun
+          // proxy/intermediario transforme contenido (saltos de linea, comillas
+          // unicode, etc.). text/csv lo hemos visto provocar transformaciones.
+          xhr.setRequestHeader("Content-Type", "application/octet-stream");
           xhr.upload.onprogress = (e) => {
             if (e.lengthComputable) {
               setUploadProgress({ phase: "uploading", loaded: e.loaded, total: e.total });

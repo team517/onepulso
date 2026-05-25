@@ -144,6 +144,14 @@ export async function parseCSVStreamed(
   const totalEstimate = await estimateRowCount(file_id);
   const text = await readCSVText(file_id);
 
+  // DIAGNÓSTICO server-side: log de tamaños para detectar truncación durante
+  // upload o lectura desde blob_store.
+  const textBytes = Buffer.byteLength(text, "utf-8");
+  const newlineCount = (text.match(/\n/g) || []).length;
+  const atCount = (text.match(/@/g) || []).length;
+  console.log(`[csv parse] file=${filename} textLen=${text.length} bytes=${textBytes} newlines=${newlineCount} @count=${atCount}`);
+  console.log(`[csv parse] firstChars="${text.slice(0, 200).replace(/\n/g, "\\n").replace(/\r/g, "\\r").replace(/\t/g, "\\t")}"`);
+
   // DETECCIÓN MANUAL del delimitador desde la primera línea — más fiable
   // que el auto-detect de Papa cuando el archivo es grande. Contamos
   // ocurrencias de cada candidato (, ; \t |) y elegimos el mayor.
@@ -159,6 +167,7 @@ export async function parseCSVStreamed(
   if (tabCount  > maxCount) { delimiter = "\t"; maxCount = tabCount; }
   if (pipeCount > maxCount) { delimiter = "|"; maxCount = pipeCount; }
   const delimLabel = delimiter === "\t" ? "TAB" : delimiter === " " ? "SPC" : delimiter;
+  console.log(`[csv parse] delim=${delimLabel} (counts: ,=${commaCount} ;=${semiCount} \\t=${tabCount} |=${pipeCount})`);
 
   // Hacemos las DOS pasadas y reportamos cuál ganó para diagnóstico.
   let parseMode = `estricto · delim=${delimLabel}`;
@@ -189,7 +198,10 @@ export async function parseCSVStreamed(
       parseMode = `estricto · delim=${delimLabel} · ${parseErrors} warnings`;
     }
   }
-  console.log(`[csv parse] file=${filename} delim=${delimLabel} mode=${parseMode} rowsA=${rowsA.length} dataRows=${allRows.length - 1}`);
+  console.log(`[csv parse] file=${filename} delim=${delimLabel} mode=${parseMode} rowsA=${rowsA.length} errorsA=${parseErrors} hasQuoteErrors=${hasQuoteErrors} dataRows=${allRows.length - 1}`);
+  if (rowsA.length > 0) {
+    console.log(`[csv parse] columns (${(allRows[0] || []).length}): ${(allRows[0] || []).slice(0, 10).join(" | ")}${(allRows[0] || []).length > 10 ? " | ..." : ""}`);
+  }
   const columns = allRows[0] ?? [];
   const dataRows = allRows.slice(1);
 

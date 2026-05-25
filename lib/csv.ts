@@ -125,13 +125,49 @@ export async function estimateRowCount(file_id: string): Promise<number> {
 export async function parseCSVStreamed(
   file_id: string,
   filename: string,
-  onChunk: (info: { loaded: number; totalEstimate: number; emails: number; rowsWithEmail: number; atSymbols: number }) => Promise<void> | void,
+  onChunk: (info: {
+    loaded: number;
+    totalEstimate: number;
+    emails: number;
+    rowsWithEmail: number;
+    atSymbols: number;
+    parseMode?: string;
+    errors?: number;
+  }) => Promise<void> | void,
   chunkSize = 100,
 ): Promise<CSVMetadata> {
   const totalEstimate = await estimateRowCount(file_id);
   const text = await readCSVText(file_id);
 
-  const allRows = parseCSV(text);
+  // Hacemos las DOS pasadas y reportamos cuál ganó para diagnóstico.
+  let parseMode = "estricto";
+  let parseErrors = 0;
+  const passA = Papa.parse<string[]>(text, {
+    header: false,
+    skipEmptyLines: "greedy",
+    delimiter: "",
+    quoteChar: '"',
+    escapeChar: '"',
+  });
+  const rowsA = (passA.data || []).filter((r) => r && r.length > 0);
+  const hasQuoteErrors = (passA.errors || []).some((e) => e.code === "MissingQuotes" || e.type === "Quotes");
+  parseErrors = (passA.errors || []).length;
+  let allRows = rowsA;
+  if (hasQuoteErrors) {
+    const passB = Papa.parse<string[]>(text, {
+      header: false,
+      skipEmptyLines: "greedy",
+      delimiter: "",
+      quoteChar: String.fromCharCode(1),
+    });
+    const rowsB = (passB.data || []).filter((r) => r && r.length > 0);
+    if (rowsB.length > rowsA.length * 1.5) {
+      allRows = rowsB;
+      parseMode = "sin-quoting (rescate)";
+    } else {
+      parseMode = `estricto-con-${parseErrors}-warnings`;
+    }
+  }
   const columns = allRows[0] ?? [];
   const dataRows = allRows.slice(1);
 
@@ -158,9 +194,18 @@ export async function parseCSVStreamed(
   // email detectadas) — así no perdemos ningún email aunque esté en una
   // columna inesperada (notas, descripción, etc.).
   let loaded = 0;
-  let totalEmails = 0;       // suma de emails con formato válido user@host.tld
-  let rowsWithEmail = 0;     // filas con al menos 1 email
-  let totalAtSymbols = 0;    // todos los @ del CSV — cuenta cruzada con Excel
+  let totalEmails = 0;
+  let rowsWithEmail = 0;
+  let totalAtSymbols = 0;
+
+  // Cadencia adaptativa: queremos que la animación tarde ~4-5 segundos
+  // independientemente del tamaño, para que el usuario vea los contadores
+  // subir de 100 en 100 en lugar de pasar de 0 a 18K en un flash.
+  // Mínimo 25ms entre chunks, máximo 80ms.
+  const numChunks = Math.max(1, Math.ceil(dataRows.length / chunkSize));
+  const targetTotalMs = 4500;
+  const delayPerChunk = Math.min(80, Math.max(25, Math.floor(targetTotalMs / numChunks)));
+
   for (let i = 0; i < dataRows.length; i += chunkSize) {
     const end = Math.min(dataRows.length, i + chunkSize);
     for (let r = i; r < end; r++) {
@@ -180,8 +225,11 @@ export async function parseCSVStreamed(
       emails: totalEmails,
       rowsWithEmail,
       atSymbols: totalAtSymbols,
+      parseMode,
+      errors: parseErrors,
     });
-    await new Promise((res) => setImmediate(res));
+    // Delay real para que la animación se vea — no solo setImmediate.
+    await new Promise((res) => setTimeout(res, delayPerChunk));
   }
 
   const preview: Array<Record<string, string>> = [];

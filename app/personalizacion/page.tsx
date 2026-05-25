@@ -42,7 +42,14 @@ REGLAS:
 export default function PersonalizacionPage() {
   const [file, setFile] = useState<any>(null);
   const [uploading, setUploading] = useState(false);
-  const [uploadProgress, setUploadProgress] = useState<{ phase: "uploading" | "parsing"; loaded: number; total: number; emails?: number } | null>(null);
+  const [uploadProgress, setUploadProgress] = useState<{
+    phase: "uploading" | "parsing";
+    loaded: number;
+    total: number;
+    emails?: number;
+    rowsWithEmail?: number;
+    parseMode?: string;
+  } | null>(null);
   const [mapping, setMapping] = useState<Mapping>({});
   const [prompt, setPrompt] = useState(DEFAULT_PROMPT);
   const [provider, setProvider] = useState<"claude" | "deepseek">("claude");
@@ -333,7 +340,14 @@ export default function PersonalizacionPage() {
           es.addEventListener("progress", (ev: MessageEvent) => {
             try {
               const d = JSON.parse(ev.data);
-              setUploadProgress({ phase: "parsing", loaded: d.loaded, total: d.total_estimate, emails: d.emails });
+              setUploadProgress({
+                phase: "parsing",
+                loaded: d.loaded,
+                total: d.total_estimate,
+                emails: d.emails,
+                rowsWithEmail: d.rows_with_email,
+                parseMode: d.parse_mode,
+              });
             } catch {}
           });
           es.addEventListener("done", (ev: MessageEvent) => {
@@ -693,49 +707,82 @@ export default function PersonalizacionPage() {
                 <input ref={fileRef} type="file" accept=".csv,.tsv" hidden onChange={(e) => onPickFile(e.target.files?.[0])} />
               </label>
 
-              {/* Barra de progreso visible mientras sube/parsea */}
+              {/* Panel de progreso completo con brand gradient + métricas en vivo */}
               {uploading && uploadProgress && (
                 <div style={{
-                  marginTop: 14, padding: "12px 14px",
-                  background: "linear-gradient(135deg, rgba(0,113,227,0.05), rgba(0,113,227,0.1))",
-                  border: "1px solid rgba(0,113,227,0.25)",
-                  borderRadius: 10,
+                  marginTop: 14, padding: "14px 16px",
+                  background: "linear-gradient(135deg, rgba(249,166,3,0.06), rgba(209,92,254,0.06))",
+                  border: "1px solid rgba(209,92,254,0.25)",
+                  borderRadius: 12,
                 }}>
                   <div style={{
-                    display: "flex", justifyContent: "space-between", marginBottom: 6,
-                    fontSize: 12, fontWeight: 700, color: "var(--accent)",
+                    display: "flex", justifyContent: "space-between", marginBottom: 8,
+                    fontSize: 12.5, fontWeight: 700, color: "#9a3fc7",
+                    flexWrap: "wrap", gap: 6,
                   }}>
                     <span>
                       {uploadProgress.phase === "uploading"
-                        ? `📤 Subiendo bytes al servidor`
-                        : `🔍 Cargando leads del CSV (lotes de 100)`}
+                        ? `📤 Subiendo CSV al servidor`
+                        : `🔍 Leyendo CSV fila a fila (lotes de 100)`}
                     </span>
-                    <span>
+                    <span style={{ fontFamily: "var(--font-mono)", fontVariantNumeric: "tabular-nums" }}>
                       {uploadProgress.phase === "uploading"
                         ? `${(uploadProgress.loaded / 1024 / 1024).toFixed(1)} / ${(uploadProgress.total / 1024 / 1024).toFixed(1)} MB`
-                        : `${uploadProgress.loaded.toLocaleString("es")} / ${(uploadProgress.total || uploadProgress.loaded).toLocaleString("es")} leads`}
+                        : `${uploadProgress.loaded.toLocaleString("es")} / ${(uploadProgress.total || uploadProgress.loaded).toLocaleString("es")} filas`}
                     </span>
                   </div>
-                  <div style={{ height: 8, background: "rgba(0,113,227,0.12)", borderRadius: 99, overflow: "hidden" }}>
+                  <div style={{ height: 10, background: "rgba(15,23,42,0.06)", borderRadius: 99, overflow: "hidden" }}>
                     <div style={{
                       width: uploadProgress.total > 0
                         ? `${Math.min(100, (uploadProgress.loaded / uploadProgress.total) * 100)}%`
                         : "30%",
                       height: "100%",
-                      background: "linear-gradient(90deg, #0071e3, #06b6d4)",
+                      background: "linear-gradient(90deg, #f9a603 0%, #f59e3a 30%, #d15cfe 100%)",
+                      boxShadow: "0 0 12px rgba(209,92,254,0.4)",
                       transition: "width 0.2s",
                       animation: uploadProgress.total === 0 ? "pulse 1.5s ease-in-out infinite" : "none",
                     }} />
                   </div>
                   {uploadProgress.phase === "parsing" && (
-                    <div style={{ fontSize: 11, color: "var(--text-dim)", marginTop: 6, display: "flex", justifyContent: "space-between", gap: 10 }}>
-                      <span>Procesando todas las filas para no dejarse ninguna. No cierres la pestaña.</span>
-                      {typeof uploadProgress.emails === "number" && (
-                        <span style={{ color: "#0071e3", fontWeight: 700, whiteSpace: "nowrap" }}>
-                          📧 {uploadProgress.emails.toLocaleString("es")} con email
-                        </span>
-                      )}
-                    </div>
+                    <>
+                      {/* Métricas en vivo: 3 contadores tipo dashboard */}
+                      <div style={{
+                        display: "grid",
+                        gridTemplateColumns: "repeat(3, 1fr)",
+                        gap: 8,
+                        marginTop: 12,
+                      }}>
+                        <div style={liveMetricStyle}>
+                          <div style={liveMetricLabel}>Filas</div>
+                          <div style={liveMetricValue}>{uploadProgress.loaded.toLocaleString("es")}</div>
+                        </div>
+                        <div style={liveMetricStyle}>
+                          <div style={liveMetricLabel}>Con email</div>
+                          <div style={{ ...liveMetricValue, color: "#1f8a5b" }}>
+                            {(uploadProgress.rowsWithEmail ?? 0).toLocaleString("es")}
+                          </div>
+                        </div>
+                        <div style={liveMetricStyle}>
+                          <div style={liveMetricLabel}>Emails totales</div>
+                          <div style={{ ...liveMetricValue, color: "#0566ea" }}>
+                            {(uploadProgress.emails ?? 0).toLocaleString("es")}
+                          </div>
+                        </div>
+                      </div>
+                      <div style={{
+                        fontSize: 10.5, color: "var(--text-faint)",
+                        marginTop: 8, display: "flex",
+                        justifyContent: "space-between", gap: 8,
+                        letterSpacing: "0.02em",
+                      }}>
+                        <span>Procesando 100 filas por lote — no cierres la pestaña</span>
+                        {uploadProgress.parseMode && (
+                          <span style={{ fontFamily: "var(--font-mono)" }}>
+                            modo: {uploadProgress.parseMode}
+                          </span>
+                        )}
+                      </div>
+                    </>
                   )}
                 </div>
               )}
@@ -1534,6 +1581,26 @@ const btnGhost: React.CSSProperties = {
   fontSize: 13, fontWeight: 600, cursor: "pointer",
   fontFamily: "inherit",
 };
+const liveMetricStyle: React.CSSProperties = {
+  background: "rgba(255,255,255,0.7)",
+  border: "1px solid rgba(15,23,42,0.06)",
+  borderRadius: 8,
+  padding: "8px 10px",
+  textAlign: "center",
+};
+const liveMetricLabel: React.CSSProperties = {
+  fontSize: 10, color: "var(--text-faint)",
+  fontWeight: 600, letterSpacing: "0.05em",
+  textTransform: "uppercase", marginBottom: 2,
+};
+const liveMetricValue: React.CSSProperties = {
+  fontFamily: "var(--font-mono)",
+  fontVariantNumeric: "tabular-nums",
+  fontSize: 17, fontWeight: 700,
+  color: "var(--text)", letterSpacing: "-0.02em",
+  lineHeight: 1,
+};
+
 const btnGhostSm: React.CSSProperties = {
   padding: "6px 12px",
   background: "#fff", color: "var(--text-dim)",

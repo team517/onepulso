@@ -305,34 +305,58 @@ export default function PersonalizacionPage() {
     setUploading(true);
     setUploadProgress({ phase: "uploading", loaded: 0, total: f.size });
     try {
-      // FASE 1: upload con barra de progreso real (XHR para pillar bytes subidos)
-      const uploadResult = await new Promise<{ file_id: string; filename: string; size: number }>(
-        (resolve, reject) => {
+      // FASE 1: upload por CHUNKS de 8 MB (sortea el límite de ~10 MB que
+      // Next.js impone a los Route Handlers). El archivo se split en N
+      // chunks y se envía cada uno con un upload-id común.
+      const CHUNK_SIZE = 8 * 1024 * 1024;
+      const totalChunks = Math.max(1, Math.ceil(f.size / CHUNK_SIZE));
+      const uploadId =
+        (crypto && typeof crypto.randomUUID === "function" && crypto.randomUUID()) ||
+        Math.random().toString(36).slice(2) + Date.now().toString(36);
+
+      let uploadResult: { file_id: string; filename: string; size: number } | null = null;
+      let totalUploaded = 0;
+      for (let i = 0; i < totalChunks; i++) {
+        const start = i * CHUNK_SIZE;
+        const end = Math.min(f.size, start + CHUNK_SIZE);
+        const chunk = f.slice(start, end);
+
+        const j = await new Promise<any>((resolve, reject) => {
           const xhr = new XMLHttpRequest();
-          xhr.open("POST", "/api/personalization/upload");
+          xhr.open("POST", "/api/personalization/upload-chunked");
+          xhr.setRequestHeader("x-upload-id", uploadId);
+          xhr.setRequestHeader("x-chunk-index", String(i));
+          xhr.setRequestHeader("x-total-chunks", String(totalChunks));
           xhr.setRequestHeader("x-filename", encodeURIComponent(f.name));
-          // application/octet-stream: forzar tratamiento binario para que ningun
-          // proxy/intermediario transforme contenido (saltos de linea, comillas
-          // unicode, etc.). text/csv lo hemos visto provocar transformaciones.
           xhr.setRequestHeader("Content-Type", "application/octet-stream");
           xhr.upload.onprogress = (e) => {
             if (e.lengthComputable) {
-              setUploadProgress({ phase: "uploading", loaded: e.loaded, total: e.total });
+              setUploadProgress({
+                phase: "uploading",
+                loaded: totalUploaded + e.loaded,
+                total: f.size,
+              });
             }
           };
           xhr.onload = () => {
             try {
-              const j = JSON.parse(xhr.responseText);
-              if (xhr.status >= 200 && xhr.status < 300 && j.ok) resolve(j);
-              else reject(new Error(j.error || `HTTP ${xhr.status}`));
+              const d = JSON.parse(xhr.responseText);
+              if (xhr.status >= 200 && xhr.status < 300 && d.ok) resolve(d);
+              else reject(new Error(d.error || `HTTP ${xhr.status} chunk ${i}`));
             } catch (e: any) {
-              reject(new Error("Respuesta inválida"));
+              reject(new Error(`Respuesta inválida chunk ${i}`));
             }
           };
-          xhr.onerror = () => reject(new Error("Error de red"));
-          xhr.send(f);
-        },
-      );
+          xhr.onerror = () => reject(new Error(`Error de red en chunk ${i}`));
+          xhr.send(chunk);
+        });
+
+        totalUploaded += (end - start);
+        if (j.complete) {
+          uploadResult = { file_id: j.file_id, filename: j.filename, size: j.size };
+        }
+      }
+      if (!uploadResult) throw new Error("Upload no finalizó");
 
       // FASE 2: parseo en streaming (SSE) — la barra ahora cuenta filas procesadas
       setUploadProgress({ phase: "parsing", loaded: 0, total: 0 });

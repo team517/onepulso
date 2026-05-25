@@ -42,7 +42,7 @@ REGLAS:
 export default function PersonalizacionPage() {
   const [file, setFile] = useState<any>(null);
   const [uploading, setUploading] = useState(false);
-  const [uploadProgress, setUploadProgress] = useState<{ phase: "uploading" | "parsing"; loaded: number; total: number } | null>(null);
+  const [uploadProgress, setUploadProgress] = useState<{ phase: "uploading" | "parsing"; loaded: number; total: number; emails?: number } | null>(null);
   const [mapping, setMapping] = useState<Mapping>({});
   const [prompt, setPrompt] = useState(DEFAULT_PROMPT);
   const [provider, setProvider] = useState<"claude" | "deepseek">("claude");
@@ -333,7 +333,7 @@ export default function PersonalizacionPage() {
           es.addEventListener("progress", (ev: MessageEvent) => {
             try {
               const d = JSON.parse(ev.data);
-              setUploadProgress({ phase: "parsing", loaded: d.loaded, total: d.total_estimate });
+              setUploadProgress({ phase: "parsing", loaded: d.loaded, total: d.total_estimate, emails: d.emails });
             } catch {}
           });
           es.addEventListener("done", (ev: MessageEvent) => {
@@ -728,8 +728,13 @@ export default function PersonalizacionPage() {
                     }} />
                   </div>
                   {uploadProgress.phase === "parsing" && (
-                    <div style={{ fontSize: 11, color: "var(--text-dim)", marginTop: 6 }}>
-                      Procesando todas las filas para no dejarse ninguna. No cierres la pestaña.
+                    <div style={{ fontSize: 11, color: "var(--text-dim)", marginTop: 6, display: "flex", justifyContent: "space-between", gap: 10 }}>
+                      <span>Procesando todas las filas para no dejarse ninguna. No cierres la pestaña.</span>
+                      {typeof uploadProgress.emails === "number" && (
+                        <span style={{ color: "#0071e3", fontWeight: 700, whiteSpace: "nowrap" }}>
+                          📧 {uploadProgress.emails.toLocaleString("es")} con email
+                        </span>
+                      )}
                     </div>
                   )}
                 </div>
@@ -748,6 +753,21 @@ export default function PersonalizacionPage() {
                   <div style={{ fontSize: 13, color: "#047857", marginTop: 3, fontWeight: 600 }}>
                     📊 <strong>{file.row_count.toLocaleString()} leads</strong> cargados completos · <strong>{file.columns.length}</strong> columnas detectadas
                   </div>
+                  {typeof file.email_count === "number" && (
+                    <div style={{ fontSize: 12.5, color: "#047857", marginTop: 4, fontWeight: 500 }}>
+                      📧 <strong>{file.email_count.toLocaleString()}</strong> filas con email válido
+                      {file.row_count > file.email_count && (
+                        <span style={{ color: "#b45309", marginLeft: 6 }}>
+                          · {(file.row_count - file.email_count).toLocaleString()} sin email
+                        </span>
+                      )}
+                      {file.email_columns && file.email_columns.length > 0 && (
+                        <span style={{ color: "var(--text-dim)", marginLeft: 8, fontWeight: 500 }}>
+                          (columna{file.email_columns.length > 1 ? "s" : ""}: {file.email_columns.join(", ")})
+                        </span>
+                      )}
+                    </div>
+                  )}
                 </div>
                 <button onClick={() => { setFile(null); setMapping({}); setPreviewResult(null); setRunJob(null); }} style={btnGhostSm}>Cambiar</button>
               </div>

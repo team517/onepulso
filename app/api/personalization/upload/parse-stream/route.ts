@@ -31,14 +31,16 @@ export async function GET(req: NextRequest) {
       };
       try {
         send("start", { file_id, filename });
-        const meta = await parseCSVStreamed(file_id, filename, async (loaded, total) => {
-          send("progress", { loaded, total_estimate: total });
+        const meta = await parseCSVStreamed(file_id, filename, async ({ loaded, totalEstimate, emails }) => {
+          send("progress", { loaded, total_estimate: totalEstimate, emails });
         }, 100);
         send("done", {
           file_id: meta.file_id,
           filename: meta.filename,
           columns: meta.columns,
           row_count: meta.row_count,
+          email_count: meta.email_count,
+          email_columns: meta.email_columns,
           preview: meta.preview,
         });
       } catch (e: any) {

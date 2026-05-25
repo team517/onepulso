@@ -10,8 +10,18 @@ export type CSVMetadata = {
   filename: string;
   columns: string[];
   row_count: number;
+  /** Columna(s) detectada(s) como email (las que tienen al menos 50% de
+   *  celdas con formato email). */
+  email_columns?: string[];
+  /** Cuántas filas tienen al menos 1 email válido en alguna celda. */
+  email_count?: number;
   preview: Array<Record<string, string>>;
 };
+
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+function isEmail(v: string): boolean {
+  return EMAIL_RE.test(String(v ?? "").trim());
+}
 
 /**
  * Guarda un CSV en Postgres (blob_store) en lugar del filesystem local.
@@ -76,7 +86,7 @@ export async function estimateRowCount(file_id: string): Promise<number> {
 export async function parseCSVStreamed(
   file_id: string,
   filename: string,
-  onChunk: (loaded: number, totalEstimate: number) => Promise<void> | void,
+  onChunk: (info: { loaded: number; totalEstimate: number; emails: number }) => Promise<void> | void,
   chunkSize = 100,
 ): Promise<CSVMetadata> {
   const totalEstimate = await estimateRowCount(file_id);
@@ -86,12 +96,41 @@ export async function parseCSVStreamed(
   const columns = allRows[0] ?? [];
   const dataRows = allRows.slice(1);
 
-  // Reportar por chunks para visualizar progreso.
+  // Detectar qué columnas son tipo email (≥50% de celdas con formato válido).
+  // Lo usamos para contar emails por fila de forma precisa y para devolver el
+  // dato al frontend.
+  const sampleSize = Math.min(dataRows.length, 200);
+  const emailColIdx: number[] = [];
+  if (sampleSize > 0) {
+    for (let c = 0; c < columns.length; c++) {
+      let hits = 0;
+      for (let r = 0; r < sampleSize; r++) {
+        if (isEmail(dataRows[r][c] ?? "")) hits++;
+      }
+      if (hits >= sampleSize * 0.5) emailColIdx.push(c);
+    }
+  }
+  // Fallback: si no detectamos ninguna columna email, contamos cualquier celda
+  // de la fila que tenga formato email.
+  const useAllCells = emailColIdx.length === 0;
+
+  // Reportar por chunks: cuenta filas procesadas + filas con al menos 1 email.
   let loaded = 0;
+  let emails = 0;
   for (let i = 0; i < dataRows.length; i += chunkSize) {
-    loaded = Math.min(dataRows.length, i + chunkSize);
-    await onChunk(loaded, Math.max(totalEstimate, dataRows.length));
-    // Pequeño yield para que el SSE flushee (en server async loop)
+    const end = Math.min(dataRows.length, i + chunkSize);
+    for (let r = i; r < end; r++) {
+      const row = dataRows[r];
+      let hasEmail = false;
+      if (useAllCells) {
+        for (const cell of row) if (isEmail(cell)) { hasEmail = true; break; }
+      } else {
+        for (const ci of emailColIdx) if (isEmail(row[ci] ?? "")) { hasEmail = true; break; }
+      }
+      if (hasEmail) emails++;
+    }
+    loaded = end;
+    await onChunk({ loaded, totalEstimate: Math.max(totalEstimate, dataRows.length), emails });
     await new Promise((res) => setImmediate(res));
   }
 
@@ -107,6 +146,8 @@ export async function parseCSVStreamed(
     filename,
     columns,
     row_count: dataRows.length,
+    email_columns: emailColIdx.map((i) => columns[i]).filter(Boolean),
+    email_count: emails,
     preview,
   };
   await writeJson(`${CSV_META_PREFIX}${file_id}`, meta);

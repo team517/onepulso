@@ -688,19 +688,36 @@ export default function PersonalizacionPage() {
                       ✓ {j.progress?.ok ?? 0} mensajes generados · {j.provider} · {fmtRelative(j.updated_at)}
                     </div>
                   </div>
-                  <a
-                    href={`/api/personalization/jobs/${j.id}/csv`}
-                    download
-                    style={{
-                      ...btnPrimary,
-                      textDecoration: "none",
-                      fontSize: 12.5,
-                      padding: "8px 16px",
-                      background: "linear-gradient(135deg, #10b981, #047857)",
-                      boxShadow: "0 2px 6px rgba(16,185,129,0.3)",
-                      display: "inline-flex", alignItems: "center", gap: 5,
-                    }}
-                  >⬇ Descargar CSV</a>
+                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                    <a
+                      href={`/api/personalization/jobs/${j.id}/csv`}
+                      download
+                      style={{
+                        ...btnPrimary,
+                        textDecoration: "none",
+                        fontSize: 12.5,
+                        padding: "8px 14px",
+                        background: "linear-gradient(135deg, #10b981, #047857)",
+                        boxShadow: "0 2px 6px rgba(16,185,129,0.3)",
+                        display: "inline-flex", alignItems: "center", gap: 5,
+                      }}
+                      title="CSV completo respetando saltos de linea originales"
+                    >⬇ CSV</a>
+                    <a
+                      href={`/api/personalization/jobs/${j.id}/csv?flatten=1`}
+                      download
+                      style={{
+                        ...btnPrimary,
+                        textDecoration: "none",
+                        fontSize: 12.5,
+                        padding: "8px 14px",
+                        background: "linear-gradient(135deg, #f9a603 0%, #d15cfe 100%)",
+                        boxShadow: "0 2px 6px rgba(209,92,254,0.3)",
+                        display: "inline-flex", alignItems: "center", gap: 5,
+                      }}
+                      title="Aplanado: una linea por lead. Compatible con Instantly / Smartlead / Lemlist."
+                    >📤 Para Instantly</a>
+                  </div>
                 </div>
               ))}
             </div>
@@ -1192,21 +1209,40 @@ export default function PersonalizacionPage() {
                     </div>
                   </div>
                   {runJob.status === "done" && runJob.id && (
-                    <a
-                      href={`/api/personalization/jobs/${runJob.id}/csv`}
-                      download
-                      style={{
-                        ...btnPrimary,
-                        textDecoration: "none",
-                        fontSize: 14,
-                        padding: "11px 20px",
-                        background: "linear-gradient(135deg, #10b981, #047857)",
-                        boxShadow: "0 2px 8px rgba(16,185,129,0.35)",
-                        display: "inline-flex", alignItems: "center", gap: 6,
-                      }}
-                    >
-                      ⬇ Descargar CSV
-                    </a>
+                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                      <a
+                        href={`/api/personalization/jobs/${runJob.id}/csv`}
+                        download
+                        style={{
+                          ...btnPrimary,
+                          textDecoration: "none",
+                          fontSize: 14,
+                          padding: "11px 18px",
+                          background: "linear-gradient(135deg, #10b981, #047857)",
+                          boxShadow: "0 2px 8px rgba(16,185,129,0.35)",
+                          display: "inline-flex", alignItems: "center", gap: 6,
+                        }}
+                        title="CSV original respetando saltos de linea"
+                      >
+                        ⬇ Descargar CSV
+                      </a>
+                      <a
+                        href={`/api/personalization/jobs/${runJob.id}/csv?flatten=1`}
+                        download
+                        style={{
+                          ...btnPrimary,
+                          textDecoration: "none",
+                          fontSize: 14,
+                          padding: "11px 18px",
+                          background: "linear-gradient(135deg, #f9a603 0%, #d15cfe 100%)",
+                          boxShadow: "0 2px 8px rgba(209,92,254,0.35)",
+                          display: "inline-flex", alignItems: "center", gap: 6,
+                        }}
+                        title="Aplanado a 1 linea por lead — compatible con Instantly / Smartlead / Lemlist"
+                      >
+                        📤 Para Instantly
+                      </a>
+                    </div>
                   )}
                 </div>
 
@@ -1301,14 +1337,28 @@ export default function PersonalizacionPage() {
                           </div>
                         </div>
                         {j.status === "done" && (
-                          <a
-                            href={`/api/personalization/jobs/${j.id}/csv`}
-                            download
-                            style={{
-                              ...btnPrimary, fontSize: 11.5, padding: "6px 12px",
-                              textDecoration: "none",
-                            }}
-                          >⬇ CSV</a>
+                          <>
+                            <a
+                              href={`/api/personalization/jobs/${j.id}/csv`}
+                              download
+                              style={{
+                                ...btnPrimary, fontSize: 11.5, padding: "6px 10px",
+                                textDecoration: "none",
+                              }}
+                              title="CSV original"
+                            >⬇ CSV</a>
+                            <a
+                              href={`/api/personalization/jobs/${j.id}/csv?flatten=1`}
+                              download
+                              style={{
+                                fontSize: 11.5, padding: "6px 10px",
+                                textDecoration: "none",
+                                background: "linear-gradient(135deg, #f9a603 0%, #d15cfe 100%)",
+                                color: "#fff", borderRadius: 8, fontWeight: 600,
+                              }}
+                              title="Aplanado para Instantly / Smartlead / Lemlist"
+                            >📤 Instantly</a>
+                          </>
                         )}
                         <button onClick={() => deleteHistoryItem(j.id)} title="Eliminar del historial" style={{
                           background: "transparent", border: "1px solid var(--border)",

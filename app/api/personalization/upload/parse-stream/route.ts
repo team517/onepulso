@@ -42,6 +42,15 @@ export async function GET(req: NextRequest) {
             parse_errors: errors,
           });
         }, 100);
+        // DEBUG: exponer también las stats brutas del archivo en el server
+        // para validación cruzada con el cliente (detectar truncacion).
+        const { readBlob } = await import("@/lib/storage");
+        const blob = await readBlob(`csv/${file_id}`).catch(() => null);
+        const debug = blob ? {
+          blob_bytes: blob.data.length,
+          blob_mime: blob.mime,
+        } : null;
+
         send("done", {
           file_id: meta.file_id,
           filename: meta.filename,
@@ -53,6 +62,7 @@ export async function GET(req: NextRequest) {
           email_columns: meta.email_columns,
           emails_by_column: meta.emails_by_column,
           parse_mode: meta.parse_mode,
+          debug,
           preview: meta.preview,
         });
       } catch (e: any) {

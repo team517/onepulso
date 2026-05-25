@@ -848,6 +848,22 @@ export default function PersonalizacionPage() {
                         </div>
                       )}
 
+                      {/* DEBUG: bytes recibidos vs tamaño del archivo original
+                          — clave para detectar truncacion del upload */}
+                      {file.debug && (
+                        <div style={{
+                          fontSize: 11, color: "#b45309",
+                          marginTop: 6, fontFamily: "var(--font-mono)",
+                          background: "rgba(245,158,11,0.08)",
+                          border: "1px solid rgba(245,158,11,0.25)",
+                          borderRadius: 6, padding: "6px 10px",
+                        }}>
+                          🔍 Bytes guardados en server: <strong>{(file.debug.blob_bytes).toLocaleString("es")}</strong>
+                          {" "}({(file.debug.blob_bytes / 1024 / 1024).toFixed(2)} MB)
+                          {" · mime: "}<strong>{file.debug.blob_mime}</strong>
+                        </div>
+                      )}
+
                       {/* DESGLOSE POR COLUMNA — diagnóstico visible para
                           verificar dónde están realmente los emails */}
                       {Array.isArray(file.emails_by_column) && file.emails_by_column.length > 0 && (

@@ -830,6 +830,46 @@ export default function PersonalizacionPage() {
                           )}
                         </div>
                       )}
+
+                      {/* DESGLOSE POR COLUMNA — diagnóstico visible para
+                          verificar dónde están realmente los emails */}
+                      {Array.isArray(file.emails_by_column) && file.emails_by_column.length > 0 && (
+                        <details style={{ marginTop: 8 }}>
+                          <summary style={{
+                            cursor: "pointer", fontSize: 11.5,
+                            color: "#047857", fontWeight: 600,
+                            listStyle: "none",
+                          }}>
+                            🔬 Ver desglose por columna ({file.emails_by_column.length})
+                          </summary>
+                          <div style={{
+                            marginTop: 8, padding: "10px 12px",
+                            background: "rgba(255,255,255,0.6)",
+                            border: "1px solid rgba(16,185,129,0.2)",
+                            borderRadius: 8,
+                            display: "grid",
+                            gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+                            gap: 6,
+                            fontSize: 12,
+                            fontFamily: "var(--font-mono)",
+                            fontVariantNumeric: "tabular-nums",
+                          }}>
+                            {file.emails_by_column.map((row: any) => (
+                              <div key={row.column} style={{
+                                display: "flex", justifyContent: "space-between",
+                                gap: 8, padding: "2px 4px",
+                                color: "#0f172a",
+                              }}>
+                                <span style={{
+                                  overflow: "hidden", textOverflow: "ellipsis",
+                                  whiteSpace: "nowrap", color: "var(--text-dim)",
+                                }}>{row.column}</span>
+                                <strong style={{ color: "#047857" }}>{row.count.toLocaleString("es")}</strong>
+                              </div>
+                            ))}
+                          </div>
+                        </details>
+                      )}
                     </>
                   )}
                 </div>

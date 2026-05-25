@@ -20,6 +20,9 @@ export type CSVMetadata = {
   /** Total de símbolos @ (incluye handles sociales y otros @). Métrica de
    *  control cruzada con Excel — debería coincidir con tu cuenta visual. */
   at_symbols?: number;
+  /** Desglose: cada columna y cuántos emails se encontraron en ella.
+   *  Ordenado de mayor a menor. Permite al usuario ver dónde están los emails. */
+  emails_by_column?: Array<{ column: string; count: number }>;
   preview: Array<Record<string, string>>;
 };
 
@@ -197,6 +200,9 @@ export async function parseCSVStreamed(
   let totalEmails = 0;
   let rowsWithEmail = 0;
   let totalAtSymbols = 0;
+  // Desglose por columna (índice → contador de emails). Permite ver
+  // dónde están realmente los emails — clave para diagnosticar "10K → 3K".
+  const emailsByCol = new Array<number>(columns.length).fill(0);
 
   // Cadencia adaptativa: queremos que la animación tarde ~4-5 segundos
   // independientemente del tamaño, para que el usuario vea los contadores
@@ -211,8 +217,11 @@ export async function parseCSVStreamed(
     for (let r = i; r < end; r++) {
       const row = dataRows[r];
       let rowEmails = 0;
-      for (const cell of row) {
-        rowEmails += countEmailsInCell(cell);
+      for (let c = 0; c < row.length; c++) {
+        const cell = row[c];
+        const n = countEmailsInCell(cell);
+        rowEmails += n;
+        if (n > 0 && c < emailsByCol.length) emailsByCol[c] += n;
         totalAtSymbols += countAtSymbols(cell);
       }
       totalEmails += rowEmails;
@@ -248,6 +257,10 @@ export async function parseCSVStreamed(
     email_count: totalEmails,
     rows_with_email: rowsWithEmail,
     at_symbols: totalAtSymbols,
+    emails_by_column: emailsByCol
+      .map((count, i) => ({ column: columns[i] || `(col ${i})`, count }))
+      .filter((e) => e.count > 0)
+      .sort((a, b) => b.count - a.count),
     preview,
   };
   await writeJson(`${CSV_META_PREFIX}${file_id}`, meta);

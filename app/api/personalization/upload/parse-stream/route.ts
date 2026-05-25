@@ -51,6 +51,7 @@ export async function GET(req: NextRequest) {
           rows_with_email: meta.rows_with_email,
           at_symbols: meta.at_symbols,
           email_columns: meta.email_columns,
+          emails_by_column: meta.emails_by_column,
           preview: meta.preview,
         });
       } catch (e: any) {

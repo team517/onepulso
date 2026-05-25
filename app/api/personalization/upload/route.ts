@@ -5,7 +5,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
-const MAX_SIZE = 20 * 1024 * 1024;
+const MAX_SIZE = 50 * 1024 * 1024;
 
 /** POST /api/personalization/upload — sube un CSV (binario crudo + x-filename).
  *  Sólo guarda los bytes y devuelve el file_id de inmediato. El parseo se
@@ -25,7 +25,7 @@ export async function POST(req: Request) {
   }
   if (buffer.length === 0) return NextResponse.json({ error: "Archivo vacío" }, { status: 400 });
   if (buffer.length > MAX_SIZE) {
-    return NextResponse.json({ error: `Archivo demasiado grande (${(buffer.length / 1024 / 1024).toFixed(1)} MB). Máximo 20 MB.` }, { status: 413 });
+    return NextResponse.json({ error: `Archivo demasiado grande (${(buffer.length / 1024 / 1024).toFixed(1)} MB). Máximo 50 MB.` }, { status: 413 });
   }
 
   try {

@@ -9,7 +9,8 @@ type ElementBase = { id: string; x: number; y: number; z: number };
 type NoteEl = ElementBase & { type: "note"; width: number; height: number; text: string; color: string };
 type TextEl = ElementBase & { type: "text"; text: string; fontSize: number; color: string };
 type ImageEl = ElementBase & { type: "image"; width: number; height: number; src_key: string };
-type ShapeEl = ElementBase & { type: "shape"; shape: "rect" | "circle"; width: number; height: number; fill: string; stroke: string };
+type ShapeKind = "rect" | "circle" | "diamond" | "triangle";
+type ShapeEl = ElementBase & { type: "shape"; shape: ShapeKind; width: number; height: number; fill: string; stroke: string };
 type Side = "top" | "right" | "bottom" | "left";
 type ArrowEl = ElementBase & {
   type: "arrow";
@@ -72,6 +73,16 @@ export default function EstudioCanvasPage() {
 
   // Hover sobre elementos para mostrar handles
   const [hoverElId, setHoverElId] = useState<string | null>(null);
+
+  // Shape picker que aparece al soltar una conexión en zona vacía
+  const [shapePicker, setShapePicker] = useState<{
+    screenX: number;
+    screenY: number;
+    worldX: number;
+    worldY: number;
+    fromId: string;
+    fromSide: Side;
+  } | null>(null);
 
   /* ───── Load ───── */
   useEffect(() => {
@@ -167,7 +178,7 @@ export default function EstudioCanvasPage() {
     setEditingId(newEl.id);
   }
 
-  function addShape(shape: "rect" | "circle") {
+  function addShape(shape: ShapeKind) {
     const cx = canvasRef.current?.clientWidth ?? 800;
     const cy = canvasRef.current?.clientHeight ?? 600;
     const c = screenToWorld(cx / 2, cy / 2);
@@ -185,6 +196,75 @@ export default function EstudioCanvasPage() {
 
   function nextZ() {
     return elements.length > 0 ? Math.max(...elements.map((e) => e.z || 0)) + 1 : 1;
+  }
+
+  /** Crea un elemento del tipo elegido en el shape picker y dibuja la flecha
+   *  desde el elemento origen al nuevo. Cierra el picker. */
+  function createFromPicker(kind: "note" | "text" | "rect" | "circle" | "diamond" | "triangle") {
+    if (!shapePicker) return;
+    const { worldX, worldY, fromId, fromSide } = shapePicker;
+    let newEl: Element;
+    if (kind === "note") {
+      const w = 180, h = 120;
+      newEl = {
+        id: uid(), type: "note",
+        x: worldX, y: worldY - h / 2,
+        z: nextZ(),
+        width: w, height: h,
+        text: "",
+        color: NOTE_COLORS[Math.floor(Math.random() * (NOTE_COLORS.length - 1))],
+      };
+    } else if (kind === "text") {
+      newEl = {
+        id: uid(), type: "text",
+        x: worldX, y: worldY,
+        z: nextZ(),
+        text: "Texto",
+        fontSize: 20,
+        color: "#0f172a",
+      };
+    } else {
+      const w = 160, h = 120;
+      newEl = {
+        id: uid(), type: "shape", shape: kind as ShapeKind,
+        x: worldX, y: worldY - h / 2,
+        z: nextZ(),
+        width: w, height: h,
+        fill: "rgba(0,113,227,0.08)",
+        stroke: "#0071e3",
+      };
+    }
+    // Calcular el side opuesto al fromSide para que la flecha llegue al lado
+    // más natural del elemento nuevo (top↔bottom, left↔right).
+    const oppositeSide: Record<Side, Side> = { top: "bottom", bottom: "top", left: "right", right: "left" };
+    const toSide = oppositeSide[fromSide];
+    // Ajustar la posición del nuevo elemento para que su lado de entrada
+    // quede ALINEADO con la salida del origen — la flecha sale recta.
+    const fromEl = elements.find((e) => e.id === fromId);
+    if (fromEl && (newEl.type === "note" || newEl.type === "shape")) {
+      const fromPt = anchorPoint(fromEl, fromSide);
+      // El bbox del nuevo elemento debe quedar tal que anchorPoint(new, toSide)
+      // esté a una distancia mínima del fromPt, ofset proporcional.
+      const w = (newEl as any).width as number;
+      const h = (newEl as any).height as number;
+      const margin = 80;
+      if (toSide === "left")   { newEl.x = fromPt.x + margin;        newEl.y = fromPt.y - h / 2; }
+      if (toSide === "right")  { newEl.x = fromPt.x - margin - w;    newEl.y = fromPt.y - h / 2; }
+      if (toSide === "top")    { newEl.x = fromPt.x - w / 2;          newEl.y = fromPt.y + margin; }
+      if (toSide === "bottom") { newEl.x = fromPt.x - w / 2;          newEl.y = fromPt.y - margin - h; }
+    }
+    const arrow: ArrowEl = {
+      id: uid(), type: "arrow",
+      x: 0, y: 0, endX: 0, endY: 0, // resueltos dinámicamente
+      z: nextZ(),
+      stroke: "#0f172a",
+      fromId, fromSide,
+      toId: newEl.id, toSide,
+    };
+    setElements((arr) => [...arr, newEl, arrow]);
+    setSelectedId(newEl.id);
+    if (kind === "note" || kind === "text") setEditingId(newEl.id);
+    setShapePicker(null);
   }
 
   /** Calcula la BBox de un elemento en coords de mundo (x, y, w, h). */
@@ -279,21 +359,36 @@ export default function EstudioCanvasPage() {
       }
       setConnecting((c) => c ? { ...c, mousePoint: world, hoverElId, hoverSide } : null);
     }
-    function onUp() {
+    function onUp(ev: MouseEvent) {
       setConnecting((c) => {
         if (!c) return null;
-        const newArrow: ArrowEl = {
-          id: uid(), type: "arrow",
-          x: c.fromPoint.x, y: c.fromPoint.y,
-          endX: c.mousePoint.x, endY: c.mousePoint.y,
-          z: nextZ(),
-          stroke: "#0f172a",
-          fromId: c.fromId,
-          fromSide: c.fromSide,
-          toId: c.hoverElId,
-          toSide: c.hoverSide,
-        };
-        setElements((arr) => [...arr, newArrow]);
+        // Si soltó SOBRE un elemento → crear flecha conectada de A a B.
+        if (c.hoverElId && c.hoverSide) {
+          const newArrow: ArrowEl = {
+            id: uid(), type: "arrow",
+            x: c.fromPoint.x, y: c.fromPoint.y,
+            endX: c.mousePoint.x, endY: c.mousePoint.y,
+            z: nextZ(),
+            stroke: "#0f172a",
+            fromId: c.fromId, fromSide: c.fromSide,
+            toId: c.hoverElId, toSide: c.hoverSide,
+          };
+          setElements((arr) => [...arr, newArrow]);
+        } else {
+          // Soltó en VACÍO → abrir shape picker en esa posición. El usuario
+          // elige qué crear y la flecha se traza al nuevo elemento.
+          const rect = canvasRef.current?.getBoundingClientRect();
+          if (rect) {
+            setShapePicker({
+              screenX: ev.clientX - rect.left,
+              screenY: ev.clientY - rect.top,
+              worldX: c.mousePoint.x,
+              worldY: c.mousePoint.y,
+              fromId: c.fromId,
+              fromSide: c.fromSide,
+            });
+          }
+        }
         return null;
       });
     }
@@ -438,6 +533,10 @@ export default function EstudioCanvasPage() {
         setElements((arr) => arr.filter((el) => el.id !== selectedId));
         setSelectedId(null);
       }
+      if (e.key === "Escape") {
+        setShapePicker(null);
+        setSelectedId(null);
+      }
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -528,32 +627,35 @@ export default function EstudioCanvasPage() {
         </div>
       </div>
 
-      {/* Toolbar lateral */}
+      {/* Toolbar lateral — diseño refinado tipo Miro */}
       <div style={{
-        position: "absolute", top: 76, left: 16,
-        background: "#fff",
-        border: "1px solid rgba(15,23,42,0.08)",
-        borderRadius: 12,
-        padding: 8,
-        display: "flex", flexDirection: "column", gap: 4,
-        boxShadow: "0 4px 16px rgba(15,23,42,0.06)",
+        position: "absolute", top: 80, left: 16,
+        background: "rgba(255,255,255,0.96)",
+        border: "1px solid rgba(15,23,42,0.06)",
+        borderRadius: 14,
+        padding: 6,
+        display: "flex", flexDirection: "column", gap: 2,
+        boxShadow: "0 8px 24px rgba(15,23,42,0.08), 0 2px 6px rgba(15,23,42,0.04)",
+        backdropFilter: "blur(12px)",
         zIndex: 9,
       }}>
-        <ToolBtn icon="📝" label="Nota" onClick={() => addNote()} />
-        <ToolBtn icon="T" label="Texto" onClick={addText} />
-        <ToolBtn icon="▭" label="Rectángulo" onClick={() => addShape("rect")} />
-        <ToolBtn icon="◯" label="Círculo" onClick={() => addShape("circle")} />
-        <ToolBtn icon="🖼" label="Imagen" onClick={() => {
+        <ToolBtn iconSvg={<IconNote />} label="Nota adhesiva" onClick={() => addNote()} />
+        <ToolBtn iconSvg={<IconText />} label="Texto" onClick={addText} />
+        <ToolBtn iconSvg={<IconRect />} label="Rectángulo" onClick={() => addShape("rect")} />
+        <ToolBtn iconSvg={<IconCircle />} label="Círculo" onClick={() => addShape("circle")} />
+        <ToolBtn iconSvg={<IconDiamond />} label="Rombo" onClick={() => addShape("diamond")} />
+        <ToolBtn iconSvg={<IconTriangle />} label="Triángulo" onClick={() => addShape("triangle")} />
+        <ToolBtn iconSvg={<IconImage />} label="Imagen" onClick={() => {
           const input = document.createElement("input");
           input.type = "file";
           input.accept = "image/*";
           input.onchange = () => { if (input.files?.[0]) uploadImageFile(input.files[0]); };
           input.click();
         }} />
-        <div style={{ height: 1, background: "rgba(15,23,42,0.08)", margin: "4px 2px" }} />
-        <ToolBtn icon="−" label={`Zoom out`} onClick={() => setViewport((v) => ({ ...v, zoom: Math.max(MIN_ZOOM, v.zoom * 0.9) }))} />
-        <ToolBtn icon="+" label="Zoom in" onClick={() => setViewport((v) => ({ ...v, zoom: Math.min(MAX_ZOOM, v.zoom * 1.1) }))} />
-        <ToolBtn icon="⊙" label="Reset" onClick={() => setViewport({ x: 0, y: 0, zoom: 1 })} />
+        <div style={{ height: 1, background: "rgba(15,23,42,0.08)", margin: "4px 6px" }} />
+        <ToolBtn iconSvg={<IconMinus />} label="Reducir zoom" onClick={() => setViewport((v) => ({ ...v, zoom: Math.max(MIN_ZOOM, v.zoom * 0.9) }))} />
+        <ToolBtn iconSvg={<IconPlus />} label="Aumentar zoom" onClick={() => setViewport((v) => ({ ...v, zoom: Math.min(MAX_ZOOM, v.zoom * 1.1) }))} />
+        <ToolBtn iconSvg={<IconReset />} label="Centrar" onClick={() => setViewport({ x: 0, y: 0, zoom: 1 })} />
       </div>
 
       {/* Inspector / acciones sobre elemento seleccionado */}
@@ -611,6 +713,55 @@ export default function EstudioCanvasPage() {
               cursor: "pointer", fontFamily: "inherit",
             }}>🗑 Eliminar (Del)</button>
         </div>
+      )}
+
+      {/* Shape picker: aparece tras soltar una conexión en zona vacía */}
+      {shapePicker && (
+        <>
+          {/* Overlay para cerrar al hacer click fuera */}
+          <div
+            onClick={() => setShapePicker(null)}
+            style={{ position: "fixed", inset: 0, zIndex: 50 }}
+          />
+          <div
+            style={{
+              position: "absolute",
+              left: shapePicker.screenX,
+              top: shapePicker.screenY + 52, // offset por la topbar
+              transform: "translate(-50%, 12px)",
+              background: "#fff",
+              border: "1px solid rgba(15,23,42,0.08)",
+              borderRadius: 14,
+              padding: 14,
+              boxShadow: "0 16px 40px rgba(15,23,42,0.18), 0 2px 8px rgba(15,23,42,0.06)",
+              zIndex: 60,
+              width: 240,
+            }}
+          >
+            <div style={{
+              fontSize: 11, fontWeight: 700,
+              color: "#64748b", letterSpacing: "0.06em",
+              textTransform: "uppercase", marginBottom: 10,
+            }}>
+              Crear y conectar
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 6 }}>
+              <PickerBtn label="Texto"      onClick={() => createFromPicker("text")}><IconText /></PickerBtn>
+              <PickerBtn label="Nota"       onClick={() => createFromPicker("note")}><IconNote /></PickerBtn>
+              <PickerBtn label="Rectángulo" onClick={() => createFromPicker("rect")}><IconRect /></PickerBtn>
+              <PickerBtn label="Círculo"    onClick={() => createFromPicker("circle")}><IconCircle /></PickerBtn>
+              <PickerBtn label="Rombo"      onClick={() => createFromPicker("diamond")}><IconDiamond /></PickerBtn>
+              <PickerBtn label="Triángulo"  onClick={() => createFromPicker("triangle")}><IconTriangle /></PickerBtn>
+            </div>
+            <div style={{
+              marginTop: 10, paddingTop: 10,
+              borderTop: "1px solid rgba(15,23,42,0.06)",
+              fontSize: 11, color: "#94a3b8", textAlign: "center",
+            }}>
+              Esc o click fuera para cancelar
+            </div>
+          </div>
+        </>
       )}
 
       {/* Mini ayuda flotante */}
@@ -768,29 +919,73 @@ export default function EstudioCanvasPage() {
 
 /* ───── Subcomponentes ───── */
 
-function ToolBtn({ icon, label, onClick }: { icon: string; label: string; onClick: () => void }) {
+function PickerBtn({ label, onClick, children }: { label: string; onClick: () => void; children: React.ReactNode }) {
   return (
     <button
       onClick={onClick}
       title={label}
       style={{
-        width: 38, height: 38,
-        background: "transparent",
-        border: "none",
-        borderRadius: 8,
+        height: 44,
+        background: "#fff",
+        border: "1px solid rgba(15,23,42,0.1)",
+        borderRadius: 9,
         cursor: "pointer",
-        fontSize: 18,
         display: "flex", alignItems: "center", justifyContent: "center",
         color: "#475569",
-        transition: "background 0.12s",
+        transition: "all 0.12s",
+        fontFamily: "inherit",
       }}
-      onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(0,113,227,0.08)")}
-      onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
+      onMouseEnter={(e) => {
+        e.currentTarget.style.background = "rgba(0,113,227,0.08)";
+        e.currentTarget.style.borderColor = "#0071e3";
+        e.currentTarget.style.color = "#0071e3";
+      }}
+      onMouseLeave={(e) => {
+        e.currentTarget.style.background = "#fff";
+        e.currentTarget.style.borderColor = "rgba(15,23,42,0.1)";
+        e.currentTarget.style.color = "#475569";
+      }}
     >
-      {icon}
+      {children}
     </button>
   );
 }
+
+function ToolBtn({ iconSvg, label, onClick }: { iconSvg: React.ReactNode; label: string; onClick: () => void }) {
+  return (
+    <button
+      onClick={onClick}
+      title={label}
+      style={{
+        width: 40, height: 40,
+        background: "transparent",
+        border: "none",
+        borderRadius: 10,
+        cursor: "pointer",
+        display: "flex", alignItems: "center", justifyContent: "center",
+        color: "#475569",
+        transition: "all 0.14s",
+      }}
+      onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(0,113,227,0.08)"; e.currentTarget.style.color = "#0071e3"; }}
+      onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = "#475569"; }}
+    >
+      {iconSvg}
+    </button>
+  );
+}
+
+/* ───── SVG Icons ───── */
+const iconStyle: React.CSSProperties = { display: "block" };
+function IconNote() { return <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" style={iconStyle}><path d="M19 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h11l5-5V5a2 2 0 0 0-2-2z"/><path d="M16 21v-5h5"/></svg>; }
+function IconText() { return <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={iconStyle}><polyline points="4 7 4 4 20 4 20 7"/><line x1="9" y1="20" x2="15" y2="20"/><line x1="12" y1="4" x2="12" y2="20"/></svg>; }
+function IconRect() { return <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" style={iconStyle}><rect x="4" y="6" width="16" height="12" rx="1.5"/></svg>; }
+function IconCircle() { return <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" style={iconStyle}><circle cx="12" cy="12" r="8"/></svg>; }
+function IconDiamond() { return <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" style={iconStyle}><path d="M12 3 L21 12 L12 21 L3 12 Z"/></svg>; }
+function IconTriangle() { return <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" style={iconStyle}><path d="M12 4 L21 20 L3 20 Z"/></svg>; }
+function IconImage() { return <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" style={iconStyle}><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="1.8"/><path d="m3 18 6-6 4 4 4-4 4 4"/></svg>; }
+function IconMinus() { return <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" style={iconStyle}><line x1="5" y1="12" x2="19" y2="12"/></svg>; }
+function IconPlus() { return <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" style={iconStyle}><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>; }
+function IconReset() { return <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" style={iconStyle}><circle cx="12" cy="12" r="2.2"/><circle cx="12" cy="12" r="8"/></svg>; }
 
 function RenderElement({
   el, selected, editing, zoom, onMouseDown, onDoubleClick, onTextChange, onTextBlur,
@@ -893,17 +1088,31 @@ function RenderElement({
     );
   }
   if (el.type === "shape") {
+    if (el.shape === "rect" || el.shape === "circle") {
+      return (
+        <div
+          onMouseDown={onMouseDown}
+          style={{
+            ...baseStyle, ...selectedOutline,
+            width: el.width, height: el.height,
+            background: el.fill,
+            border: `2px solid ${el.stroke}`,
+            borderRadius: el.shape === "circle" ? "50%" : 8,
+          }}
+        />
+      );
+    }
+    // Diamond / triangle: SVG para no perder el border
+    const w = el.width, h = el.height;
+    const points = el.shape === "diamond"
+      ? `${w / 2},2 ${w - 2},${h / 2} ${w / 2},${h - 2} 2,${h / 2}`
+      : `${w / 2},2 ${w - 2},${h - 2} 2,${h - 2}`;
     return (
-      <div
-        onMouseDown={onMouseDown}
-        style={{
-          ...baseStyle, ...selectedOutline,
-          width: el.width, height: el.height,
-          background: el.fill,
-          border: `${2}px solid ${el.stroke}`,
-          borderRadius: el.shape === "circle" ? "50%" : 8,
-        }}
-      />
+      <div onMouseDown={onMouseDown} style={{ ...baseStyle, ...selectedOutline, width: w, height: h }}>
+        <svg width={w} height={h} style={{ display: "block", overflow: "visible" }}>
+          <polygon points={points} fill={el.fill} stroke={el.stroke} strokeWidth={2} strokeLinejoin="round" />
+        </svg>
+      </div>
     );
   }
   if (el.type === "image") {

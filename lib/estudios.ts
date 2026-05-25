@@ -43,7 +43,7 @@ export type ImageElement = ElementBase & {
 
 export type ShapeElement = ElementBase & {
   type: "shape";
-  shape: "rect" | "circle";
+  shape: "rect" | "circle" | "diamond" | "triangle";
   width: number;
   height: number;
   fill: string;

@@ -401,10 +401,22 @@ a { text-decoration: none; color: inherit; }
   background: var(--t1);
   color: #fff;
   border-color: transparent;
+  position: relative;
 }
 .dash-nav-item--active:hover {
   background: #1a1d24;
   color: #fff;
+}
+/* Acento brand a la izquierda del item activo: barra gradient vertical */
+.dash-nav-item--active::before {
+  content: "";
+  position: absolute;
+  left: -16px;
+  top: 6px; bottom: 6px;
+  width: 3px;
+  border-radius: 0 3px 3px 0;
+  background: var(--g-brand);
+  box-shadow: 0 0 12px rgba(209,92,254,0.5);
 }
 
 /* Punto activo: en el nuevo diseño no se usa (el bg ya marca el activo) */
@@ -603,7 +615,27 @@ a { text-decoration: none; color: inherit; }
   gap: 12px;
   transition: all var(--dur) var(--ease);
   box-shadow: var(--shadow-sm);
+  position: relative;
+  overflow: hidden;
 }
+/* Halo decorativo muy sutil en la esquina inferior derecha — toque brand */
+.stat-card::before {
+  content: "";
+  position: absolute;
+  bottom: -50px; right: -50px;
+  width: 130px; height: 130px;
+  border-radius: 50%;
+  background: var(--g-brand-soft);
+  opacity: 0.55;
+  pointer-events: none;
+  filter: blur(8px);
+}
+.stat-card:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-md);
+  border-color: rgba(209,92,254,0.25);
+}
+.stat-card > * { position: relative; z-index: 1; }
 
 .stat-card:hover {
   transform: translateY(-2px);
@@ -618,16 +650,29 @@ a { text-decoration: none; color: inherit; }
 }
 
 .stat-card-icon {
-  width: 40px; height: 40px;
+  width: 44px; height: 44px;
   border-radius: 12px;
   display: flex; align-items: center; justify-content: center;
-  font-size: 18px;
+  font-size: 20px;
+  color: #fff;
+  box-shadow: 0 4px 14px rgba(0,0,0,0.10);
+  position: relative;
+}
+/* Pequeño highlight superior interior para que parezca más 3D */
+.stat-card-icon::after {
+  content: "";
+  position: absolute; inset: 0;
+  border-radius: inherit;
+  box-shadow: 0 1px 0 rgba(255,255,255,0.25) inset;
+  pointer-events: none;
 }
 
-.stat-card-icon--blue   { background: rgba(0,113,227,0.09); }
-.stat-card-icon--green  { background: rgba(16,185,129,0.09); }
-.stat-card-icon--purple { background: rgba(139,92,246,0.09); }
-.stat-card-icon--amber  { background: rgba(245,158,11,0.09); }
+/* Cada stat card tiene su propia identidad cromática del design system */
+.stat-card-icon--blue   { background: linear-gradient(135deg, #0566ea, #2a87f5); box-shadow: 0 4px 14px rgba(5,102,234,0.30); }
+.stat-card-icon--green  { background: linear-gradient(135deg, #1f8a5b, #3aa873); box-shadow: 0 4px 14px rgba(31,138,91,0.30); }
+.stat-card-icon--purple { background: linear-gradient(135deg, #d15cfe, #9a69f5); box-shadow: 0 4px 14px rgba(209,92,254,0.30); }
+.stat-card-icon--amber  { background: linear-gradient(135deg, #f9a603, #f59e3a); box-shadow: 0 4px 14px rgba(249,166,3,0.30); }
+.stat-card-icon--brand  { background: var(--g-brand); box-shadow: 0 4px 14px rgba(209,92,254,0.30); }
 
 .stat-card-change {
   font-size: 10.5px;
@@ -676,22 +721,52 @@ a { text-decoration: none; color: inherit; }
   color: var(--text);
   transition: all var(--dur) var(--ease);
   box-shadow: var(--shadow-sm);
+  position: relative;
+  overflow: hidden;
 }
-
+/* Halo brand decorativo en la esquina superior derecha */
+.dash-module-card::before {
+  content: "";
+  position: absolute;
+  top: -60px; right: -60px;
+  width: 180px; height: 180px;
+  border-radius: 50%;
+  background: var(--g-brand-soft);
+  opacity: 0.4;
+  pointer-events: none;
+  filter: blur(10px);
+  transition: opacity var(--dur) var(--ease);
+}
 .dash-module-card:hover {
-  border-color: rgba(0,113,227,0.3);
+  border-color: rgba(209,92,254,0.3);
   transform: translateY(-2px);
   box-shadow: var(--shadow-md);
 }
+.dash-module-card:hover::before { opacity: 0.65; }
+.dash-module-card > * { position: relative; z-index: 1; }
 
 .dash-module-icon-wrap {
-  width: 46px; height: 46px;
+  width: 48px; height: 48px;
   border-radius: 14px;
   display: flex; align-items: center; justify-content: center;
   font-size: 22px;
-  background: var(--bg-elev-3);
-  border: 1px solid var(--border);
+  background: var(--g-brand);
+  color: #fff;
+  box-shadow: 0 4px 14px rgba(209,92,254,0.25);
+  position: relative;
 }
+.dash-module-icon-wrap::after {
+  content: ""; position: absolute; inset: 0;
+  border-radius: inherit;
+  box-shadow: 0 1px 0 rgba(255,255,255,0.3) inset;
+  pointer-events: none;
+}
+/* Variantes por módulo — cada uno con su acento del design system */
+.dash-module-icon-wrap--blue   { background: linear-gradient(135deg, #0566ea, #2a87f5); box-shadow: 0 4px 14px rgba(5,102,234,0.25); }
+.dash-module-icon-wrap--purple { background: linear-gradient(135deg, #d15cfe, #9a69f5); box-shadow: 0 4px 14px rgba(209,92,254,0.28); }
+.dash-module-icon-wrap--orange { background: linear-gradient(135deg, #f9a603, #f59e3a); box-shadow: 0 4px 14px rgba(249,166,3,0.30); }
+.dash-module-icon-wrap--green  { background: linear-gradient(135deg, #1f8a5b, #3aa873); box-shadow: 0 4px 14px rgba(31,138,91,0.28); }
+.dash-module-icon-wrap--brand  { background: var(--g-brand); }
 
 .dash-module-title {
   font-family: var(--font-display);

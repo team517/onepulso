@@ -127,7 +127,7 @@ export default function DashboardHome() {
           <div className="dash-modules">
             {/* Campaigns */}
             <Link href="/campaigns" className="dash-module-card">
-              <div className="dash-module-icon-wrap">📧</div>
+              <div className="dash-module-icon-wrap dash-module-icon-wrap--blue">📧</div>
               <div>
                 <div className="dash-module-title">Campañas de email</div>
                 <div className="dash-module-desc">
@@ -146,7 +146,7 @@ export default function DashboardHome() {
 
             {/* Seguimientos */}
             <Link href="/seguimientos" className="dash-module-card">
-              <div className="dash-module-icon-wrap">💬</div>
+              <div className="dash-module-icon-wrap dash-module-icon-wrap--green">💬</div>
               <div>
                 <div className="dash-module-title">Seguimientos</div>
                 <div className="dash-module-desc">
@@ -165,7 +165,7 @@ export default function DashboardHome() {
 
             {/* LinkedIn */}
             <Link href="/linkedin" className="dash-module-card">
-              <div className="dash-module-icon-wrap">💼</div>
+              <div className="dash-module-icon-wrap dash-module-icon-wrap--brand">💼</div>
               <div>
                 <div className="dash-module-title">LinkedIn automático</div>
                 <div className="dash-module-desc">

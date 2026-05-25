@@ -281,9 +281,11 @@ const chipStyle: React.CSSProperties = {
 };
 
 const btnPrimary: React.CSSProperties = {
-  background: "#0071e3", color: "#fff", border: "none",
+  background: "linear-gradient(135deg, #f9a603 0%, #f59e3a 30%, #d15cfe 100%)",
+  color: "#fff", border: "none",
   padding: "10px 18px", borderRadius: 10, fontSize: 14, fontWeight: 600,
   cursor: "pointer", letterSpacing: "-0.01em",
+  boxShadow: "0 4px 14px rgba(209,92,254,0.25), 0 1px 0 rgba(0,0,0,0.08) inset",
 };
 const btnGhost: React.CSSProperties = {
   background: "#fff", color: "#0f172a", border: "1px solid rgba(15,23,42,0.12)",

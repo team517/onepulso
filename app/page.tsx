@@ -41,28 +41,58 @@ export default function DashboardHome() {
       <DashboardNav />
 
       <div className="dash-content">
-        {/* Header */}
+        {/* Header con breadcrumbs estilo design system */}
         <div className="dash-page-header">
-          <div>
-            <div className="dash-page-title">Dashboard</div>
-            <div className="dash-page-subtitle">
-              {now.toLocaleDateString("es-ES", { weekday: "long", day: "numeric", month: "long" })}
-            </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 13.5 }}>
+            <span style={{ color: "var(--t4)" }}>OnePulso</span>
+            <span style={{ color: "var(--t5)" }}>›</span>
+            <span style={{ color: "var(--t1)", fontWeight: 600 }}>Dashboard</span>
           </div>
-          <div className="dash-page-actions">
-            <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "var(--text-dim)" }}>
+          <div className="dash-page-actions" style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "var(--text-dim)", marginRight: 6 }}>
               <span className={`status-dot ${instantly?.connected ? "status-dot--green" : "status-dot--red"}`} />
               Instantly {instantly?.connected ? "conectado" : "desconectado"}
             </div>
+            <Link
+              href="/campaigns"
+              style={{
+                display: "inline-flex", alignItems: "center", gap: 7,
+                padding: "8px 16px",
+                background: "linear-gradient(135deg, #f9a603 0%, #f59e3a 30%, #d15cfe 100%)",
+                color: "#fff",
+                borderRadius: 10,
+                fontSize: 13,
+                fontWeight: 700,
+                textDecoration: "none",
+                boxShadow: "0 4px 14px rgba(209,92,254,0.30), 0 1px 0 rgba(0,0,0,0.08) inset",
+                letterSpacing: "-0.01em",
+              }}
+            >+ Crear</Link>
           </div>
         </div>
 
         {/* Content */}
         <div className="dash-home">
-          {/* Greeting */}
-          <div style={{ marginBottom: 28 }}>
-            <h1 className="dash-home-title">{greeting} 👋</h1>
-            <p className="dash-home-subtitle">Aquí tienes el resumen de tu plataforma.</p>
+          {/* Hero card con gradiente brand */}
+          <div className="dash-hero">
+            <div className="dash-hero-pill">
+              <span className="dash-hero-pill-dot" />
+              Operación en vivo · {now.toLocaleDateString("es-ES", { weekday: "long", day: "numeric", month: "long" })}
+            </div>
+            <h1 className="dash-hero-title">{greeting} 👋</h1>
+            <p className="dash-hero-sub">
+              Tienes <strong>{loading ? "—" : campaigns.length}</strong> campañas activas en Instantly
+              {memory.length > 0 && <> y <strong>{memory.length}</strong> notas en memoria</>}.
+              Aquí tienes el resumen de tu plataforma.
+            </p>
+            <div className="dash-hero-actions">
+              <Link href="/seguimientos" className="dash-hero-btn dash-hero-btn--soft">
+                ↗ Ir a Seguimientos
+              </Link>
+              <Link href="/campaigns" className="dash-hero-btn dash-hero-btn--solid">
+                + Nueva campaña
+              </Link>
+            </div>
           </div>
 
           {/* Stats */}
@@ -78,6 +108,7 @@ export default function DashboardHome() {
                 <div className="stat-card-value">{loading ? "—" : campaigns.length}</div>
                 <div className="stat-card-label">Campañas en Instantly</div>
               </div>
+              <Sparkline color="#0566ea" />
             </div>
 
             <div className="stat-card">
@@ -89,6 +120,7 @@ export default function DashboardHome() {
                 <div className="stat-card-value">{loading ? "—" : memory.length}</div>
                 <div className="stat-card-label">Notas en memoria IA</div>
               </div>
+              <Sparkline color="#1f8a5b" />
             </div>
 
             <div className="stat-card">
@@ -100,6 +132,7 @@ export default function DashboardHome() {
                 <div className="stat-card-value">{loading ? "—" : totalLeads.toLocaleString()}</div>
                 <div className="stat-card-label">Leads totales subidos</div>
               </div>
+              <Sparkline color="#f9a603" />
             </div>
 
             <div className="stat-card">
@@ -113,6 +146,7 @@ export default function DashboardHome() {
                 <div className="stat-card-value">{loading ? "—" : linkedinPosts}</div>
                 <div className="stat-card-label">Posts LinkedIn</div>
               </div>
+              <Sparkline color="#d15cfe" />
             </div>
           </div>
 
@@ -248,5 +282,38 @@ export default function DashboardHome() {
         </div>
       </div>
     </div>
+  );
+}
+
+/**
+ * Sparkline minimal: SVG con polyline + área suave. Pseudo-aleatoria pero
+ * determinista por color para que no parpadee entre renders.
+ */
+function Sparkline({ color, height = 32, points = 12 }: { color: string; height?: number; points?: number }) {
+  // Seed fija por color para curva consistente entre re-renders.
+  const seed = color.charCodeAt(1) + color.charCodeAt(3);
+  const data: number[] = [];
+  let v = 50 + (seed % 30);
+  for (let i = 0; i < points; i++) {
+    const trend = ((seed >> i) & 1) ? 5 : -3;
+    v = Math.max(15, Math.min(90, v + trend + ((seed * (i + 1)) % 9) - 4));
+    data.push(v);
+  }
+  const w = 100;
+  const step = w / (points - 1);
+  const poly = data.map((y, i) => `${(i * step).toFixed(1)},${(100 - y).toFixed(1)}`).join(" ");
+  const area = `0,100 ${poly} ${w},100`;
+  const gradId = `spark-${color.replace("#", "")}`;
+  return (
+    <svg viewBox={`0 0 ${w} 100`} preserveAspectRatio="none" style={{ width: "100%", height, display: "block", marginTop: 4 }}>
+      <defs>
+        <linearGradient id={gradId} x1="0" x2="0" y1="0" y2="1">
+          <stop offset="0%" stopColor={color} stopOpacity={0.22} />
+          <stop offset="100%" stopColor={color} stopOpacity={0} />
+        </linearGradient>
+      </defs>
+      <polygon points={area} fill={`url(#${gradId})`} />
+      <polyline points={poly} fill="none" stroke={color} strokeWidth={1.8} strokeLinejoin="round" strokeLinecap="round" />
+    </svg>
   );
 }

@@ -31,8 +31,8 @@ export async function GET(req: NextRequest) {
       };
       try {
         send("start", { file_id, filename });
-        const meta = await parseCSVStreamed(file_id, filename, async ({ loaded, totalEstimate, emails }) => {
-          send("progress", { loaded, total_estimate: totalEstimate, emails });
+        const meta = await parseCSVStreamed(file_id, filename, async ({ loaded, totalEstimate, emails, rowsWithEmail }) => {
+          send("progress", { loaded, total_estimate: totalEstimate, emails, rows_with_email: rowsWithEmail });
         }, 100);
         send("done", {
           file_id: meta.file_id,
@@ -40,6 +40,7 @@ export async function GET(req: NextRequest) {
           columns: meta.columns,
           row_count: meta.row_count,
           email_count: meta.email_count,
+          rows_with_email: meta.rows_with_email,
           email_columns: meta.email_columns,
           preview: meta.preview,
         });

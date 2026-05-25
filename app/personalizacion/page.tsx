@@ -755,15 +755,20 @@ export default function PersonalizacionPage() {
                   </div>
                   {typeof file.email_count === "number" && (
                     <div style={{ fontSize: 12.5, color: "#047857", marginTop: 4, fontWeight: 500 }}>
-                      📧 <strong>{file.email_count.toLocaleString()}</strong> filas con email válido
-                      {file.row_count > file.email_count && (
+                      📧 <strong>{file.email_count.toLocaleString()}</strong> emails encontrados en total
+                      {typeof file.rows_with_email === "number" && (
+                        <span style={{ marginLeft: 6 }}>
+                          · <strong>{file.rows_with_email.toLocaleString()}</strong> filas con email
+                        </span>
+                      )}
+                      {typeof file.rows_with_email === "number" && file.row_count > file.rows_with_email && (
                         <span style={{ color: "#b45309", marginLeft: 6 }}>
-                          · {(file.row_count - file.email_count).toLocaleString()} sin email
+                          · {(file.row_count - file.rows_with_email).toLocaleString()} sin email
                         </span>
                       )}
                       {file.email_columns && file.email_columns.length > 0 && (
                         <span style={{ color: "var(--text-dim)", marginLeft: 8, fontWeight: 500 }}>
-                          (columna{file.email_columns.length > 1 ? "s" : ""}: {file.email_columns.join(", ")})
+                          (columna{file.email_columns.length > 1 ? "s" : ""} detectada{file.email_columns.length > 1 ? "s" : ""}: {file.email_columns.join(", ")})
                         </span>
                       )}
                     </div>

@@ -494,6 +494,41 @@ export async function runJob(jobId: string, onProgress?: (j: PersonalizationJob)
 }
 
 /** Genera el CSV resultado con todas las columnas originales + personalized_message */
+/**
+ * Reconstruye el CSV resultado de un job existente, usando todas las filas
+ * originales y los results ya guardados. NO re-procesa con la IA.
+ *
+ * Sirve para jobs antiguos donde job.selected_rows quedó mutado tras un
+ * resume y el CSV se generó con sólo el último subset.
+ *
+ * Si original_selected_rows está vacío (jobs muy antiguos creados antes
+ * del fix), lo reconstruimos a partir de los row_index de los results
+ * existentes para no perder datos.
+ */
+export async function rebuildCSV(jobId: string): Promise<{ rows_written: number; messages_used: number }> {
+  const job = await getJob(jobId);
+  if (!job) throw new Error("Job no encontrado");
+
+  // Si no hay original_selected_rows (jobs viejos), lo derivamos desde
+  // los row_index presentes en results — así reconstruimos lo procesado.
+  if (!job.original_selected_rows || job.original_selected_rows.length === 0) {
+    const fromResults = job.results.map((r) => r.row_index).sort((a, b) => a - b);
+    if (fromResults.length > 0) {
+      job.original_selected_rows = fromResults;
+      console.log(`[rebuildCSV] job ${jobId} sin original_selected_rows; derivado de results: ${fromResults.length} indices`);
+    }
+  }
+
+  const { rows } = await readCSVRows(job.file_id);
+  if (!job.result_csv_key) job.result_csv_key = `personalization-result/${job.id}.csv`;
+  await buildResultCSV(job, rows);
+  job.updated_at = new Date().toISOString();
+  await saveJob(job);
+
+  const indices = job.original_selected_rows ?? job.selected_rows;
+  return { rows_written: indices.length, messages_used: job.results.length };
+}
+
 async function buildResultCSV(job: PersonalizationJob, allRows: Record<string, string>[]) {
   // Mapa row_index → message. SOLO aplanamos whitespace en EL MENSAJE NUEVO
   // (es HTML, los \n entre tags son irrelevantes para el render, y rompen
@@ -508,12 +543,17 @@ async function buildResultCSV(job: PersonalizationJob, allRows: Record<string, s
   const cols = allRows.length > 0 ? Object.keys(allRows[0]) : [];
   const headerCols = [...cols, "personalized_message"];
 
+  // FIX CRÍTICO: usar original_selected_rows si existe. resumeJob() MUTA
+  // job.selected_rows a "pending" (solo lo que falta) cada vez que se
+  // reanuda. Si iteramos selected_rows después del resume, escribimos
+  // SÓLO la última tanda en vez de todas las filas originales.
+  const indices = job.original_selected_rows ?? job.selected_rows;
+
   const lines: string[] = [headerCols.map(csvEscape).join(",")];
-  for (const idx of job.selected_rows) {
+  for (const idx of indices) {
     const row = allRows[idx];
     if (!row) continue;
-    // CELDAS ORIGINALES: pasadas literalmente por csvEscape (sólo escape de
-    // comillas / saltos válidos, sin transformar el contenido).
+    // CELDAS ORIGINALES: pasadas literalmente por csvEscape.
     const vals = cols.map((c) => csvEscape(row[c] ?? ""));
     // CELDA NUEVA: el mensaje personalizado generado, aplanado.
     vals.push(csvEscape(messageMap.get(idx) ?? ""));
@@ -521,6 +561,7 @@ async function buildResultCSV(job: PersonalizationJob, allRows: Record<string, s
   }
   const csv = lines.join("\r\n");
   await writeBlob(job.result_csv_key!, Buffer.from(csv, "utf-8"), "text/csv");
+  console.log(`[buildResultCSV] job=${job.id} indices=${indices.length} resultsMap=${messageMap.size} rowsWritten=${lines.length - 1}`);
 }
 
 /** Aplana HTML conservando la estructura visual (<p>, <br>, <strong>...).

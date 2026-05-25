@@ -689,6 +689,25 @@ export default function PersonalizacionPage() {
                     </div>
                   </div>
                   <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                    <button
+                      onClick={async () => {
+                        const r = await fetch(`/api/personalization/jobs/${j.id}/rebuild-csv`, { method: "POST" });
+                        const d = await r.json();
+                        if (d.ok) alert(`✓ CSV regenerado: ${d.rows_written} filas, ${d.messages_used} mensajes. Ya puedes descargar.`);
+                        else alert("Error: " + (d.error || "desconocido"));
+                      }}
+                      title="Regenera el CSV usando TODAS las filas originales y los mensajes ya hechos. Útil si te falta gente en el CSV descargado."
+                      style={{
+                        fontSize: 12.5,
+                        padding: "8px 12px",
+                        background: "var(--surface-2)",
+                        color: "var(--t2)",
+                        border: "1px solid var(--border)",
+                        borderRadius: 9,
+                        cursor: "pointer",
+                        fontFamily: "inherit",
+                      }}
+                    >🔧 Regenerar</button>
                     <a
                       href={`/api/personalization/jobs/${j.id}/csv`}
                       download

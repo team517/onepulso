@@ -239,34 +239,74 @@ export default function ClientInboxPage() {
         (m.preview || "").toLowerCase().includes(search.toLowerCase()))
     : messages;
 
-  // Build thread for selected msg
-  const normSubj = (s: string) => (s || "").replace(/^\s*(re|fwd|rv|fw)\s*:\s*/gi, "").trim().toLowerCase();
-  // Normaliza message-ids: quita corchetes y mayúsculas/espacios para que
-  // matchen aunque vengan con o sin <>.
+  // Build thread for selected msg — matching ROBUSTO con múltiples capas.
+  // Subject normalizado: quita "Re:", "Fwd:", "RV:", "FW:" y los acoplados
+  // ([EXT], [SPAM], etc.) y trim+lower.
+  const normSubj = (s: string) => (s || "")
+    .replace(/^\s*(re|fwd|rv|fw)\s*:\s*/gi, "")
+    .replace(/^\s*\[[^\]]+\]\s*/g, "") // quitar [EXT] etc
+    .replace(/^\s*(re|fwd|rv|fw)\s*:\s*/gi, "") // re-strip Re: si quedaba
+    .trim()
+    .toLowerCase();
+  // Message-IDs: quita <...> y normaliza
   const normMid = (s: string) => (s || "").trim().replace(/^<+|>+$/g, "").toLowerCase();
+  // Address: trim + lower del email puro (quita el "Nombre <email>")
+  const normAddr = (s: string) => {
+    if (!s) return "";
+    const m = s.match(/<([^>]+)>/);
+    return (m ? m[1] : s).toLowerCase().trim();
+  };
+
   const thread = selectedMsg
-    ? messages.filter(x => {
-        // Allow cross-account: si el cliente tiene varios buzones y el hilo
-        // pasa por más de uno, mostramos todos los mensajes relacionados.
-        if (x.accountId === selectedMsg.accountId && x.uid === selectedMsg.uid) return false;
+    ? (() => {
         const selMid = normMid(selectedMsg.messageId);
-        const xInReply = normMid(x.inReplyTo);
-        const xRefs = (x.references || []).map(normMid);
-        const xMid = normMid(x.messageId);
         const selInReply = normMid(selectedMsg.inReplyTo);
         const selRefs = (selectedMsg.references || []).map(normMid);
-        // x es reply de selectedMsg
-        if (selMid && (xInReply === selMid || xRefs.includes(selMid))) return true;
-        // selectedMsg es reply de x (o ambos en el mismo hilo)
-        if (xMid && (selInReply === xMid || selRefs.includes(xMid))) return true;
-        // Ambos comparten alguna reference (mismo hilo en algún ancestro)
-        if (xRefs.length > 0 && selRefs.length > 0) {
-          for (const r of xRefs) if (selRefs.includes(r)) return true;
-        }
-        // Fallback por subject normalizado
-        if (normSubj(x.subject) === normSubj(selectedMsg.subject) && normSubj(selectedMsg.subject)) return true;
-        return false;
-      }).sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
+        const selSubj = normSubj(selectedMsg.subject);
+        const selFromAddr = normAddr(selectedMsg.fromAddress || selectedMsg.from);
+        const selToAddr = normAddr(selectedMsg.toAddress || selectedMsg.to);
+        // El "contacto externo" es el que NO es una de mis cuentas — es la
+        // otra parte de la conversación. Si selectedMsg es entrante (inbound),
+        // el contacto es el fromAddr. Si es enviado por mi (outbound), el
+        // contacto es el toAddr.
+        const myEmails = new Set(accounts.map((a) => (a.email || "").toLowerCase()));
+        const selFromMine = myEmails.has(selFromAddr);
+        const contactAddr = selFromMine ? selToAddr : selFromAddr;
+
+        return messages.filter((x) => {
+          if (x.accountId === selectedMsg.accountId && x.uid === selectedMsg.uid) return false;
+
+          // CAPA 1: Match estricto por Message-ID / In-Reply-To / References
+          const xInReply = normMid(x.inReplyTo);
+          const xRefs = (x.references || []).map(normMid);
+          const xMid = normMid(x.messageId);
+          if (selMid && (xInReply === selMid || xRefs.includes(selMid))) return true;
+          if (xMid && (selInReply === xMid || selRefs.includes(xMid))) return true;
+          if (xRefs.length > 0 && selRefs.length > 0) {
+            for (const r of xRefs) if (r && selRefs.includes(r)) return true;
+          }
+
+          // CAPA 2: Mismo subject normalizado (cubre clientes que rompen Message-ID)
+          const xSubj = normSubj(x.subject);
+          if (selSubj && xSubj === selSubj) return true;
+
+          // CAPA 3: Conversación con el MISMO contacto.
+          // Cualquier mensaje donde el contacto sea remitente o destinatario.
+          if (contactAddr) {
+            const xFrom = normAddr(x.fromAddress || x.from);
+            const xTo = normAddr(x.toAddress || x.to);
+            if (xFrom === contactAddr || xTo === contactAddr) {
+              // Limitar a misma cuenta o cross-account si comparte subject parcial
+              // → ya cubierto arriba. Aquí incluimos TODOS los mensajes con
+              // ese contacto, sea sent o received.
+              if (x.accountId === selectedMsg.accountId) return true;
+              // Si es otra cuenta, sólo si subject coincide razonablemente
+              if (selSubj && xSubj && (xSubj.includes(selSubj) || selSubj.includes(xSubj))) return true;
+            }
+          }
+          return false;
+        }).sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+      })()
     : [];
 
   return (
@@ -562,23 +602,26 @@ export default function ClientInboxPage() {
                 ))}
               </div>
             )}
-            {thread.length > 0 && (
+            {thread.length > 0 ? (
               <div style={{ marginTop: 28, paddingTop: 18, borderTop: "1px solid #e2e8f0" }}>
                 <div style={{
                   display: "flex", alignItems: "center", justifyContent: "space-between",
-                  marginBottom: 12,
+                  marginBottom: 14, flexWrap: "wrap", gap: 8,
                 }}>
                   <div style={{
-                    fontSize: 11, color: "#0071e3", fontWeight: 700,
+                    fontSize: 12, color: "#0071e3", fontWeight: 700,
                     textTransform: "uppercase", letterSpacing: "0.06em",
                     display: "inline-flex", alignItems: "center", gap: 6,
                   }}>
-                    💬 Conversación ({thread.length + 1} mensajes)
+                    💬 Conversación completa con este contacto · {thread.length + 1} mensajes
+                  </div>
+                  <div style={{ fontSize: 11.5, color: "var(--text-faint)" }}>
+                    Orden cronológico ↓
                   </div>
                 </div>
                 <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
                   {thread.map(t => {
-                    const isMine = accounts.some((a) => (a.email || "").toLowerCase() === (t.fromAddress || "").toLowerCase());
+                    const isMine = accounts.some((a) => (a.email || "").toLowerCase() === ((t.fromAddress || "").toLowerCase()));
                     return (
                       <ThreadCard
                         key={`${t.accountId}-${t.uid}`}
@@ -590,6 +633,16 @@ export default function ClientInboxPage() {
                     );
                   })}
                 </div>
+              </div>
+            ) : (
+              <div style={{
+                marginTop: 28, paddingTop: 18, borderTop: "1px solid #e2e8f0",
+                fontSize: 12.5, color: "var(--text-faint)", textAlign: "center",
+                padding: "14px 12px",
+                background: "var(--surface-2)",
+                borderRadius: 10,
+              }}>
+                💬 Este es el primer mensaje del hilo (no encontramos correos anteriores con este contacto).
               </div>
             )}
           </div>

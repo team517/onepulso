@@ -31,6 +31,9 @@ export default function ClientInboxPage() {
     } catch {}
   }, [id]);
   const [selectedAccount, setSelectedAccount] = useState<string | null>(null);
+  // Filtro de bandeja: "all" muestra todo, "sent" sólo los que enviaste,
+  // "received" sólo los recibidos (los entrantes del prospect).
+  const [folderFilter, setFolderFilter] = useState<"all" | "sent" | "received">("all");
   const [selectedMsg, setSelectedMsg] = useState<any>(null);
   const [search, setSearch] = useState("");
   const [composeOpen, setComposeOpen] = useState(false);
@@ -232,12 +235,34 @@ export default function ClientInboxPage() {
 
   if (!me) return <div style={{ padding: 40, textAlign: "center", color: "#94a3b8" }}>Cargando…</div>;
 
+  // Helper: ¿el mensaje fue ENVIADO por nosotros? UID < 0 (sent folder) o
+  // remitente coincide con una cuenta nuestra.
+  const myEmailsSet = new Set(accounts.map((a) => (a.email || "").toLowerCase()));
+  const isOutboundMsg = (m: any) => {
+    if (typeof m.uid === "number" && m.uid < 0) return true;
+    const fromAddr = (m.fromAddress || m.from || "").toLowerCase();
+    if (fromAddr && myEmailsSet.has(fromAddr)) return true;
+    // Si el campo from tiene un email envuelto, extraerlo
+    const match = (m.from || "").match(/<([^>]+)>/);
+    if (match && myEmailsSet.has(match[1].toLowerCase())) return true;
+    return false;
+  };
+
+  let baseList = messages;
+  if (folderFilter === "sent")     baseList = messages.filter(isOutboundMsg);
+  if (folderFilter === "received") baseList = messages.filter((m) => !isOutboundMsg(m));
+
   const filtered = search
-    ? messages.filter(m =>
+    ? baseList.filter(m =>
         (m.from || "").toLowerCase().includes(search.toLowerCase()) ||
+        (m.to || "").toLowerCase().includes(search.toLowerCase()) ||
         (m.subject || "").toLowerCase().includes(search.toLowerCase()) ||
         (m.preview || "").toLowerCase().includes(search.toLowerCase()))
-    : messages;
+    : baseList;
+
+  // Contadores para el sidebar
+  const sentCount = messages.filter(isOutboundMsg).length;
+  const receivedCount = messages.length - sentCount;
 
   // Build thread for selected msg — matching ROBUSTO con múltiples capas.
   // Subject normalizado: quita "Re:", "Fwd:", "RV:", "FW:" y los acoplados
@@ -321,6 +346,33 @@ export default function ClientInboxPage() {
         </div>
 
         <button style={composeBtn} onClick={newCompose}>+ Redactar</button>
+
+        {/* Filtros tipo carpeta: Todos / Recibidos / Enviados */}
+        <div style={sectionTitle}>CARPETAS</div>
+        <div style={accountList}>
+          <FolderPill
+            label="Todos"
+            icon="📥"
+            count={messages.length}
+            active={folderFilter === "all"}
+            onClick={() => setFolderFilter("all")}
+          />
+          <FolderPill
+            label="Recibidos"
+            icon="📨"
+            count={receivedCount}
+            active={folderFilter === "received"}
+            onClick={() => setFolderFilter("received")}
+          />
+          <FolderPill
+            label="Enviados"
+            icon="📤"
+            count={sentCount}
+            active={folderFilter === "sent"}
+            onClick={() => setFolderFilter("sent")}
+            accent="brand"
+          />
+        </div>
 
         <div style={sectionTitle}>BANDEJAS</div>
         <div style={accountList}>
@@ -456,9 +508,8 @@ export default function ClientInboxPage() {
           ) : filtered.map(m => {
             const isSelected = selectedMsg && selectedMsg.uid === m.uid && selectedMsg.accountId === m.accountId;
             const acc = accounts.find(a => a.id === m.accountId);
-            // ¿Este mensaje tiene un reminder pendiente? (es uno enviado por
-            // nosotros — uid negativo — y el recipient coincide con alguno).
-            const isOutbound = typeof m.uid === "number" && m.uid < 0;
+            // ¿Este mensaje fue ENVIADO por nosotros?
+            const isOutbound = isOutboundMsg(m);
             const pendingReminder = isOutbound
               ? reminders.find((r: any) =>
                   r.status === "pending" &&
@@ -485,7 +536,23 @@ export default function ClientInboxPage() {
                 <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3, gap: 6 }}>
                   <div style={{ fontSize: 13, fontWeight: m.unread ? 700 : 500, color: "#0f172a", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>
                     {acc && <span style={accTag}>{acc.email.split("@")[0]}</span>}
-                    {m.fromName || m.from}
+                    {isOutbound && (
+                      <span style={{
+                        display: "inline-block",
+                        background: "rgba(0,113,227,0.1)",
+                        color: "#0071e3",
+                        padding: "1px 5px",
+                        borderRadius: 4,
+                        fontSize: 9.5,
+                        fontWeight: 800,
+                        letterSpacing: "0.04em",
+                        marginRight: 5,
+                        verticalAlign: 1,
+                      }}>ENVIADO</span>
+                    )}
+                    {isOutbound
+                      ? `Para: ${(m.to || "").replace(/<[^>]+>/, "").trim() || m.toAddress || ""}`
+                      : (m.fromName || m.from)}
                   </div>
                   <div style={{ fontSize: 11, color: "#94a3b8", flexShrink: 0 }}>{fmtDate(m.date)}</div>
                 </div>
@@ -1036,6 +1103,62 @@ const editorStyle: React.CSSProperties = {
 /**
  * Tarjeta de mensaje dentro del hilo. Carga el cuerpo HTML al expandir.
  */
+function FolderPill({
+  label, icon, count, active, onClick, accent,
+}: {
+  label: string;
+  icon: string;
+  count: number;
+  active: boolean;
+  onClick: () => void;
+  accent?: "brand";
+}) {
+  const isBrand = accent === "brand";
+  return (
+    <div
+      onClick={onClick}
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: 10,
+        padding: "9px 12px",
+        borderRadius: 9,
+        cursor: "pointer",
+        marginBottom: 3,
+        transition: "all 0.15s",
+        background: active
+          ? (isBrand ? "linear-gradient(135deg, rgba(249,166,3,0.12), rgba(209,92,254,0.10))" : "rgba(99,102,241,0.08)")
+          : "transparent",
+        border: active
+          ? `1px solid ${isBrand ? "rgba(209,92,254,0.35)" : "rgba(99,102,241,0.25)"}`
+          : "1px solid transparent",
+      }}
+      onMouseEnter={(e) => { if (!active) (e.currentTarget as HTMLDivElement).style.background = "rgba(15,23,42,0.04)"; }}
+      onMouseLeave={(e) => { if (!active) (e.currentTarget as HTMLDivElement).style.background = "transparent"; }}
+    >
+      <span style={{ fontSize: 16, flexShrink: 0 }}>{icon}</span>
+      <span style={{
+        flex: 1,
+        fontSize: 13,
+        fontWeight: active ? 700 : 500,
+        color: active ? (isBrand ? "#9a3fc7" : "#0f172a") : "#475569",
+      }}>{label}</span>
+      <span style={{
+        fontSize: 11,
+        fontWeight: 700,
+        padding: "1px 8px",
+        borderRadius: 99,
+        background: active
+          ? (isBrand ? "rgba(209,92,254,0.18)" : "rgba(99,102,241,0.18)")
+          : "rgba(100,116,139,0.12)",
+        color: active ? (isBrand ? "#9a3fc7" : "#6366f1") : "#64748b",
+        fontFamily: "ui-monospace, Menlo, monospace",
+        fontVariantNumeric: "tabular-nums",
+      }}>{count.toLocaleString("es")}</span>
+    </div>
+  );
+}
+
 function ThreadCard({
   msg, isMine, onLoadFull, onDelete,
 }: {

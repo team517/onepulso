@@ -13,6 +13,7 @@ export default function ClientInboxPage() {
   const [me, setMe] = useState<any>(null);
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [messages, setMessages] = useState<Msg[]>([]);
+  const [reminders, setReminders] = useState<any[]>([]);
   const [warmupCount, setWarmupCount] = useState(0);
   // Por defecto warmup OCULTO. La preferencia se persiste en localStorage por
   // unibox, así que si el usuario decide mostrarlos, se queda mostrando entre
@@ -46,7 +47,7 @@ export default function ClientInboxPage() {
         return;
       }
       setMe(d);
-      await Promise.all([loadAccounts(), loadMessages()]);
+      await Promise.all([loadAccounts(), loadMessages(), loadReminders()]);
     })();
   }, [id]);
 
@@ -61,6 +62,16 @@ export default function ClientInboxPage() {
     } else {
       console.error("[unibox] error cargando cuentas:", r.status);
     }
+  }
+
+  async function loadReminders() {
+    try {
+      const r = await fetch(`/api/uniboxes/${id}/reminders`);
+      if (r.ok) {
+        const d = await r.json();
+        setReminders(d.reminders || []);
+      }
+    } catch {}
   }
 
   /** Re-aplica la detección actual de warmup a toda la caché. Útil cuando
@@ -405,19 +416,38 @@ export default function ClientInboxPage() {
           ) : filtered.map(m => {
             const isSelected = selectedMsg && selectedMsg.uid === m.uid && selectedMsg.accountId === m.accountId;
             const acc = accounts.find(a => a.id === m.accountId);
+            // ¿Este mensaje tiene un reminder pendiente? (es uno enviado por
+            // nosotros — uid negativo — y el recipient coincide con alguno).
+            const isOutbound = typeof m.uid === "number" && m.uid < 0;
+            const pendingReminder = isOutbound
+              ? reminders.find((r: any) =>
+                  r.status === "pending" &&
+                  r.account_id === m.accountId &&
+                  m.toAddress && r.recipient.toLowerCase() === String(m.toAddress).toLowerCase()
+                )
+              : null;
             return (
               <div
                 key={`${m.accountId}-${m.uid}`}
-                style={{ ...messageItem, ...(isSelected ? activeMessage : {}), ...(m.unread ? unreadMessage : {}), position: "relative" }}
+                style={{
+                  ...messageItem,
+                  ...(isSelected ? activeMessage : {}),
+                  ...(m.unread ? unreadMessage : {}),
+                  position: "relative",
+                  ...(pendingReminder ? {
+                    background: "linear-gradient(90deg, rgba(245,158,11,0.07), rgba(255,255,255,0))",
+                    borderLeft: "3px solid #f59e0b",
+                  } : {}),
+                }}
                 onClick={() => openMessage(m.accountId, m.uid)}
                 className="unibox-msg-row"
               >
-                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3, gap: 6 }}>
                   <div style={{ fontSize: 13, fontWeight: m.unread ? 700 : 500, color: "#0f172a", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>
                     {acc && <span style={accTag}>{acc.email.split("@")[0]}</span>}
                     {m.fromName || m.from}
                   </div>
-                  <div style={{ fontSize: 11, color: "#94a3b8" }}>{fmtDate(m.date)}</div>
+                  <div style={{ fontSize: 11, color: "#94a3b8", flexShrink: 0 }}>{fmtDate(m.date)}</div>
                 </div>
                 <div style={{ fontSize: 13, color: m.unread ? "#0f172a" : "#475569", fontWeight: m.unread ? 600 : 400, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                   {m.subject || "(sin asunto)"}
@@ -425,6 +455,28 @@ export default function ClientInboxPage() {
                 <div style={{ fontSize: 12, color: "#94a3b8", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                   {m.preview}
                 </div>
+                {pendingReminder && (
+                  <div style={{
+                    marginTop: 6,
+                    display: "inline-flex", alignItems: "center", gap: 4,
+                    background: "rgba(245,158,11,0.15)",
+                    color: "#b45309",
+                    padding: "2px 8px",
+                    borderRadius: 99,
+                    fontSize: 10.5,
+                    fontWeight: 700,
+                    letterSpacing: "0.02em",
+                  }}>
+                    ⏰ Reminder {(() => {
+                      const ms = new Date(pendingReminder.scheduled_at).getTime() - Date.now();
+                      if (ms < 0) return "en cualquier momento";
+                      const hours = Math.round(ms / 3600000);
+                      if (hours < 24) return `en ${hours}h`;
+                      const days = Math.round(hours / 24);
+                      return `en ${days}d`;
+                    })()}
+                  </div>
+                )}
                 {/* Botón papelera, visible al pasar el ratón */}
                 <button
                   className="unibox-msg-del"
@@ -550,7 +602,7 @@ export default function ClientInboxPage() {
           accounts={accounts}
           initial={composeData}
           onClose={() => setComposeOpen(false)}
-          onSent={() => { setComposeOpen(false); loadMessages(); }}
+          onSent={() => { setComposeOpen(false); loadMessages(); loadReminders(); }}
         />
       )}
     </div>
@@ -567,6 +619,10 @@ function ComposeModal({ uniboxId, accounts, initial, onClose, onSent }: any) {
   const [body, setBody] = useState(initial.body || "");
   const [files, setFiles] = useState<File[]>([]);
   const [sending, setSending] = useState(false);
+  // Reminder programable
+  const [reminderEnabled, setReminderEnabled] = useState(false);
+  const [reminderDelay, setReminderDelay] = useState(72); // 3 días por defecto
+  const [reminderBody, setReminderBody] = useState("");
   const fileRef = useRef<HTMLInputElement>(null);
   const editorRef = useRef<HTMLDivElement>(null);
 
@@ -601,6 +657,29 @@ function ComposeModal({ uniboxId, accounts, initial, onClose, onSent }: any) {
       const r = await fetch(`/api/uniboxes/${uniboxId}/send`, { method: "POST", body: fd });
       const d = await r.json();
       if (!r.ok) throw new Error(d.error || "Error");
+
+      // Si el usuario activó el reminder, lo programamos POST-send.
+      if (reminderEnabled && d.messageId && to.trim()) {
+        try {
+          await fetch(`/api/uniboxes/${uniboxId}/reminders`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              account_id: accountId,
+              recipient: to.split(",")[0].trim(),
+              original_subject: subject,
+              original_message_id: d.messageId,
+              original_references: initial.references
+                ? String(initial.references).split(/\s+/).filter(Boolean)
+                : [],
+              reminder_body: reminderBody,
+              delay_hours: reminderDelay,
+            }),
+          });
+        } catch (e) {
+          console.warn("[unibox] No se pudo programar reminder:", e);
+        }
+      }
       onSent();
     } catch (e: any) {
       alert("Error: " + e.message);
@@ -665,6 +744,87 @@ function ComposeModal({ uniboxId, accounts, initial, onClose, onSent }: any) {
                     style={{ background: "none", border: 0, color: "#64748b", cursor: "pointer" }}>✕</button>
                 </span>
               ))}
+            </div>
+          )}
+
+          {/* REMINDER: bloque amarillo, solo aparece en respuestas */}
+          {initial.inReplyTo && (
+            <div style={{
+              marginTop: 14,
+              padding: "12px 14px",
+              background: reminderEnabled
+                ? "linear-gradient(135deg, rgba(245,158,11,0.10), rgba(249,166,3,0.08))"
+                : "var(--surface-2)",
+              border: `1px solid ${reminderEnabled ? "rgba(245,158,11,0.4)" : "var(--border)"}`,
+              borderRadius: 10,
+              transition: "all 0.15s",
+            }}>
+              <label style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer" }}>
+                <input
+                  type="checkbox"
+                  checked={reminderEnabled}
+                  onChange={(e) => setReminderEnabled(e.target.checked)}
+                  style={{ width: 18, height: 18, cursor: "pointer", accentColor: "#f9a603" }}
+                />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: "#b45309", display: "flex", alignItems: "center", gap: 6 }}>
+                    ⏰ Reminder automático
+                  </div>
+                  <div style={{ fontSize: 11.5, color: "var(--text-dim)", marginTop: 2 }}>
+                    Si no responde, te envío un follow-up automático tras el plazo elegido.
+                    Se cancela solo si responde antes.
+                  </div>
+                </div>
+              </label>
+
+              {reminderEnabled && (
+                <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1px dashed rgba(245,158,11,0.3)" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10, flexWrap: "wrap" }}>
+                    <span style={{ fontSize: 12, color: "var(--text-dim)", fontWeight: 600 }}>Enviar en:</span>
+                    {[
+                      { h: 24, label: "1 día" },
+                      { h: 72, label: "3 días" },
+                      { h: 168, label: "1 semana" },
+                      { h: 336, label: "2 semanas" },
+                    ].map((opt) => (
+                      <button
+                        key={opt.h}
+                        onClick={() => setReminderDelay(opt.h)}
+                        style={{
+                          padding: "5px 11px",
+                          borderRadius: 99,
+                          border: `1px solid ${reminderDelay === opt.h ? "#f59e0b" : "var(--border)"}`,
+                          background: reminderDelay === opt.h ? "#f59e0b" : "#fff",
+                          color: reminderDelay === opt.h ? "#fff" : "var(--t2)",
+                          fontSize: 11.5, fontWeight: 600,
+                          cursor: "pointer", fontFamily: "inherit",
+                        }}
+                      >
+                        {opt.label}
+                      </button>
+                    ))}
+                  </div>
+                  <label style={{ display: "block", fontSize: 11, fontWeight: 700, color: "var(--text-dim)", marginBottom: 4, letterSpacing: "0.04em", textTransform: "uppercase" }}>
+                    Mensaje del reminder (opcional)
+                  </label>
+                  <textarea
+                    value={reminderBody}
+                    onChange={(e) => setReminderBody(e.target.value)}
+                    placeholder="Si lo dejas vacío, mando: 'Hola, quería retomar el hilo por si se te pasó. ¿Cómo lo ves?'"
+                    rows={3}
+                    style={{
+                      width: "100%",
+                      padding: "8px 10px",
+                      border: "1px solid var(--border)",
+                      borderRadius: 8,
+                      fontSize: 13,
+                      fontFamily: "inherit",
+                      resize: "vertical",
+                      boxSizing: "border-box",
+                    }}
+                  />
+                </div>
+              )}
             </div>
           )}
         </div>

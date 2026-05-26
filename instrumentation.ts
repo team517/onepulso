@@ -31,6 +31,16 @@ export async function register() {
     console.warn("[instrumentation] linkedin-scheduler skipped:", e?.message);
   }
 
+  // Unibox reminders: scheduler que envía recordatorios programados y
+  // cancela los que recibieron respuesta del destinatario.
+  try {
+    const { startUniboxRemindersScheduler } = await import("./lib/unibox-reminders-scheduler");
+    startUniboxRemindersScheduler();
+    console.log("[instrumentation] unibox-reminders-scheduler started on boot");
+  } catch (e: any) {
+    console.warn("[instrumentation] unibox-reminders skipped:", e?.message);
+  }
+
   // Personalización: marcar como "interrupted" los jobs en running tras un
   // restart Y arrancar el watchdog que los auto-reanuda cada 60s. Así, si
   // un job se queda atascado (LLM colgado, deploy en caliente, OOM, etc.)

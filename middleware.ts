@@ -7,6 +7,8 @@ export function middleware(req: NextRequest) {
 
   // Rutas públicas - no requieren auth
   if (
+    pathname === "/landing" ||
+    pathname.startsWith("/landing/") ||
     pathname.startsWith("/login") ||
     pathname.startsWith("/api/auth") ||
     pathname.startsWith("/api/stripe/webhook") ||
@@ -42,6 +44,10 @@ export function middleware(req: NextRequest) {
   const token = req.cookies.get("onepulso_session")?.value;
 
   if (!token || token !== SESSION_TOKEN) {
+    // Anónimo en la raíz → landing pública.
+    if (pathname === "/") {
+      return NextResponse.redirect(new URL("/landing", req.url));
+    }
     return NextResponse.redirect(new URL("/login", req.url));
   }
 

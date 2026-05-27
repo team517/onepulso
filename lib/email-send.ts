@@ -175,10 +175,10 @@ async function trySend(
  *
  * Silencioso: si falla, sólo loguea — no rompe el envío.
  */
-async function appendToImapSent(cfg: EmailConfig, rawMime: Buffer | string, opts: { forceEvenIfGmail: boolean }) {
+async function appendToImapSent(cfg: EmailConfig, rawMime: Buffer | string, opts: { forceEvenIfGmail: boolean }): Promise<{ ok: boolean; folder?: string; error?: string }> {
   try {
-    await Promise.race([
-      (async () => {
+    return (await Promise.race([
+      (async (): Promise<{ ok: boolean; folder?: string; error?: string }> => {
         const client = new ImapFlow({
           host: cfg.imap_host,
           port: cfg.imap_port,
@@ -191,34 +191,51 @@ async function appendToImapSent(cfg: EmailConfig, rawMime: Buffer | string, opts
           const list = (await client.list()) as any[];
           const isGmail = list.some((m: any) => m.path.startsWith("[Gmail]") || m.path.startsWith("[Google Mail]"));
 
-          // Buscar la carpeta Sent — preferir specialUse=\Sent, luego nombre conocido en varios idiomas
+          // Buscar la carpeta Sent — orden de prioridad estricto
           let sentPath: string | undefined;
+          // 1) Por SPECIAL-USE attribute
           for (const m of list) {
             if (m.specialUse === "\\Sent") { sentPath = m.path; break; }
           }
+          // 2) Por flag \Sent
           if (!sentPath) {
             for (const m of list) {
               const flags: string[] = m.flags ?? [];
-              if (flags.includes("\\Sent") || /\b(Sent\s?Mail|Sent|Enviados|Gesendet|Verzonden|Inviata|Envoyés|Envoyes)\b/i.test(m.path)) {
+              if (flags.includes("\\Sent")) { sentPath = m.path; break; }
+            }
+          }
+          // 3) Por nombre conocido (varios idiomas)
+          if (!sentPath) {
+            for (const m of list) {
+              if (/\b(Sent\s?Mail|Sent|Enviados|Gesendet|Verzonden|Inviata|Envoy[ée]s)\b/i.test(m.path)) {
                 sentPath = m.path; break;
               }
             }
           }
-          // Fallback típico Gmail
+          // 4) Fallback duro para Gmail
           if (!sentPath && isGmail) sentPath = "[Gmail]/Sent Mail";
 
-          if (sentPath && (!isGmail || opts.forceEvenIfGmail)) {
-            await client.append(sentPath, rawMime, ["\\Seen"]);
-            console.log(`[email-send] IMAP append → ${sentPath}`);
+          if (!sentPath) {
+            console.warn("[email-send] IMAP append: no encontré carpeta Sent. Folders:", list.map((m: any) => m.path).join(", "));
+            return { ok: false, error: "no sent folder detected" };
           }
+          if (isGmail && !opts.forceEvenIfGmail) {
+            console.log(`[email-send] IMAP append skipped (Gmail auto-copy on SMTP send)`);
+            return { ok: true, folder: sentPath };
+          }
+          await client.append(sentPath, rawMime, ["\\Seen"]);
+          console.log(`[email-send] ✓ IMAP append → ${sentPath} (${rawMime.length} bytes)`);
+          return { ok: true, folder: sentPath };
         } finally {
           try { await client.logout(); } catch {}
         }
       })(),
-      new Promise((_, rej) => setTimeout(() => rej(new Error("IMAP append timeout (20s)")), 20000)),
-    ]);
+      new Promise<{ ok: false; error: string }>((resolve) => setTimeout(() => resolve({ ok: false, error: "IMAP append timeout (20s)" }), 20000)),
+    ])) as { ok: boolean; folder?: string; error?: string };
   } catch (e) {
-    console.warn("[email-send] no pude appendear a Sent:", (e as any)?.message);
+    const msg = (e as any)?.message || String(e);
+    console.warn(`[email-send] ✗ IMAP append falló: ${msg}`);
+    return { ok: false, error: msg };
   }
 }
 

@@ -22,7 +22,7 @@ export default function LoginPage() {
       });
       const data = await res.json();
       if (res.ok) {
-        router.push("/");
+        router.push("/connect-accounts");
       } else {
         setError(data.hint ? `${data.error} — ${data.hint}` : (data.error || "Credenciales incorrectas"));
       }
@@ -33,175 +33,170 @@ export default function LoginPage() {
     }
   }
 
-  const inputBase: React.CSSProperties = {
-    width: "100%",
-    padding: "11px 14px",
-    background: "#ffffff",
-    border: "1px solid rgba(15,23,42,0.12)",
-    borderRadius: "10px",
-    color: "#0f172a",
-    fontSize: "14.5px",
-    outline: "none",
-    boxSizing: "border-box",
-    fontFamily: "-apple-system, 'SF Pro Text', 'Helvetica Neue', Arial, sans-serif",
-    transition: "border-color 0.2s ease, box-shadow 0.2s ease",
-    WebkitAppearance: "none",
-  };
-
-  const labelBase: React.CSSProperties = {
-    display: "block",
-    color: "#64748b",
-    fontSize: "11.5px",
-    fontWeight: 600,
-    marginBottom: "7px",
-    letterSpacing: "0.05em",
-    textTransform: "uppercase" as const,
-    fontFamily: "-apple-system, 'SF Pro Text', 'Helvetica Neue', Arial, sans-serif",
-  };
-
   return (
     <div style={{
       minHeight: "100vh",
-      background: "linear-gradient(145deg, #e8f0fe 0%, #f0f4f8 50%, #e2eaf8 100%)",
+      background: "#fafbfc",
       display: "flex",
       alignItems: "center",
       justifyContent: "center",
-      fontFamily: "-apple-system, 'SF Pro Text', 'Helvetica Neue', Arial, sans-serif",
+      fontFamily: "'Inter', system-ui, -apple-system, sans-serif",
       WebkitFontSmoothing: "antialiased",
+      position: "relative",
+      overflow: "hidden",
+      padding: "32px 20px",
     }}>
-      {/* Decorative background blobs */}
+      {/* Google Fonts */}
+      <link rel="preconnect" href="https://fonts.googleapis.com" />
+      <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
+      <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700&family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet" />
+
+      {/* Decorative gradient orbs (match landing hero) */}
       <div style={{
-        position: "fixed",
-        top: "10%",
-        left: "15%",
-        width: "500px",
-        height: "500px",
-        background: "radial-gradient(ellipse at center, rgba(0,113,227,0.08) 0%, transparent 70%)",
+        position: "absolute",
+        top: -120, right: -160,
+        width: 520, height: 520,
+        borderRadius: "50%",
+        background: "radial-gradient(circle, rgba(249,166,3,0.22), transparent 60%)",
+        filter: "blur(80px)",
         pointerEvents: "none",
         zIndex: 0,
       }} />
       <div style={{
-        position: "fixed",
-        bottom: "10%",
-        right: "15%",
-        width: "400px",
-        height: "400px",
-        background: "radial-gradient(ellipse at center, rgba(59,130,246,0.06) 0%, transparent 70%)",
+        position: "absolute",
+        bottom: -200, left: -160,
+        width: 560, height: 560,
+        borderRadius: "50%",
+        background: "radial-gradient(circle, rgba(209,92,254,0.18), transparent 60%)",
+        filter: "blur(80px)",
         pointerEvents: "none",
         zIndex: 0,
       }} />
 
       <div style={{
         width: "100%",
-        maxWidth: "400px",
-        padding: "0 24px",
+        maxWidth: 420,
         position: "relative",
         zIndex: 1,
       }}>
 
-        {/* Logo mark */}
-        <div style={{ textAlign: "center", marginBottom: "40px" }}>
-          <div style={{
+        {/* Brand mark — matches landing nav */}
+        <div style={{ textAlign: "center", marginBottom: 36 }}>
+          <a href="/landing" style={{
             display: "inline-flex",
-            alignItems: "center",
-            justifyContent: "center",
-            width: "56px",
-            height: "56px",
-            background: "linear-gradient(135deg, #f9a603 0%, #f59e3a 30%, #d15cfe 100%)",
-            borderRadius: "16px",
-            marginBottom: "20px",
-            boxShadow: "0 8px 28px rgba(209,92,254,0.35), 0 2px 6px rgba(13,34,68,0.1)",
-          }}>
-            <span style={{ fontSize: "22px", lineHeight: 1, color: "#fff", fontWeight: 800, fontFamily: "'Plus Jakarta Sans', sans-serif" }}>O</span>
-          </div>
-
-          <h1 style={{
-            color: "#0f172a",
-            fontSize: "28px",
-            fontWeight: 700,
-            margin: "0 0 6px",
+            alignItems: "baseline",
+            fontFamily: "'Plus Jakarta Sans', sans-serif",
+            fontWeight: 800,
+            fontSize: 32,
             letterSpacing: "-0.04em",
-            fontFamily: "-apple-system, 'SF Pro Display', 'Helvetica Neue', Arial, sans-serif",
+            color: "#0a0d14",
+            textDecoration: "none",
+            marginBottom: 12,
           }}>
             onepulso
+            <span style={{ display: "inline-flex", gap: 3, marginLeft: 6, alignSelf: "flex-start", marginTop: 3 }}>
+              <span style={{ width: 9, height: 9, borderRadius: "50%", background: "#848689" }} />
+              <span style={{ width: 9, height: 9, borderRadius: "50%", background: "#0a0d14" }} />
+            </span>
+          </a>
+
+          <h1 style={{
+            margin: "18px 0 8px",
+            fontFamily: "'Plus Jakarta Sans', sans-serif",
+            fontWeight: 800,
+            fontSize: 36,
+            letterSpacing: "-0.035em",
+            lineHeight: 1.05,
+            color: "#0a0d14",
+          }}>
+            Bienvenido <span style={{
+              fontFamily: "'Instrument Serif', serif",
+              fontStyle: "italic",
+              fontWeight: 400,
+              letterSpacing: "-0.02em",
+              background: "linear-gradient(112deg, #f9a603 0%, #f59e3a 22%, #ea7fd3 55%, #b18bf8 78%, #9a69f5 100%)",
+              WebkitBackgroundClip: "text",
+              backgroundClip: "text",
+              color: "transparent",
+            }}>de vuelta</span>
           </h1>
 
           <p style={{
-            color: "#64748b",
-            fontSize: "14px",
+            color: "#54565b",
+            fontSize: 15,
             margin: 0,
-            letterSpacing: "0.01em",
+            lineHeight: 1.5,
           }}>
-            Inicia sesión para continuar
+            Inicia sesión para conectar tus cuentas y lanzar tu próxima campaña.
           </p>
         </div>
 
         {/* Card */}
         <div style={{
           background: "#ffffff",
-          border: "1px solid rgba(15,23,42,0.08)",
-          borderRadius: "20px",
-          padding: "32px 28px",
-          boxShadow: "0 4px 24px rgba(15,23,42,0.08), 0 1px 4px rgba(15,23,42,0.04)",
+          border: "1px solid #ececef",
+          borderRadius: 20,
+          padding: "32px 30px",
+          boxShadow: "0 18px 48px rgba(10,13,20,0.08), 0 0 0 1px rgba(10,13,20,0.04)",
         }}>
           <form onSubmit={handleSubmit}>
 
             {/* Email */}
-            <div style={{ marginBottom: "18px" }}>
-              <label style={labelBase}>Email</label>
+            <div style={{ marginBottom: 18 }}>
+              <label style={labelStyle}>Email</label>
               <input
                 type="email"
                 value={email}
                 onChange={e => setEmail(e.target.value)}
                 placeholder="team@onepulso.online"
                 required
-                style={inputBase}
+                style={inputStyle}
                 onFocus={e => {
-                  e.target.style.borderColor = "#0071e3";
-                  e.target.style.boxShadow   = "0 0 0 3px rgba(0,113,227,0.12)";
+                  e.target.style.borderColor = "#0a0d14";
+                  e.target.style.boxShadow   = "0 0 0 3px rgba(10,13,20,0.06)";
                 }}
                 onBlur={e => {
-                  e.target.style.borderColor = "rgba(15,23,42,0.12)";
+                  e.target.style.borderColor = "#e0e0e3";
                   e.target.style.boxShadow   = "none";
                 }}
               />
             </div>
 
             {/* Password */}
-            <div style={{ marginBottom: "18px" }}>
-              <label style={labelBase}>Contraseña</label>
+            <div style={{ marginBottom: 18 }}>
+              <label style={labelStyle}>Contraseña</label>
               <input
                 type="password"
                 value={password}
                 onChange={e => setPassword(e.target.value)}
                 placeholder="••••••••"
                 required
-                style={inputBase}
+                style={inputStyle}
                 onFocus={e => {
-                  e.target.style.borderColor = "#0071e3";
-                  e.target.style.boxShadow   = "0 0 0 3px rgba(0,113,227,0.12)";
+                  e.target.style.borderColor = "#0a0d14";
+                  e.target.style.boxShadow   = "0 0 0 3px rgba(10,13,20,0.06)";
                 }}
                 onBlur={e => {
-                  e.target.style.borderColor = "rgba(15,23,42,0.12)";
+                  e.target.style.borderColor = "#e0e0e3";
                   e.target.style.boxShadow   = "none";
                 }}
               />
             </div>
 
-            {/* Remember me */}
-            <div style={{ marginBottom: "26px" }}>
-              <label style={labelBase}>Mantener sesión</label>
+            {/* Remember */}
+            <div style={{ marginBottom: 26 }}>
+              <label style={labelStyle}>Mantener sesión</label>
               <select
                 value={remember}
                 onChange={e => setRemember(e.target.value)}
                 style={{
-                  ...inputBase,
+                  ...inputStyle,
                   cursor: "pointer",
                   backgroundImage:
-                    "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%2364748b' d='M6 8L1 3h10z'/%3E%3C/svg%3E\")",
+                    "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%2354565b' d='M6 8L1 3h10z'/%3E%3C/svg%3E\")",
                   backgroundRepeat: "no-repeat",
                   backgroundPosition: "right 14px center",
-                  paddingRight: "36px",
+                  paddingRight: 36,
                 }}
               >
                 <option value="1">1 día</option>
@@ -214,52 +209,61 @@ export default function LoginPage() {
             {/* Error */}
             {error && (
               <div style={{
-                background: "rgba(239,68,68,0.06)",
-                border: "1px solid rgba(239,68,68,0.2)",
-                borderRadius: "10px",
+                background: "#ffe9eb",
+                border: "1px solid rgba(255,51,68,0.2)",
+                borderRadius: 10,
                 padding: "10px 14px",
-                color: "#dc2626",
-                fontSize: "13.5px",
-                marginBottom: "18px",
-                letterSpacing: "0.01em",
+                color: "#c12530",
+                fontSize: 13.5,
+                marginBottom: 18,
+                lineHeight: 1.45,
               }}>
                 {error}
               </div>
             )}
 
-            {/* Submit */}
+            {/* Submit — brand gradient button */}
             <button
               type="submit"
               disabled={loading}
               style={{
                 width: "100%",
-                padding: "12px",
-                background: loading ? "rgba(0,113,227,0.5)" : "#0071e3",
-                border: "none",
-                borderRadius: "12px",
+                height: 48,
+                padding: "0 22px",
+                background: loading
+                  ? "linear-gradient(112deg, #f9a603 0%, #f59e3a 22%, #ea7fd3 55%, #b18bf8 78%, #9a69f5 100%)"
+                  : "linear-gradient(112deg, #f9a603 0%, #f59e3a 22%, #ea7fd3 55%, #b18bf8 78%, #9a69f5 100%)",
+                border: 0,
+                borderRadius: 12,
                 color: "#ffffff",
-                fontSize: "15px",
+                fontSize: 15,
                 fontWeight: 600,
                 cursor: loading ? "not-allowed" : "pointer",
-                letterSpacing: "-0.01em",
-                fontFamily: "-apple-system, 'SF Pro Text', 'Helvetica Neue', Arial, sans-serif",
-                transition: "background 0.2s ease, box-shadow 0.2s ease",
-                boxShadow: "0 2px 8px rgba(0,113,227,0.3)",
+                letterSpacing: "-0.005em",
+                fontFamily: "'Inter', system-ui, sans-serif",
+                transition: "filter 0.15s ease, transform 0.06s ease",
+                boxShadow: "0 1px 0 rgba(255,255,255,0.2) inset, 0 8px 24px rgba(209,92,254,0.28)",
+                opacity: loading ? 0.75 : 1,
+                display: "inline-flex",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: 8,
               }}
               onMouseEnter={e => {
-                if (!loading) {
-                  (e.currentTarget as HTMLButtonElement).style.background = "#005bb5";
-                  (e.currentTarget as HTMLButtonElement).style.boxShadow = "0 4px 16px rgba(0,113,227,0.4)";
-                }
+                if (!loading) (e.currentTarget as HTMLButtonElement).style.filter = "brightness(1.04)";
               }}
               onMouseLeave={e => {
-                if (!loading) {
-                  (e.currentTarget as HTMLButtonElement).style.background = "#0071e3";
-                  (e.currentTarget as HTMLButtonElement).style.boxShadow = "0 2px 8px rgba(0,113,227,0.3)";
-                }
+                if (!loading) (e.currentTarget as HTMLButtonElement).style.filter = "none";
               }}
             >
-              {loading ? "Iniciando sesión…" : "Iniciar sesión"}
+              {loading ? "Iniciando sesión…" : (
+                <>
+                  Iniciar sesión
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M5 12h14M12 5l7 7-7 7" />
+                  </svg>
+                </>
+              )}
             </button>
 
           </form>
@@ -268,14 +272,45 @@ export default function LoginPage() {
         {/* Footer */}
         <p style={{
           textAlign: "center",
-          color: "#94a3b8",
-          fontSize: "12px",
-          marginTop: "28px",
+          color: "#848689",
+          fontSize: 12.5,
+          marginTop: 28,
           letterSpacing: "0.02em",
         }}>
-          onepulso platform © 2026
+          <a href="/landing" style={{ color: "#848689", textDecoration: "none", borderBottom: "1px solid #ececef", paddingBottom: 1 }}>
+            ← Volver a la web
+          </a>
+          {" · "}
+          OnePulso © 2026
         </p>
       </div>
     </div>
   );
 }
+
+const inputStyle: React.CSSProperties = {
+  width: "100%",
+  height: 44,
+  padding: "0 14px",
+  background: "#ffffff",
+  border: "1px solid #e0e0e3",
+  borderRadius: 10,
+  color: "#0a0d14",
+  fontSize: 14.5,
+  outline: "none",
+  boxSizing: "border-box",
+  fontFamily: "'Inter', system-ui, -apple-system, sans-serif",
+  transition: "border-color 0.18s ease, box-shadow 0.18s ease",
+  WebkitAppearance: "none",
+};
+
+const labelStyle: React.CSSProperties = {
+  display: "block",
+  color: "#54565b",
+  fontSize: 11.5,
+  fontWeight: 600,
+  marginBottom: 7,
+  letterSpacing: "0.06em",
+  textTransform: "uppercase",
+  fontFamily: "'Inter', system-ui, -apple-system, sans-serif",
+};

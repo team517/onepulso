@@ -155,6 +155,40 @@ export default function ClientInboxPage() {
     if (r.ok) {
       const m = await r.json();
       setSelectedMsg({ ...m, accountId });
+      // Disparar busqueda profunda de conversacion con el contacto.
+      // Esto pulla del IMAP (INBOX + Sent) los ultimos 90 dias con esa
+      // persona, ideal para ver el hilo completo aunque el local no lo tenga.
+      const contact = normalizeContactAddr(m, accountId);
+      if (contact) loadConversationForContact(contact, accountId);
+    }
+  }
+
+  function normalizeContactAddr(m: any, accountId: string): string | null {
+    const myEmails = new Set(accounts.map((a) => (a.email || "").toLowerCase()));
+    const fromAddr = (m.fromAddress || "").toLowerCase();
+    const toAddrFirst = (m.toAddress || "").toLowerCase();
+    if (fromAddr && !myEmails.has(fromAddr)) return fromAddr;
+    if (toAddrFirst && !myEmails.has(toAddrFirst)) return toAddrFirst;
+    return null;
+  }
+
+  // Para no re-tirar del IMAP cada vez que abrimos el mismo contacto
+  const fetchedContactsRef = useRef<Set<string>>(new Set());
+  async function loadConversationForContact(contact: string, accountId: string) {
+    const key = `${accountId}|${contact}`;
+    if (fetchedContactsRef.current.has(key)) return;
+    fetchedContactsRef.current.add(key);
+    try {
+      const r = await fetch(`/api/uniboxes/${id}/conversation?contact=${encodeURIComponent(contact)}&accountId=${encodeURIComponent(accountId)}`);
+      if (r.ok) {
+        const d = await r.json();
+        if (d.imported > 0) {
+          // recargar la lista de mensajes para que aparezca el histórico nuevo
+          loadMessages();
+        }
+      }
+    } catch (e) {
+      console.warn("[unibox] loadConversationForContact failed", e);
     }
   }
 

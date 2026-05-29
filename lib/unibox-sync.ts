@@ -118,8 +118,9 @@ export async function syncAccount(uniboxId: string, accountId: string): Promise<
         } catch {}
       }
 
-      // Mantener cache de 400 mensajes (más histórico visible)
-      msgsMap[accountId] = [...fresh, ...existing].slice(0, 400);
+      // Mantener cache de 800 mensajes (más histórico visible — alineado
+      // con el cap del sync de Sent para no perder hilos antiguos).
+      msgsMap[accountId] = [...fresh, ...existing].slice(0, 800);
       await saveMessagesMap(uniboxId, msgsMap);
       if (newCount > 0) {
         console.log(`[unibox-sync] ${account.email}: ${newCount} mensajes nuevos en INBOX`);
@@ -182,7 +183,11 @@ async function syncAccountSent(uniboxId: string, accountId: string): Promise<num
       const status = await client.status(sentFolder.path, { messages: true });
       const total = status.messages || 0;
       if (total === 0) { await client.logout(); return 0; }
-      const start = Math.max(1, total - 19); // últimos 20 enviados
+      // Antes 20 mensajes — demasiado poco para ver tu outreach inicial. Subimos
+      // a 300 para que la conversacion con cualquier prospect aparezca completa
+      // aunque hayas enviado mucho desde entonces. Como deduplicamos por UID,
+      // los ya vistos no se reprocesan.
+      const start = Math.max(1, total - 299);
       const range = `${start}:*`;
 
       const fresh: UniboxMessage[] = [];
@@ -236,8 +241,13 @@ async function syncAccountSent(uniboxId: string, accountId: string): Promise<num
           newCount++;
         } catch {}
       }
-      msgsMap[accountId] = [...fresh, ...existing].slice(0, 250);
+      // Cap total subido a 800 (antes 250) — INBOX trae hasta 400, Sent
+      // hasta 300, mas margen para histórico de hilos.
+      msgsMap[accountId] = [...fresh, ...existing].slice(0, 800);
       await saveMessagesMap(uniboxId, msgsMap);
+      if (newCount > 0) {
+        console.log(`[unibox-sync] ${account.email}: ${newCount} mensajes nuevos en SENT`);
+      }
     } finally { lock.release(); }
     await client.logout();
   } catch (e) {

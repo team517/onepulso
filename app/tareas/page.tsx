@@ -45,30 +45,38 @@ export default function TareasPage() {
   const [fSaving, setFSaving] = useState(false);
   const [fError, setFError] = useState<string | null>(null);
 
-  async function load() {
-    setLoading(true);
+  /** Carga inicial: muestra spinner. Carga background: NO spinner para que
+   *  el auto-refresh y los reloads tras acciones no parpadeen. */
+  async function load(opts: { showSpinner?: boolean } = {}) {
+    if (opts.showSpinner) setLoading(true);
     try {
-      const [tsr, thr] = await Promise.all([
-        fetch("/api/tasks").then((r) => r.json()),
-        fetch("/api/email/threads").then((r) => r.json()).catch(() => ({ threads: [] })),
-      ]);
+      // Cargar tasks PRIMERO (es lo más importante) y mostrarlas cuanto antes.
+      // Threads se carga en paralelo y actualiza cuando llega.
+      const tasksPromise = fetch("/api/tasks").then((r) => r.json()).catch(() => ({ tasks: [] }));
+      const threadsPromise = fetch("/api/email/threads").then((r) => r.json()).catch(() => ({ threads: [] }));
+      const tsr = await tasksPromise;
       setTasks(tsr.tasks ?? []);
-      setThreads(
-        (thr.threads ?? []).map((t: any) => ({
-          id: t.id,
-          subject: t.subject,
-          contact_email: t.contact_email,
-          contact_name: t.contact_name,
-        }))
-      );
-    } finally {
-      setLoading(false);
+      if (opts.showSpinner) setLoading(false);
+      // Threads en background — no bloquea el render de tareas
+      threadsPromise.then((thr) => {
+        setThreads(
+          (thr.threads ?? []).map((t: any) => ({
+            id: t.id,
+            subject: t.subject,
+            contact_email: t.contact_email,
+            contact_name: t.contact_name,
+          }))
+        );
+      });
+    } catch {
+      if (opts.showSpinner) setLoading(false);
     }
   }
 
   useEffect(() => {
-    load();
-    const i = setInterval(load, 60_000);
+    load({ showSpinner: true });
+    // Auto-refresh silencioso cada 60s, sin spinner
+    const i = setInterval(() => load(), 60_000);
     return () => clearInterval(i);
   }, []);
 
@@ -150,32 +158,57 @@ export default function TareasPage() {
         client_name: client?.contact_name,
       };
 
-      let res: Response;
+      // OPTIMISTIC: para EDIT, actualizamos el estado local antes de
+      // esperar al server. Para CREATE necesitamos esperar el id real.
       if (editing) {
-        res = await fetch(`/api/tasks/${editing.id}`, {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            ...payload,
-            reminder_sent_at: editing.due_at !== due_at ? undefined : editing.reminder_sent_at,
-          }),
-        });
-      } else {
-        res = await fetch("/api/tasks", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload),
-        });
+        const optimistic: Task = {
+          ...editing,
+          title: payload.title,
+          description: payload.description,
+          due_at,
+          priority: payload.priority,
+          client_thread_id: payload.client_thread_id,
+          client_email: payload.client_email,
+          client_name: payload.client_name,
+        };
+        setTasks((prev) => prev.map((x) => x.id === editing.id ? optimistic : x));
+        setModalOpen(false); // cierra el modal al instante
+
+        // Background
+        try {
+          const r = await fetch(`/api/tasks/${editing.id}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              ...payload,
+              reminder_sent_at: editing.due_at !== due_at ? undefined : editing.reminder_sent_at,
+            }),
+          });
+          if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        } catch (e) {
+          // Revertir: restaurar la original
+          setTasks((prev) => prev.map((x) => x.id === editing.id ? editing : x));
+          alert("No se pudo guardar la tarea.");
+        }
+        return;
       }
+
+      // CREATE: esperamos el response para obtener el id real
+      const res = await fetch("/api/tasks", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
 
       if (!res.ok) {
         const j = await res.json().catch(() => ({}));
         setFError(j?.error || `Error del servidor: ${res.status} ${res.statusText}`);
         return;
       }
-
+      const created = await res.json();
+      // Añadir al estado al instante
+      if (created.task) setTasks((prev) => [created.task, ...prev]);
       setModalOpen(false);
-      await load();
     } catch (e: any) {
       setFError(`Error: ${e?.message || String(e)}`);
     } finally {
@@ -183,19 +216,44 @@ export default function TareasPage() {
     }
   }
 
+  /** Toggle done OPTIMISTA: actualiza el estado local AL INSTANTE,
+   *  manda el PATCH en background, revierte si hay error. */
   async function toggleDone(t: Task) {
-    await fetch(`/api/tasks/${t.id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ status: t.status === "done" ? "pending" : "done" }),
-    });
-    load();
+    const newStatus = t.status === "done" ? "pending" : "done";
+    const completed_at = newStatus === "done" ? new Date().toISOString() : undefined;
+    // 1) Optimistic update
+    setTasks((prev) => prev.map((x) => x.id === t.id ? { ...x, status: newStatus, completed_at } : x));
+    // 2) Background request
+    try {
+      const r = await fetch(`/api/tasks/${t.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: newStatus }),
+      });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    } catch (e) {
+      // Revertir
+      setTasks((prev) => prev.map((x) => x.id === t.id ? t : x));
+      console.error("[tareas] toggleDone fallo, revirtiendo:", e);
+    }
   }
 
+  /** Eliminar OPTIMISTA: quita la tarea del array al instante.
+   *  Si el server falla, la restaura. */
   async function removeTask(t: Task) {
     if (!confirm(`¿Eliminar la tarea "${t.title}"?`)) return;
-    await fetch(`/api/tasks/${t.id}`, { method: "DELETE" });
-    load();
+    // 1) Optimistic delete
+    setTasks((prev) => prev.filter((x) => x.id !== t.id));
+    // 2) Background request
+    try {
+      const r = await fetch(`/api/tasks/${t.id}`, { method: "DELETE" });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    } catch (e) {
+      // Restaurar la tarea borrada
+      setTasks((prev) => [...prev, t].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()));
+      console.error("[tareas] removeTask fallo, restaurando:", e);
+      alert("No se pudo eliminar la tarea. Vuelve a intentarlo.");
+    }
   }
 
   const counts = useMemo(() => {

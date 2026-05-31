@@ -1142,6 +1142,7 @@ function RenderElement({
       return (
         <div
           onMouseDown={onMouseDown}
+          onDoubleClick={onDoubleClick}
           style={{
             ...baseStyle, ...selectedOutline,
             width: w, height: h,
@@ -1159,7 +1160,11 @@ function RenderElement({
       ? `${w / 2},2 ${w - 2},${h / 2} ${w / 2},${h - 2} 2,${h / 2}`
       : `${w / 2},2 ${w - 2},${h - 2} 2,${h - 2}`;
     return (
-      <div onMouseDown={onMouseDown} style={{ ...baseStyle, ...selectedOutline, width: w, height: h }}>
+      <div
+        onMouseDown={onMouseDown}
+        onDoubleClick={onDoubleClick}
+        style={{ ...baseStyle, ...selectedOutline, width: w, height: h }}
+      >
         <svg width={w} height={h} style={{ display: "block", overflow: "visible", position: "absolute", inset: 0 }}>
           <polygon points={points} fill={el.fill} stroke={el.stroke} strokeWidth={2} strokeLinejoin="round" />
         </svg>

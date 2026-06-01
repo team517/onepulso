@@ -614,6 +614,31 @@ export default function PersonalizacionPage() {
                       </div>
                       {/* Acciones según estado */}
                       <div style={{ display: "flex", gap: 5, flexWrap: "wrap", justifyContent: "flex-end" }}>
+                        {/* Descarga del progreso parcial — disponible siempre que haya results */}
+                        {(j.progress?.ok ?? 0) > 0 && (
+                          <a
+                            href={`/api/personalization/jobs/${j.id}/csv?partial=1`}
+                            download
+                            title={`Descargar los ${j.progress?.ok ?? 0} mensajes generados hasta ahora (CSV completo respetando saltos de linea)`}
+                            style={{
+                              ...jobBtn("#047857", "rgba(16,185,129,0.1)"),
+                              textDecoration: "none",
+                              display: "inline-flex", alignItems: "center", gap: 4,
+                            }}
+                          >⬇ CSV ({j.progress?.ok ?? 0})</a>
+                        )}
+                        {(j.progress?.ok ?? 0) > 0 && (
+                          <a
+                            href={`/api/personalization/jobs/${j.id}/csv?partial=1&flatten=1`}
+                            download
+                            title="Descargar aplanado para Instantly / Smartlead"
+                            style={{
+                              ...jobBtn("#9a3fc7", "rgba(209,92,254,0.1)"),
+                              textDecoration: "none",
+                              display: "inline-flex", alignItems: "center", gap: 4,
+                            }}
+                          >📤 Instantly</a>
+                        )}
                         {(j.status === "running" || j.status === "pending") && (
                           <button
                             onClick={() => pauseRunning(j.id)}

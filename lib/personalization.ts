@@ -529,6 +529,39 @@ export async function rebuildCSV(jobId: string): Promise<{ rows_written: number;
   return { rows_written: indices.length, messages_used: job.results.length };
 }
 
+/**
+ * Construye el CSV resultado EN MEMORIA (sin escribir en blob_store) usando
+ * los results ACTUALES del job. Sirve para "descargar en curso": el
+ * usuario puede bajar el progreso parcial mientras la IA sigue trabajando.
+ *
+ * Diferencia con buildResultCSV: este NO toca disco ni el estado del job.
+ */
+export async function buildPartialCSV(jobId: string): Promise<string | null> {
+  const job = await getJob(jobId);
+  if (!job) return null;
+  const { rows: allRows } = await readCSVRows(job.file_id);
+  // Mensajes generados → mapa indice → texto
+  const messageMap = new Map<number, string>();
+  for (const r of job.results) {
+    if (!r.error) messageMap.set(r.row_index, flattenCellHtml(applyParagraphStyles(r.message)));
+    else messageMap.set(r.row_index, `[ERROR: ${r.error.replace(/\s+/g, " ")}]`);
+  }
+  // Iteramos SOLO sobre las filas que YA tienen results (no las pendientes).
+  // Asi el CSV contiene solo los leads procesados hasta ahora.
+  const cols = allRows.length > 0 ? Object.keys(allRows[0]) : [];
+  const headerCols = [...cols, "personalized_message"];
+  const lines: string[] = [headerCols.map(csvEscape).join(",")];
+  const sortedIndices = Array.from(messageMap.keys()).sort((a, b) => a - b);
+  for (const idx of sortedIndices) {
+    const row = allRows[idx];
+    if (!row) continue;
+    const vals = cols.map((c) => csvEscape(row[c] ?? ""));
+    vals.push(csvEscape(messageMap.get(idx) ?? ""));
+    lines.push(vals.join(","));
+  }
+  return lines.join("\r\n");
+}
+
 async function buildResultCSV(job: PersonalizationJob, allRows: Record<string, string>[]) {
   // Mapa row_index → message. SOLO aplanamos whitespace en EL MENSAJE NUEVO
   // (es HTML, los \n entre tags son irrelevantes para el render, y rompen

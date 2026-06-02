@@ -144,7 +144,7 @@ export async function syncAccount(uniboxId: string, accountId: string): Promise<
 }
 
 /** Sincroniza también la carpeta Sent (envíos del propio usuario) — opcional, no falla si no existe. */
-async function syncAccountSent(uniboxId: string, accountId: string): Promise<number> {
+export async function syncAccountSent(uniboxId: string, accountId: string): Promise<number> {
   const accs = await listAccounts(uniboxId);
   const idx = accs.findIndex((a) => a.id === accountId);
   if (idx === -1) return 0;
@@ -271,9 +271,12 @@ export async function syncUnibox(uniboxId: string): Promise<{ ok: number; fail: 
     const batch = accs.slice(i, i + CONCURRENCY);
     const results = await Promise.allSettled(
       batch.map(async (a) => {
-        const inboxNew = await syncAccount(uniboxId, a.id);
-        let sentNew = 0;
-        try { sentNew = await syncAccountSent(uniboxId, a.id); } catch {}
+        // INBOX y Sent EN PARALELO dentro de cada cuenta — usan conexiones IMAP
+        // distintas, no compiten. Antes era serial → 2x latencia.
+        const [inboxNew, sentNew] = await Promise.all([
+          syncAccount(uniboxId, a.id).catch(() => 0),
+          syncAccountSent(uniboxId, a.id).catch(() => 0),
+        ]);
         return inboxNew + sentNew;
       })
     );

@@ -1,18 +1,21 @@
 import { NextRequest } from "next/server";
 import { getUnibox, listAccounts } from "@/lib/unibox-store";
-import { syncAccount } from "@/lib/unibox-sync";
+import { syncAccount, syncAccountSent } from "@/lib/unibox-sync";
 import { requireAdmin, requireClientForUnibox } from "@/lib/unibox-auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+export const maxDuration = 60;
+
+const CONCURRENCY = 10;
+const PER_ACCOUNT_TIMEOUT_MS = 15_000;
 
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const isAdmin = requireAdmin(req);
   const clientSession = isAdmin ? null : await requireClientForUnibox(req, id);
-  if (!isAdmin && !clientSession) {
-    return new Response("Unauthorized", { status: 401 });
-  }
+  if (!isAdmin && !clientSession) return new Response("Unauthorized", { status: 401 });
+
   const u = await getUnibox(id);
   if (!u) return new Response("Not found", { status: 404 });
 
@@ -25,38 +28,63 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
   const encoder = new TextEncoder();
   const stream = new ReadableStream({
     async start(controller) {
+      let closed = false;
       const send = (event: string, data: any) => {
-        controller.enqueue(encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`));
+        if (closed) return;
+        try {
+          controller.enqueue(encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`));
+        } catch {
+          closed = true;
+        }
       };
       send("start", { total: targets.length });
-      let ok = 0, fail = 0;
-      for (let i = 0; i < targets.length; i++) {
-        const a = targets[i];
+
+      let ok = 0, fail = 0, completedIdx = 0;
+      const startTs = Date.now();
+
+      // Procesa una cuenta concreta — INBOX + Sent en PARALELO + timeout 15s.
+      async function processOne(a: any, index: number) {
+        const accountStart = Date.now();
         send("progress", {
-          index: i + 1, total: targets.length, email: a.email, phase: "connecting",
-          message: `Conectando a ${a.imap_host}:${a.imap_port}...`,
+          index, total: targets.length, email: a.email, phase: "connecting",
+          message: `Conectando a ${a.imap_host}...`,
         });
         try {
-          const t0 = Date.now();
-          const newMsgs = await Promise.race([
-            syncAccount(id, a.id),
-            new Promise<number>((_, rej) => setTimeout(() => rej(new Error("Timeout (20s)")), 20000)),
-          ]);
+          const inboxP = syncAccount(id, a.id);
+          const sentP = syncAccountSent(id, a.id).catch(() => 0);
+          const [inboxNew, sentNew] = await Promise.race([
+            Promise.all([inboxP, sentP]),
+            new Promise<[number, number]>((_, rej) =>
+              setTimeout(() => rej(new Error(`Timeout ${PER_ACCOUNT_TIMEOUT_MS / 1000}s`)), PER_ACCOUNT_TIMEOUT_MS),
+            ),
+          ]) as [number, number];
           ok++;
+          completedIdx++;
           send("progress", {
-            index: i + 1, total: targets.length, email: a.email, phase: "ok",
-            message: `✓ Conectada · ${newMsgs} mensaje(s) nuevo(s) · ${Date.now() - t0}ms`,
+            index: completedIdx, total: targets.length, email: a.email, phase: "ok",
+            message: `✓ ${inboxNew + sentNew} mensaje(s) nuevo(s) · ${Date.now() - accountStart}ms`,
           });
         } catch (e: any) {
           fail++;
+          completedIdx++;
           send("progress", {
-            index: i + 1, total: targets.length, email: a.email, phase: "error",
+            index: completedIdx, total: targets.length, email: a.email, phase: "error",
             message: `✗ ${(e.message || String(e)).slice(0, 200)}`,
           });
         }
       }
-      send("done", { ok, fail, total: targets.length });
-      controller.close();
+
+      // PARALELO con concurrencia limitada (10 a la vez en vez de 1 secuencial).
+      // Para 25 cuentas: pasa de ~75s (3s × 25 serial) a ~10s (3 lotes de 10).
+      for (let i = 0; i < targets.length; i += CONCURRENCY) {
+        const batch = targets.slice(i, i + CONCURRENCY);
+        await Promise.allSettled(
+          batch.map((a, j) => processOne(a, i + j + 1))
+        );
+      }
+
+      send("done", { ok, fail, total: targets.length, elapsed_ms: Date.now() - startTs });
+      try { controller.close(); } catch {}
     },
   });
 
@@ -64,7 +92,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     headers: {
       "Content-Type": "text/event-stream",
       "Cache-Control": "no-cache, no-transform",
-      "Connection": "keep-alive",
+      Connection: "keep-alive",
       "X-Accel-Buffering": "no",
     },
   });

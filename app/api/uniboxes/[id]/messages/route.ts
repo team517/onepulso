@@ -19,6 +19,12 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
   const showBounces = url.searchParams.get("show_bounces") === "1";
   const filterBounces = !showBounces; // ocultar bounces por defecto en TODAS las vistas
 
+  // Paginación opcional: ?limit=N (default 5000), ?offset=N (default 0).
+  // Si el cliente pide ?limit=0 o ?all=1, devolvemos TODOS sin tope.
+  const limitParam = parseInt(url.searchParams.get("limit") || "5000", 10);
+  const offset = parseInt(url.searchParams.get("offset") || "0", 10);
+  const all = url.searchParams.get("all") === "1" || limitParam === 0;
+
   const map = await loadMessagesMap(id);
   const out: any[] = [];
   let warmupCount = 0;
@@ -42,7 +48,15 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
   }
   out.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
-  return NextResponse.json({ messages: out.slice(0, 500), warmupCount, bounceCount });
+  const totalAvailable = out.length;
+  const sliced = all ? out : out.slice(offset, offset + Math.min(limitParam, 10000));
+  return NextResponse.json({
+    messages: sliced,
+    warmupCount,
+    bounceCount,
+    total: totalAvailable,
+    has_more: !all && offset + sliced.length < totalAvailable,
+  });
 }
 
 /**

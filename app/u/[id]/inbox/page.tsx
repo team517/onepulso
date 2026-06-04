@@ -112,6 +112,8 @@ export default function ClientInboxPage() {
     const p = new URLSearchParams();
     if (selectedAccount) p.set("account", selectedAccount);
     if (showWarmup) p.set("show_warmup", "1");
+    // all=1 → traer TODOS los mensajes (no cortar a 500 como antes).
+    p.set("all", "1");
     const r = await fetch(`/api/uniboxes/${id}/messages?${p}`);
     if (r.ok) {
       const d = await r.json();

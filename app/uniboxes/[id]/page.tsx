@@ -94,6 +94,10 @@ export default function UniboxAdminDetailPage() {
     setStreamProgress({ index: 0, total: ids.length, ok: 0, fail: 0 });
 
     const es = new EventSource(`/api/uniboxes/${id}/sync-stream?ids=${encodeURIComponent(ids.join(","))}`);
+    // Auto-refresh de la lista cada 3s mientras dura la sync para que el
+    // "Última sync" se actualice en vivo en la tabla.
+    const refreshInterval = setInterval(() => load(), 3000);
+
     es.addEventListener("progress", (e: any) => {
       const d = JSON.parse(e.data);
       setStreamProgress((p) => ({
@@ -106,10 +110,23 @@ export default function UniboxAdminDetailPage() {
     });
     es.addEventListener("done", () => {
       es.close();
+      clearInterval(refreshInterval);
       setUploadView("done");
       load();
+      // Refresh extra a los 8s para capturar las cuentas que el background
+      // setTimeout del upload-csv haya sincronizado tras cerrar el stream.
+      setTimeout(() => load(), 8000);
     });
-    es.onerror = () => { es.close(); setUploadView("done"); };
+    es.onerror = () => {
+      es.close();
+      clearInterval(refreshInterval);
+      setUploadView("done");
+      // Refresh extra cuando el stream se rompe — las cuentas que el
+      // background sync acabe se reflejarán al recargar.
+      load();
+      setTimeout(() => load(), 8000);
+      setTimeout(() => load(), 20000);
+    };
   }
 
   async function syncAll() {
@@ -228,6 +245,22 @@ export default function UniboxAdminDetailPage() {
             >📋 Copiar credenciales</button>
             <button style={btnGhost} onClick={() => fileInput.current?.click()}>+ Subir CSV</button>
             <button style={btnPrimary} onClick={syncAll} disabled={accounts.length === 0}>↻ Sincronizar todo</button>
+            <button
+              style={{ ...btnGhost, color: "#9a3fc7", borderColor: "rgba(209,92,254,0.3)" }}
+              onClick={async () => {
+                if (!confirm("Rescatar mensajes legítimos descartados por filtros antiguos (últimos 30 días). Puede tardar 1-2 min.")) return;
+                try {
+                  const r = await fetch(`/api/uniboxes/${id}/resync-deep`, { method: "POST" });
+                  const d = await r.json();
+                  if (!r.ok) throw new Error(d.error || "Error");
+                  alert(`✓ Rescate completado: ${d.recovered} mensajes recuperados de ${d.accounts.length} cuentas.`);
+                } catch (e: any) {
+                  alert("Error: " + e.message);
+                }
+              }}
+              disabled={accounts.length === 0}
+              title="Re-escanea los últimos 30 días de INBOX y Sent con el filtro de bounce actualizado. Recupera mensajes legítimos (TCX, Calendly, etc.) que el filtro viejo descartaba."
+            >🔧 Rescatar mensajes</button>
             <button
               style={{ ...btnGhost, color: "#b45309", borderColor: "rgba(245,158,11,0.3)" }}
               onClick={purgeBounces}

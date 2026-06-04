@@ -212,26 +212,45 @@ export function isBounceOrFailure(m: { from?: string; fromAddress?: string; from
   const subject = (m.subject || "").toLowerCase();
   const text = (m.text || "").slice(0, 2000).toLowerCase();
 
-  // Direcciones típicas de bounce
+  // CAPA 1 — direcciones INEQUÍVOCAMENTE de bounce (sistemas SMTP de aviso).
+  // Estos remitentes SÓLO se usan para reportar errores de entrega: nunca un
+  // humano ni un sistema legítimo de notificación los usa.
   if (
-    /(mailer-?daemon|postmaster|noreply|no-?reply|bounce|deliver(y|able)|failure|abuse@)/i.test(from) ||
+    /^(mailer-?daemon|postmaster)@/i.test(from) ||
+    /^(mailer-?daemon|postmaster)$/i.test(from) ||
+    /<\s*(mailer-?daemon|postmaster)@/i.test(from) ||
     /mailer-?daemon|postmaster/i.test(fromName)
   ) {
     return true;
   }
 
-  // Subjects típicos de bounce/failure
+  // CAPA 2 — bounce@/delivery@/abuse@ COMO LOCAL PART (no como substring).
+  // Antes el regex /bounce/ matcheaba "rebound@x.com", "bounceback.io", etc.
   if (
-    /^(undelivered|undeliverable|failure notice|delivery (status notification|failure|incomplete)|mail delivery (failed|failure)|returned mail|message not delivered|no se ha podido entregar|no entregado|devuelto|fallo de entrega|automatic reply|out of office)/i.test(subject) ||
-    /delivery has failed/i.test(subject)
+    /^(bounce|bounces|delivery|deliverability|abuse|failure-notice|mailer)@/i.test(from)
   ) {
     return true;
   }
 
-  // Mails de chequeo automático de estado de cuenta (Instantly / Smartlead /
-  // proveedores de cold email): "Test email to check account status",
-  // "Test email - account status check", etc. NUNCA deben aparecer en la
-  // bandeja del cliente.
+  // CAPA 3 — noreply/no-reply NO descarta por si solo: muchas notificaciones
+  // legítimas (TCX, GitHub, Calendly, demos confirmadas, etc.) usan noreply@.
+  // SOLO descartamos si ADEMÁS el subject coincide con un patrón de bounce.
+  const subjectIsBounce =
+    /^(undelivered|undeliverable|failure notice|delivery (status notification|failure|incomplete)|mail delivery (failed|failure)|returned mail|message not delivered|no se ha podido entregar|no entregado|devuelto|fallo de entrega)/i.test(subject) ||
+    /delivery has failed/i.test(subject);
+
+  if (subjectIsBounce) return true;
+
+  // CAPA 4 — out of office / autoreply: detectables por subject claro.
+  if (
+    /^(automatic reply|automatic response|auto.?reply|out of office|out of the office|automatische antwort|réponse automatique|fuori sede|risposta automatica)\b/i.test(subject) ||
+    /^autorespuesta\b/i.test(subject)
+  ) {
+    return true;
+  }
+
+  // CAPA 5 — emails de chequeo de estado de cuenta de Instantly / Smartlead /
+  // Lemlist (test emails que no van a un cliente real).
   if (
     /test\s*email.*(check|verify|confirm).*account\s*status/i.test(subject) ||
     /test\s*email.*account\s*status/i.test(subject) ||
@@ -241,7 +260,10 @@ export function isBounceOrFailure(m: { from?: string; fromAddress?: string; from
     return true;
   }
 
-  // Contenido: combinación de palabras clave que indican bounce
+  // CAPA 6 — contenido: bounce sólo si el TEXTO tiene 2+ indicadores claros,
+  // o 1+ Y el subject es de bounce (ya cubierto arriba). Aplicamos solo
+  // cuando hay matches MÚLTIPLES porque palabras sueltas como "failure"
+  // aparecen en muchos correos legítimos.
   const indicators = [
     "address not found",
     "user unknown",
@@ -254,21 +276,20 @@ export function isBounceOrFailure(m: { from?: string; fromAddress?: string; from
     "550-5.1.1",
     "552 5.2.2",
     "554 5.4.6",
-    "could not be delivered",
     "permanent error",
     "permanently rejected",
     "domain not found",
     "no encontramos a esta dirección",
-    "no se ha podido entregar",
     "destinatario desconocido",
     "el correo no existe",
   ];
   let matches = 0;
   for (const ind of indicators) {
     if (text.includes(ind)) matches++;
-    if (matches >= 1 && /^(mail delivery|delivery|failure|undelivered)/i.test(subject)) return true;
-    if (matches >= 2) return true;
   }
+  // Bound estricto: 2+ indicadores claros del cuerpo. Antes uno sólo bastaba
+  // si el subject decía "delivery" (palabra demasiado común).
+  if (matches >= 2) return true;
   return false;
 }
 

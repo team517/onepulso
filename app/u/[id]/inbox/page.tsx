@@ -1058,6 +1058,8 @@ const accountHost: React.CSSProperties = { fontSize: 10, color: "#94a3b8", overf
 const listPaneStyle: React.CSSProperties = {
   background: "#fff", borderRight: "1px solid #e2e8f0",
   display: "flex", flexDirection: "column", overflow: "hidden",
+  minHeight: 0, // ← crítico para que flex children con overflow funcionen
+  height: "100%",
 };
 const toolbarStyle: React.CSSProperties = { padding: "14px 16px", borderBottom: "1px solid #e2e8f0", display: "flex", flexDirection: "column", gap: 8 };
 const searchStyle: React.CSSProperties = {
@@ -1068,7 +1070,13 @@ const linkBtn: React.CSSProperties = {
   background: "none", border: 0, color: "#6366f1", fontSize: 11, cursor: "pointer",
   textAlign: "left", padding: 0, fontFamily: "inherit", fontWeight: 600,
 };
-const messagesList: React.CSSProperties = { flex: 1, overflowY: "auto" };
+const messagesList: React.CSSProperties = {
+  flex: 1,
+  overflowY: "auto",
+  overflowX: "hidden",
+  minHeight: 0, // ← imprescindible para que el scroll funcione dentro del flex parent
+  WebkitOverflowScrolling: "touch", // iOS smooth scroll
+};
 const messageItem: React.CSSProperties = {
   padding: "13px 16px", borderBottom: "1px solid #f1f5f9", cursor: "pointer",
   display: "flex", flexDirection: "column", gap: 3,

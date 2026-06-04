@@ -2825,6 +2825,8 @@ h1.page-title {
   .unibox-list {
     grid-row: 1 / -1;
     grid-column: 1 / -1;
+    height: 100dvh;
+    overflow: hidden; /* el messagesList interno hace el scroll */
   }
   .unibox-view {
     grid-row: 1 / -1;

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { ImapFlow } from "imapflow";
 import { simpleParser } from "mailparser";
 import { listAccounts, loadMessagesMap, saveMessagesMap, isBounceOrFailure, type UniboxMessage } from "@/lib/unibox-store";
+import { isWarmupMessage } from "@/lib/unibox-warmup";
 import { requireAdmin, requireClientForUnibox } from "@/lib/unibox-auth";
 
 export const runtime = "nodejs";
@@ -76,9 +77,37 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     );
   }
 
+  // Re-clasificar TODOS los mensajes ya cacheados aplicando el filtro NUEVO:
+  // - Los que estaban marcados is_warmup por filtro viejo demasiado agresivo
+  //   se desmarcan si no encajan con la lógica nueva (más estricta).
+  // - Los que ahora matchean bounce se purgan.
+  let reclassWarmup = 0, reclassUnflagged = 0, purgedBounces = 0;
+  for (const accId of Object.keys(msgsMap)) {
+    const kept: UniboxMessage[] = [];
+    for (const m of msgsMap[accId]) {
+      if (isBounceOrFailure({ from: m.from, fromAddress: m.fromAddress, fromName: m.fromName, subject: m.subject, text: m.text })) {
+        purgedBounces++;
+        continue;
+      }
+      const wasWarmup = !!m.is_warmup;
+      const isWarmupNow = isWarmupMessage({ subject: m.subject, text: m.text, html: m.html, from: m.from });
+      if (isWarmupNow) reclassWarmup++;
+      if (wasWarmup && !isWarmupNow) reclassUnflagged++;
+      kept.push({ ...m, is_warmup: isWarmupNow });
+    }
+    msgsMap[accId] = kept;
+  }
+
   await saveMessagesMap(id, msgsMap);
   const totalRecovered = report.reduce((s, r) => s + r.recovered, 0);
-  return NextResponse.json({ ok: true, recovered: totalRecovered, accounts: report });
+  return NextResponse.json({
+    ok: true,
+    recovered: totalRecovered,
+    unflagged_from_warmup: reclassUnflagged,
+    still_warmup: reclassWarmup,
+    purged_bounces: purgedBounces,
+    accounts: report,
+  });
 }
 
 async function scanFolder(
@@ -152,7 +181,7 @@ async function scanFolder(
           text,
           html,
           unread: isSent ? false : !(msg.flags && msg.flags.has("\\Seen")),
-          is_warmup: false,
+          is_warmup: isWarmupMessage({ subject, text, html, from: fromAddr }),
           attachments: (parsed.attachments || []).map((a: any) => ({
             filename: a.filename || "",
             contentType: a.contentType || "",

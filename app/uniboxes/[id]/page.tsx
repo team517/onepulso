@@ -248,12 +248,18 @@ export default function UniboxAdminDetailPage() {
             <button
               style={{ ...btnGhost, color: "#9a3fc7", borderColor: "rgba(209,92,254,0.3)" }}
               onClick={async () => {
-                if (!confirm("Rescatar mensajes legítimos descartados por filtros antiguos (últimos 30 días). Puede tardar 1-2 min.")) return;
+                if (!confirm("Rescatar mensajes legítimos descartados por filtros antiguos (últimos 30 días) + re-clasificar warmup. Puede tardar 1-2 min.")) return;
                 try {
                   const r = await fetch(`/api/uniboxes/${id}/resync-deep`, { method: "POST" });
                   const d = await r.json();
                   if (!r.ok) throw new Error(d.error || "Error");
-                  alert(`✓ Rescate completado: ${d.recovered} mensajes recuperados de ${d.accounts.length} cuentas.`);
+                  const lines = [
+                    `✓ Rescate completado en ${d.accounts.length} cuentas`,
+                    `📥 ${d.recovered} mensajes nuevos importados`,
+                    `🔓 ${d.unflagged_from_warmup ?? 0} mensajes desmarcados de warmup`,
+                    `🧹 ${d.purged_bounces ?? 0} bounces antiguos purgados`,
+                  ];
+                  alert(lines.join("\n"));
                 } catch (e: any) {
                   alert("Error: " + e.message);
                 }

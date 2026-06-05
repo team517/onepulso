@@ -241,13 +241,10 @@ export function isBounceOrFailure(m: { from?: string; fromAddress?: string; from
 
   if (subjectIsBounce) return true;
 
-  // CAPA 4 — out of office / autoreply: detectables por subject claro.
-  if (
-    /^(automatic reply|automatic response|auto.?reply|out of office|out of the office|automatische antwort|réponse automatique|fuori sede|risposta automatica)\b/i.test(subject) ||
-    /^autorespuesta\b/i.test(subject)
-  ) {
-    return true;
-  }
+  // CAPA 4 ELIMINADA: "automatic reply / out of office / autorespuesta" SON
+  // respuestas legítimas que el usuario quiere ver. Antes se descartaban
+  // como ruido pero realmente son señales valiosas (saber que el prospect
+  // está fuera hasta X fecha es info útil para timing del follow-up).
 
   // CAPA 5 — emails de chequeo de estado de cuenta de Instantly / Smartlead /
   // Lemlist (test emails que no van a un cliente real).

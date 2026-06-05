@@ -50,10 +50,11 @@ export async function syncAccount(uniboxId: string, accountId: string): Promise<
         await client.logout();
         return 0;
       }
-      // Traer hasta los últimos 500 mensajes (antes 200). Para uniboxes con
-      // mucho tráfico y respuestas multi-idioma, 200 era demasiado poco.
-      // Como deduplicamos por UID, los ya vistos no se reprocesan.
-      const start = Math.max(1, total - 499);
+      // Traer hasta los últimos 1500 mensajes (antes 500). Para uniboxes con
+      // mucho tráfico, respuestas en varios idiomas, y campañas grandes,
+      // 500 se quedaba corto. Como deduplicamos por UID, los ya vistos no
+      // se reprocesan así que el coste real es mínimo en runs posteriores.
+      const start = Math.max(1, total - 1499);
       const range = `${start}:*`;
 
       const fresh: UniboxMessage[] = [];
@@ -119,9 +120,9 @@ export async function syncAccount(uniboxId: string, accountId: string): Promise<
         } catch {}
       }
 
-      // Mantener cache de 2000 mensajes (antes 800). Para uniboxes activos
-      // con muchas respuestas, 800 cortaba el histórico.
-      msgsMap[accountId] = [...fresh, ...existing].slice(0, 2000);
+      // Mantener cache de 5000 mensajes (antes 2000). Histórico amplio
+      // para uniboxes con campañas grandes y respuestas multi-idioma.
+      msgsMap[accountId] = [...fresh, ...existing].slice(0, 5000);
       await saveMessagesMap(uniboxId, msgsMap);
       if (newCount > 0) {
         console.log(`[unibox-sync] ${account.email}: ${newCount} mensajes nuevos en INBOX`);
@@ -184,9 +185,9 @@ export async function syncAccountSent(uniboxId: string, accountId: string): Prom
       const status = await client.status(sentFolder.path, { messages: true });
       const total = status.messages || 0;
       if (total === 0) { await client.logout(); return 0; }
-      // Antes 300 — subido a 500 para uniboxes con mucho outreach activo.
+      // Antes 500 — subido a 1500 para campañas grandes con miles de enviados.
       // Como deduplicamos por UID, los ya vistos no se reprocesan.
-      const start = Math.max(1, total - 499);
+      const start = Math.max(1, total - 1499);
       const range = `${start}:*`;
 
       const fresh: UniboxMessage[] = [];
@@ -240,9 +241,9 @@ export async function syncAccountSent(uniboxId: string, accountId: string): Prom
           newCount++;
         } catch {}
       }
-      // Cap total subido a 2000 (antes 800). Alineado con INBOX para conservar
-      // todo el histórico de respuestas (incluido idiomas variados).
-      msgsMap[accountId] = [...fresh, ...existing].slice(0, 2000);
+      // Cap total subido a 5000 (antes 2000). Alineado con INBOX cap para
+      // conservar histórico completo de respuestas en campañas grandes.
+      msgsMap[accountId] = [...fresh, ...existing].slice(0, 5000);
       await saveMessagesMap(uniboxId, msgsMap);
       if (newCount > 0) {
         console.log(`[unibox-sync] ${account.email}: ${newCount} mensajes nuevos en SENT`);

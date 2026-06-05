@@ -235,6 +235,26 @@ export function isBounceOrFailure(m: { from?: string; fromAddress?: string; from
     return true;
   }
 
+  // CAPA 2-bis — NOTIFICACIONES de servicios externos (Calendly, IONOS, etc.)
+  // que el usuario no quiere ver en la bandeja. Son mails legítimos pero
+  // automáticos: confirmaciones, recordatorios, avisos del sistema.
+  if (
+    /@calendly\.com$/i.test(from) ||
+    /^(no-?reply|notifications?|noreply)@calendly\.com$/i.test(from)
+  ) {
+    return true;
+  }
+  // IONOS: filtramos sus emails SISTEMA (newsletter, notificaciones, billing)
+  // pero NO los emails personales enviados POR USUARIOS A TRAVÉS de IONOS.
+  // Los mails del sistema vienen de @ionos.com, no de @ionos.es (hostings).
+  if (
+    /^(no-?reply|noreply|notification|notifications|info|servicio|service|sistema|system|billing|admin)@ionos\.(com|es|de|fr|co\.uk)$/i.test(from) ||
+    /^@?ionos\.(com|de)$/i.test(from) ||
+    /<\s*(no-?reply|noreply|notification|billing)@ionos\./i.test(from)
+  ) {
+    return true;
+  }
+
   // CAPA 3 — noreply/no-reply NO descarta por si solo: muchas notificaciones
   // legítimas (TCX, GitHub, Calendly, demos confirmadas, etc.) usan noreply@.
   // SOLO descartamos si ADEMÁS el subject coincide con un patrón de bounce.

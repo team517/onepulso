@@ -56,15 +56,32 @@ export default function ClientInboxPage() {
   }, [id]);
 
   async function loadAccounts() {
-    const r = await fetch(`/api/uniboxes/${id}/accounts`);
-    if (r.ok) {
-      setAccounts(await r.json());
-    } else if (r.status === 401) {
-      // Sesión expirada / inválida → forzar login.
-      console.warn("[unibox] 401 al cargar cuentas — sesión inválida, redirigiendo a login");
-      router.push(`/u/${id}/login`);
-    } else {
-      console.error("[unibox] error cargando cuentas:", r.status);
+    try {
+      const r = await fetch(`/api/uniboxes/${id}/accounts`);
+      if (r.ok) {
+        const data = await r.json();
+        // PROTECCIÓN: si la API devuelve [] cuando ya tenemos cuentas cargadas,
+        // NO sobreescribimos. Probable error transitorio (sesión renovándose,
+        // race entre peticiones, etc.) que antes vaciaba la lista en pantalla.
+        if (Array.isArray(data)) {
+          setAccounts((prev) => {
+            if (data.length === 0 && prev.length > 0) {
+              console.warn("[unibox] loadAccounts devolvio [] pero teniamos", prev.length, "→ ignorando para no perder estado");
+              return prev;
+            }
+            return data;
+          });
+        }
+      } else if (r.status === 401) {
+        console.warn("[unibox] 401 al cargar cuentas — sesión inválida, redirigiendo a login");
+        router.push(`/u/${id}/login`);
+      } else {
+        console.error("[unibox] error cargando cuentas:", r.status);
+        // NO limpiar accounts en caso de error transitorio.
+      }
+    } catch (e) {
+      console.error("[unibox] loadAccounts fetch error:", e);
+      // NO limpiar accounts en caso de error de red.
     }
   }
 
@@ -1373,13 +1390,43 @@ function SignatureModal({ uniboxId, accounts, onClose, onSaved }: { uniboxId: st
   const [signature, setSignature] = useState<string>("");
   const [saving, setSaving] = useState(false);
   const [savedFlag, setSavedFlag] = useState(false);
+  const [mode, setMode] = useState<"upload" | "edit">("upload");
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [fileName, setFileName] = useState<string>("");
+  const [dragOver, setDragOver] = useState(false);
 
   // Cargar la firma actual cuando cambia la cuenta seleccionada
   useEffect(() => {
     const acc = accounts.find((a) => a.id === accountId);
     setSignature(acc?.signature_html || "");
     setSavedFlag(false);
+    setFileName("");
+    setMode(acc?.signature_html ? "edit" : "upload");
   }, [accountId, accounts]);
+
+  async function handleFile(file: File) {
+    if (!file) return;
+    if (file.size > 200 * 1024) {
+      alert("El archivo es demasiado grande (máx 200 KB).");
+      return;
+    }
+    const text = await file.text();
+    // Limpiar: quitar <script>, <html>, <head>, <body> wrappers para que la
+    // firma quede solo con el contenido visual interno.
+    let cleaned = text
+      .replace(/<script[\s\S]*?<\/script>/gi, "")
+      .replace(/<style[\s\S]*?<\/style>/gi, "")
+      .replace(/<!DOCTYPE[^>]*>/gi, "")
+      .replace(/<\/?html[^>]*>/gi, "")
+      .replace(/<\/?head[^>]*>/gi, "")
+      .replace(/<title[\s\S]*?<\/title>/gi, "")
+      .replace(/<\/?body[^>]*>/gi, "")
+      .replace(/<meta[^>]*>/gi, "")
+      .trim();
+    setSignature(cleaned);
+    setFileName(file.name);
+    setMode("edit");
+  }
 
   async function save() {
     if (!accountId) return;
@@ -1469,41 +1516,119 @@ function SignatureModal({ uniboxId, accounts, onClose, onSaved }: { uniboxId: st
             ))}
           </select>
 
-          <label style={{ display: "block", fontSize: 11, fontWeight: 700, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 6 }}>
-            Firma HTML (se puede usar &lt;br&gt;, &lt;strong&gt;, &lt;a&gt;, &lt;img&gt;)
-          </label>
-          <textarea
-            value={signature}
-            onChange={(e) => setSignature(e.target.value)}
-            placeholder={`<p>Un saludo,<br><strong>${selectedAcc?.first_name || "Tu nombre"}</strong><br>${selectedAcc?.email || "tu@empresa.com"}</p>`}
-            rows={9}
-            style={{
-              width: "100%", padding: "10px 12px",
-              border: "1px solid rgba(15,23,42,0.12)",
-              borderRadius: 10, fontSize: 13,
-              fontFamily: "ui-monospace, Menlo, monospace",
-              resize: "vertical",
-              boxSizing: "border-box",
-            }}
-          />
+          {/* Tabs Upload / Edit */}
+          <div style={{
+            display: "flex", gap: 4,
+            background: "#f1f5f9", padding: 4, borderRadius: 10,
+            marginBottom: 14,
+          }}>
+            <button
+              onClick={() => setMode("upload")}
+              style={{
+                flex: 1, padding: "7px 12px",
+                background: mode === "upload" ? "#fff" : "transparent",
+                border: "none", borderRadius: 7,
+                fontSize: 12.5, fontWeight: 600,
+                color: mode === "upload" ? "#0071e3" : "#64748b",
+                cursor: "pointer", fontFamily: "inherit",
+                boxShadow: mode === "upload" ? "0 1px 2px rgba(15,23,42,0.06)" : "none",
+              }}
+            >📤 Subir archivo HTML</button>
+            <button
+              onClick={() => setMode("edit")}
+              style={{
+                flex: 1, padding: "7px 12px",
+                background: mode === "edit" ? "#fff" : "transparent",
+                border: "none", borderRadius: 7,
+                fontSize: 12.5, fontWeight: 600,
+                color: mode === "edit" ? "#0071e3" : "#64748b",
+                cursor: "pointer", fontFamily: "inherit",
+                boxShadow: mode === "edit" ? "0 1px 2px rgba(15,23,42,0.06)" : "none",
+              }}
+            >✏ Editar HTML</button>
+          </div>
+
+          {mode === "upload" ? (
+            <div
+              onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+              onDragLeave={() => setDragOver(false)}
+              onDrop={(e) => {
+                e.preventDefault();
+                setDragOver(false);
+                const file = e.dataTransfer.files?.[0];
+                if (file) handleFile(file);
+              }}
+              onClick={() => fileInputRef.current?.click()}
+              style={{
+                border: `2px dashed ${dragOver ? "#0071e3" : "rgba(15,23,42,0.18)"}`,
+                background: dragOver ? "rgba(0,113,227,0.04)" : "#fafbfc",
+                borderRadius: 14,
+                padding: "30px 20px",
+                textAlign: "center",
+                cursor: "pointer",
+                transition: "all 0.15s",
+              }}
+            >
+              <div style={{ fontSize: 36, marginBottom: 10 }}>📄</div>
+              <div style={{ fontSize: 14, fontWeight: 700, color: "#0f172a", marginBottom: 4 }}>
+                {fileName ? `✓ ${fileName}` : "Click o arrastra un archivo .html"}
+              </div>
+              <div style={{ fontSize: 12, color: "#64748b" }}>
+                Sube tu firma como HTML — se quita &lt;html&gt;/&lt;head&gt; y se queda solo lo visual.
+              </div>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".html,.htm,text/html"
+                hidden
+                onChange={(e) => { const f = e.target.files?.[0]; if (f) handleFile(f); }}
+              />
+            </div>
+          ) : (
+            <>
+              <label style={{ display: "block", fontSize: 11, fontWeight: 700, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 6 }}>
+                Firma HTML (soporta &lt;br&gt;, &lt;strong&gt;, &lt;a&gt;, &lt;img&gt;, &lt;table&gt;, etc.)
+              </label>
+              <textarea
+                value={signature}
+                onChange={(e) => setSignature(e.target.value)}
+                placeholder={`<p>Un saludo,<br><strong>${selectedAcc?.first_name || "Tu nombre"}</strong><br>${selectedAcc?.email || "tu@empresa.com"}</p>`}
+                rows={10}
+                style={{
+                  width: "100%", padding: "10px 12px",
+                  border: "1px solid rgba(15,23,42,0.12)",
+                  borderRadius: 10, fontSize: 13,
+                  fontFamily: "ui-monospace, Menlo, monospace",
+                  resize: "vertical",
+                  boxSizing: "border-box",
+                }}
+              />
+            </>
+          )}
 
           {signature && (
             <>
-              <label style={{ display: "block", fontSize: 11, fontWeight: 700, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.05em", marginTop: 14, marginBottom: 6 }}>
-                Vista previa
+              <label style={{ display: "block", fontSize: 11, fontWeight: 700, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.05em", marginTop: 18, marginBottom: 6 }}>
+                Vista previa (como se verá en el email)
               </label>
               <div
                 style={{
-                  border: "1px dashed rgba(15,23,42,0.15)",
-                  borderRadius: 10,
-                  padding: 14,
-                  background: "#fafbfc",
+                  border: "1px solid rgba(15,23,42,0.12)",
+                  borderRadius: 12,
+                  padding: 18,
+                  background: "#fff",
                   fontSize: 14,
                   lineHeight: 1.5,
                   color: "#0f172a",
+                  fontFamily: "-apple-system, 'SF Pro Text', system-ui, sans-serif",
+                  boxShadow: "inset 0 0 0 1px rgba(15,23,42,0.02), 0 1px 3px rgba(15,23,42,0.04)",
                 }}
-                dangerouslySetInnerHTML={{ __html: signature.replace(/<script[\s\S]*?<\/script>/gi, "") }}
-              />
+              >
+                <div style={{ color: "#94a3b8", fontSize: 12, marginBottom: 14, fontStyle: "italic" }}>
+                  ...el contenido de tu mensaje terminaría aquí.
+                </div>
+                <div dangerouslySetInnerHTML={{ __html: signature.replace(/<script[\s\S]*?<\/script>/gi, "") }} />
+              </div>
             </>
           )}
 

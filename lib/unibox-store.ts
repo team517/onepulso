@@ -70,6 +70,20 @@ export type UniboxMessage = {
   unread: boolean;
   is_warmup: boolean;
   attachments: { filename: string; contentType: string; size: number }[];
+  /** ID de carpeta custom donde el usuario movió este mensaje. Si null,
+   *  el mensaje aparece en la bandeja por defecto (Primary/Otros). */
+  folder_id?: string | null;
+};
+
+/** Carpeta custom creada por el usuario. Los mensajes con folder_id = X
+ *  aparecen al hacer click en esa carpeta del sidebar. */
+export type UniboxFolder = {
+  id: string;
+  unibox_id: string;
+  name: string;
+  /** Color de acento del chip de la carpeta (CSS color). Defaults a #6366f1 */
+  color?: string;
+  created_at: string;
 };
 
 // -------- password hashing (sha256 + salt) --------
@@ -372,4 +386,69 @@ export async function purgeBounces(uniboxId: string): Promise<{ removed: number;
   }
   await saveMessagesMap(uniboxId, msgs);
   return { removed, kept };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CARPETAS CUSTOM
+// ─────────────────────────────────────────────────────────────────────────────
+const FOLDERS_KEY = (uniboxId: string) => `uniboxes/${uniboxId}/folders`;
+
+export async function listFolders(uniboxId: string): Promise<UniboxFolder[]> {
+  return (await readJson<UniboxFolder[]>(FOLDERS_KEY(uniboxId))) || [];
+}
+
+export async function saveFolders(uniboxId: string, folders: UniboxFolder[]): Promise<void> {
+  await writeJson(FOLDERS_KEY(uniboxId), folders);
+}
+
+export async function createFolder(uniboxId: string, name: string, color?: string): Promise<UniboxFolder> {
+  const folders = await listFolders(uniboxId);
+  const f: UniboxFolder = {
+    id: crypto.randomUUID(),
+    unibox_id: uniboxId,
+    name: name.trim().slice(0, 60),
+    color: color || "#6366f1",
+    created_at: new Date().toISOString(),
+  };
+  folders.push(f);
+  await saveFolders(uniboxId, folders);
+  return f;
+}
+
+export async function deleteFolder(uniboxId: string, folderId: string): Promise<{ removed: boolean; messages_unassigned: number }> {
+  const folders = await listFolders(uniboxId);
+  const idx = folders.findIndex((f) => f.id === folderId);
+  if (idx === -1) return { removed: false, messages_unassigned: 0 };
+  folders.splice(idx, 1);
+  await saveFolders(uniboxId, folders);
+  // Quitar folder_id de cualquier mensaje que tuviera esta carpeta
+  const msgs = await loadMessagesMap(uniboxId);
+  let unassigned = 0;
+  for (const acctId of Object.keys(msgs)) {
+    for (const m of msgs[acctId]) {
+      if ((m as any).folder_id === folderId) {
+        (m as any).folder_id = null;
+        unassigned++;
+      }
+    }
+  }
+  await saveMessagesMap(uniboxId, msgs);
+  return { removed: true, messages_unassigned: unassigned };
+}
+
+/** Asigna (o desasigna si folderId=null) una carpeta a un mensaje. */
+export async function setMessageFolder(
+  uniboxId: string,
+  accountId: string,
+  uid: number,
+  folderId: string | null
+): Promise<boolean> {
+  const msgs = await loadMessagesMap(uniboxId);
+  const list = msgs[accountId];
+  if (!list) return false;
+  const m = list.find((x) => x.uid === uid);
+  if (!m) return false;
+  (m as any).folder_id = folderId;
+  await saveMessagesMap(uniboxId, msgs);
+  return true;
 }

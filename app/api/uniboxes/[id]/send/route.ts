@@ -4,6 +4,7 @@ import { listAccounts } from "@/lib/unibox-store";
 import { requireAdmin, requireClientForUnibox } from "@/lib/unibox-auth";
 
 export const runtime = "nodejs";
+export const maxDuration = 60;
 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -105,31 +106,45 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     };
   }
 
+  let info: any;
   try {
-    const info = await transporter.sendMail(mail);
+    info = await transporter.sendMail(mail);
+  } catch (e: any) {
+    console.error(`[unibox-send] SMTP error ${acc.email}: ${e?.message || e}`);
+    return NextResponse.json({
+      error: `Error enviando: ${e?.message || String(e)}`,
+      smtp_host: acc.smtp_host,
+      smtp_port: port,
+    }, { status: 500 });
+  }
 
-    // Tras enviar, sincronizar SOLO LA CUENTA QUE ENVIÓ (no todas las
-    // 40 — eso tardaba 2 min). Reintentamos si Sent folder aún no
-    // muestra el mensaje (Gmail a veces tarda 3-8s en indexarlo).
-    let sentSyncOk = false;
+  console.log(`[unibox-send] ✓ ${acc.email} → ${to} (${info?.messageId})`);
+
+  // CRÍTICO: NO bloquear la respuesta esperando al sync de Sent. El SMTP
+  // ya tuvo éxito, el mensaje SE ENVIÓ. El sync de Sent puede tardar
+  // hasta 8s (Gmail indexa con delay) — bloquear la respuesta hacía que
+  // el cliente viera "Error" si el navegador timeouteaba el fetch.
+  //
+  // Disparamos el sync en background con setImmediate. El cliente recarga
+  // /messages a los 1-2s y ya ve el mensaje (gracias al sync incremental).
+  setImmediate(async () => {
     try {
       const { syncAccountSent } = await import("@/lib/unibox-sync");
       for (let attempt = 0; attempt < 3; attempt++) {
         if (attempt > 0) await new Promise((r) => setTimeout(r, 2500));
         const n = await syncAccountSent(id, acc.id).catch(() => 0);
-        if (n > 0) { sentSyncOk = true; break; }
-        // Si no encontró nuevos en este intento, espera y reintenta
+        if (n > 0) {
+          console.log(`[unibox-send] Sent sync OK tras ${attempt + 1} intento(s)`);
+          break;
+        }
       }
-    } catch {}
+    } catch (e: any) {
+      console.warn(`[unibox-send] background Sent sync falló:`, e?.message || e);
+    }
+  });
 
-    // Ya sincronizado el Sent — el cliente puede mostrar el mensaje
-    // recién enviado inmediatamente al recibir el response.
-    return NextResponse.json({
-      ok: true,
-      messageId: info.messageId,
-      sent_synced: sentSyncOk,
-    });
-  } catch (e: any) {
-    return NextResponse.json({ error: e.message || String(e) }, { status: 500 });
-  }
+  return NextResponse.json({
+    ok: true,
+    messageId: info.messageId,
+  });
 }

@@ -35,9 +35,12 @@ export default function ClientInboxPage() {
     } catch {}
   }, [id]);
   const [selectedAccount, setSelectedAccount] = useState<string | null>(null);
+  // Carpetas custom del usuario (creadas en runtime)
+  const [folders, setFolders] = useState<Array<{ id: string; name: string; color?: string }>>([]);
+  // Filtro: una de las "carpetas de sistema" o una custom (folder_id)
   // Filtro de bandeja: "all" muestra todo, "sent" sólo los que enviaste,
   // "received" sólo los recibidos (los entrantes del prospect).
-  const [folderFilter, setFolderFilter] = useState<"all" | "sent" | "received">("all");
+  const [folderFilter, setFolderFilter] = useState<string>("all"); // "all" | "sent" | "received" | folderId
   const [selectedMsg, setSelectedMsg] = useState<any>(null);
   const [search, setSearch] = useState("");
   const [composeOpen, setComposeOpen] = useState(false);
@@ -144,6 +147,64 @@ export default function ClientInboxPage() {
   }
 
   useEffect(() => { if (me) loadMessages(); }, [selectedAccount, showWarmup]);
+
+  async function loadFolders() {
+    try {
+      const r = await fetch(`/api/uniboxes/${id}/folders`);
+      if (r.ok) {
+        const data = await r.json();
+        if (Array.isArray(data)) setFolders(data);
+      }
+    } catch {}
+  }
+  useEffect(() => { if (me) loadFolders(); }, [me, id]);
+
+  async function createFolder() {
+    const name = window.prompt("Nombre de la nueva carpeta:");
+    if (!name || !name.trim()) return;
+    try {
+      const r = await fetch(`/api/uniboxes/${id}/folders`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: name.trim() }),
+      });
+      if (r.ok) {
+        const f = await r.json();
+        setFolders((prev) => [...prev, f]);
+      } else {
+        const d = await r.json().catch(() => ({}));
+        alert("Error: " + (d?.error || "no se pudo crear"));
+      }
+    } catch (e: any) {
+      alert("Error: " + (e?.message || e));
+    }
+  }
+
+  async function removeFolder(folderId: string) {
+    if (!confirm("¿Eliminar carpeta? Los mensajes que tenía vuelven a la bandeja general.")) return;
+    try {
+      const r = await fetch(`/api/uniboxes/${id}/folders/${folderId}`, { method: "DELETE" });
+      if (r.ok) {
+        setFolders((prev) => prev.filter((f) => f.id !== folderId));
+        if (folderFilter === folderId) setFolderFilter("all");
+        await loadMessages();
+      }
+    } catch {}
+  }
+
+  async function moveToFolder(accountId: string, uid: number, folderId: string | null) {
+    // Update optimista
+    setMessages((prev) => prev.map((m: any) =>
+      m.accountId === accountId && m.uid === uid ? { ...m, folder_id: folderId } : m
+    ));
+    try {
+      await fetch(`/api/uniboxes/${id}/messages/${accountId}/${uid}/folder`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ folder_id: folderId }),
+      });
+    } catch {}
+  }
 
   // Auto-refresh cache cada 10s SOLO cuando la pestaña está visible.
   // Como ahora el sync IMAP es incremental (sólo trae nuevos), la
@@ -414,7 +475,11 @@ export default function ClientInboxPage() {
 
   let baseList = messages;
   if (folderFilter === "sent")     baseList = messages.filter(isOutboundMsg);
-  if (folderFilter === "received") baseList = messages.filter((m) => !isOutboundMsg(m));
+  else if (folderFilter === "received") baseList = messages.filter((m) => !isOutboundMsg(m));
+  else if (folderFilter !== "all") {
+    // folderFilter es el ID de una carpeta custom
+    baseList = messages.filter((m: any) => m.folder_id === folderFilter);
+  }
 
   const filtered = search
     ? baseList.filter(m =>
@@ -536,6 +601,47 @@ export default function ClientInboxPage() {
             onClick={() => setFolderFilter("sent")}
             accent="brand"
           />
+          {/* Carpetas custom del usuario */}
+          {folders.map((f) => {
+            const count = messages.filter((m: any) => m.folder_id === f.id).length;
+            return (
+              <div key={f.id} style={{ position: "relative" }}>
+                <FolderPill
+                  label={f.name}
+                  icon="📁"
+                  count={count}
+                  active={folderFilter === f.id}
+                  onClick={() => setFolderFilter(f.id)}
+                  customColor={f.color}
+                />
+                <button
+                  onClick={(e) => { e.stopPropagation(); removeFolder(f.id); }}
+                  style={{
+                    position: "absolute", right: 6, top: "50%", transform: "translateY(-50%)",
+                    background: "transparent", border: 0, color: "#94a3b8",
+                    cursor: "pointer", fontSize: 12, padding: 4, lineHeight: 1,
+                    opacity: 0.7,
+                  }}
+                  title="Eliminar carpeta"
+                >✕</button>
+              </div>
+            );
+          })}
+          {/* Botón añadir carpeta */}
+          <button
+            onClick={createFolder}
+            style={{
+              display: "flex", alignItems: "center", gap: 8,
+              padding: "8px 10px", marginTop: 2,
+              background: "transparent", border: "1px dashed #cbd5e1",
+              borderRadius: 8, color: "#64748b",
+              fontSize: 12.5, fontWeight: 500,
+              cursor: "pointer", textAlign: "left",
+            }}
+            title="Crear una carpeta para organizar mensajes"
+          >
+            <span style={{ fontSize: 14 }}>＋</span> Nueva carpeta
+          </button>
         </div>
 
         <div style={sectionTitle}>BANDEJAS</div>
@@ -853,6 +959,33 @@ export default function ClientInboxPage() {
                     fontFamily: "inherit",
                   }}
                 >↪ Reenviar</button>
+                {/* Selector de carpeta — sólo aparece si hay carpetas creadas */}
+                {folders.length > 0 && (
+                  <select
+                    value={(selectedMsg as any).folder_id || ""}
+                    onChange={(e) => {
+                      const fid = e.target.value || null;
+                      moveToFolder(selectedMsg.accountId, selectedMsg.uid, fid);
+                    }}
+                    title="Mover este mensaje a una carpeta"
+                    style={{
+                      background: "#fff",
+                      border: "1px solid rgba(99,102,241,0.3)",
+                      borderRadius: 10,
+                      padding: "8px 10px",
+                      color: "#6366f1",
+                      cursor: "pointer",
+                      fontSize: 13,
+                      fontWeight: 600,
+                      fontFamily: "inherit",
+                    }}
+                  >
+                    <option value="">📁 Sin carpeta</option>
+                    {folders.map((f) => (
+                      <option key={f.id} value={f.id}>📁 {f.name}</option>
+                    ))}
+                  </select>
+                )}
                 <button
                   onClick={() => deleteMessage(selectedMsg.accountId, selectedMsg.uid)}
                   title="Eliminar este mensaje de la bandeja"
@@ -1027,8 +1160,13 @@ function ComposeModal({ uniboxId, accounts, initial, onClose, onSent }: any) {
     for (const f of files) fd.append("attachments", f);
     try {
       const r = await fetch(`/api/uniboxes/${uniboxId}/send`, { method: "POST", body: fd });
-      const d = await r.json();
-      if (!r.ok) throw new Error(d.error || "Error");
+      let d: any = null;
+      try { d = await r.json(); } catch {}
+      if (!r.ok) {
+        const errMsg = d?.error || `HTTP ${r.status}`;
+        const hint = d?.smtp_host ? ` (SMTP ${d.smtp_host}:${d.smtp_port})` : "";
+        throw new Error(errMsg + hint);
+      }
 
       // Si el usuario activó el reminder, lo programamos POST-send.
       if (reminderEnabled && d.messageId && to.trim()) {
@@ -1372,7 +1510,7 @@ const editorStyle: React.CSSProperties = {
  * Tarjeta de mensaje dentro del hilo. Carga el cuerpo HTML al expandir.
  */
 function FolderPill({
-  label, icon, count, active, onClick, accent,
+  label, icon, count, active, onClick, accent, customColor,
 }: {
   label: string;
   icon: string;
@@ -1380,8 +1518,11 @@ function FolderPill({
   active: boolean;
   onClick: () => void;
   accent?: "brand";
+  customColor?: string;
 }) {
   const isBrand = accent === "brand";
+  // Si tiene customColor (carpeta del usuario), prevalece sobre el accent.
+  const cc = customColor || null;
   return (
     <div
       onClick={onClick}
@@ -1395,11 +1536,14 @@ function FolderPill({
         marginBottom: 3,
         transition: "all 0.15s",
         background: active
-          ? (isBrand ? "linear-gradient(135deg, rgba(249,166,3,0.12), rgba(209,92,254,0.10))" : "rgba(99,102,241,0.08)")
+          ? (cc ? `${cc}15`
+              : isBrand ? "linear-gradient(135deg, rgba(249,166,3,0.12), rgba(209,92,254,0.10))"
+                       : "rgba(99,102,241,0.08)")
           : "transparent",
         border: active
-          ? `1px solid ${isBrand ? "rgba(209,92,254,0.35)" : "rgba(99,102,241,0.25)"}`
+          ? `1px solid ${cc ? cc + "55" : isBrand ? "rgba(209,92,254,0.35)" : "rgba(99,102,241,0.25)"}`
           : "1px solid transparent",
+        paddingRight: cc ? 32 : 12, // espacio para botón ✕
       }}
       onMouseEnter={(e) => { if (!active) (e.currentTarget as HTMLDivElement).style.background = "rgba(15,23,42,0.04)"; }}
       onMouseLeave={(e) => { if (!active) (e.currentTarget as HTMLDivElement).style.background = "transparent"; }}

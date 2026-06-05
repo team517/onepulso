@@ -17,10 +17,32 @@ import { dataPath } from "./data-dir";
 // leída 10 veces por minuto pasa de 600ms acumulados/min a 60ms (1 lectura
 // real + 9 cache hits). Las escrituras invalidan automáticamente.
 // ─────────────────────────────────────────────────────────────────────────────
-type CacheEntry = { value: any; expires: number };
+type CacheEntry = { value: any; expires: number; bytes: number };
 const CACHE = new Map<string, CacheEntry>();
-const CACHE_TTL_MS = 5_000; // 5s — muy corto, conservador pero efectivo
-const CACHE_MAX_SIZE = 500; // evita memory leak en uniboxes grandes
+const CACHE_MAX_SIZE = 500;
+// Skip cache si el valor serializado supera esto — previene memory bloat
+// cuando hay blobs gigantes (email-threads, etc).
+const CACHE_MAX_VALUE_BYTES = 2 * 1024 * 1024; // 2 MB
+
+/** TTL por tipo de key. Background keys (scheduler, follow-ups, accounts)
+ *  pueden tener TTL alto porque se acceden por procesos automáticos que
+ *  toleran 30-60s de staleness. User-facing keys tienen TTL corto para
+ *  que los cambios se vean al instante. */
+function ttlFor(key: string): number {
+  // Background processes con tick infrecuente → cache largo
+  if (key === "email-threads") return 45_000;        // scheduler tick 30s
+  if (key === "email-accounts") return 60_000;       // estático casi
+  if (key === "email-sequences") return 60_000;
+  if (key === "email-autopilot") return 60_000;
+  if (key === "linkedin-config") return 60_000;
+  // Unibox accounts también semi-estático
+  if (/^uniboxes\/[^/]+\/accounts$/.test(key)) return 30_000;
+  if (/^uniboxes\/[^/]+\/folders$/.test(key)) return 30_000;
+  // Messages: realtime, cache corto
+  if (/^uniboxes\/[^/]+\/messages$/.test(key)) return 5_000;
+  // Default
+  return 10_000;
+}
 
 function cacheGet(key: string): any | undefined {
   const e = CACHE.get(key);
@@ -32,12 +54,23 @@ function cacheGet(key: string): any | undefined {
   return e.value;
 }
 function cacheSet(key: string, value: any): void {
+  // Calcula el tamaño aproximado del valor (skip cache si gigante).
+  let bytes = 0;
+  try {
+    bytes = value === null ? 4 : JSON.stringify(value).length;
+  } catch {
+    bytes = 0;
+  }
+  if (bytes > CACHE_MAX_VALUE_BYTES) {
+    // Demasiado grande → mejor releer de DB que llenar la heap.
+    CACHE.delete(key);
+    return;
+  }
   if (CACHE.size >= CACHE_MAX_SIZE) {
-    // Evict el más viejo (LRU simple — la primera key del Map es la más vieja).
     const firstKey = CACHE.keys().next().value;
     if (firstKey) CACHE.delete(firstKey);
   }
-  CACHE.set(key, { value, expires: Date.now() + CACHE_TTL_MS });
+  CACHE.set(key, { value, expires: Date.now() + ttlFor(key), bytes });
 }
 function cacheInvalidate(key: string): void {
   CACHE.delete(key);

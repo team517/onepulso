@@ -218,3 +218,55 @@ export async function listAllScheduledFollowups(): Promise<Array<Followup & { th
   }
   return out;
 }
+
+/**
+ * COMPACTACIÓN del blob email-threads.
+ *
+ * El scheduler lee TODO el blob cada 30s. Con cientos de threads viejos
+ * cerrados acumulados, cada lectura tarda 5-10 SEGUNDOS y bloquea el
+ * pool de Postgres → toda la app va lenta.
+ *
+ * Esta función mueve los threads que ya no necesitan procesarse (cerrados/
+ * stale + sin follow-ups pendientes + sin actividad reciente) a una clave
+ * de archivo separada `email-threads/archive`. El blob principal queda
+ * con SOLO los threads activos.
+ *
+ * Devuelve: { keptActive, archivedNow, totalArchived }
+ */
+export async function compactThreads(opts?: { olderThanDays?: number }): Promise<{ keptActive: number; archivedNow: number; totalArchived: number }> {
+  const olderThanDays = opts?.olderThanDays ?? 30;
+  const cutoff = Date.now() - olderThanDays * 24 * 60 * 60 * 1000;
+
+  const all = await readThreads();
+  const archive = (await readJson<Thread[]>("email-threads/archive")) ?? [];
+
+  const active: Thread[] = [];
+  const toArchive: Thread[] = [];
+
+  for (const t of all) {
+    const hasPendingFollowup = (t.followups || []).some(
+      (f) => f.status === "scheduled" || f.status === "sending" || f.status === "pending_approval"
+    );
+    const updatedAt = new Date(t.updated_at).getTime();
+    const isOld = updatedAt < cutoff;
+    const isInactive = t.status === "closed" || t.status === "stale";
+    // Archivamos solo si: inactivo Y viejo Y sin follow-up pendiente
+    if (isInactive && isOld && !hasPendingFollowup) {
+      toArchive.push(t);
+    } else {
+      active.push(t);
+    }
+  }
+
+  if (toArchive.length > 0) {
+    archive.push(...toArchive);
+    await writeJson("email-threads/archive", archive);
+    await writeThreads(active);
+  }
+
+  return {
+    keptActive: active.length,
+    archivedNow: toArchive.length,
+    totalArchived: archive.length,
+  };
+}

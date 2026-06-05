@@ -43,15 +43,38 @@ function cacheInvalidate(key: string): void {
   CACHE.delete(key);
 }
 
+// Contadores globales para diagnóstico
+let _cacheHits = 0;
+let _cacheMisses = 0;
+let _slowQueries: Array<{ key: string; ms: number; ts: number }> = [];
+
+export function getStorageStats() {
+  return {
+    cache_hits: _cacheHits,
+    cache_misses: _cacheMisses,
+    hit_rate: _cacheHits / (_cacheHits + _cacheMisses || 1),
+    cache_size: CACHE.size,
+    slow_queries_last_100: _slowQueries.slice(-100),
+  };
+}
+
 /** Lee un valor JSON por clave. Devuelve null si no existe. */
 export async function readJson<T = any>(key: string): Promise<T | null> {
   // Fast path: cache hit
   const cached = cacheGet(key);
-  if (cached !== undefined) return cached;
+  if (cached !== undefined) { _cacheHits++; return cached; }
+  _cacheMisses++;
 
   if (isDbEnabled()) {
     await ensureSchema();
+    const t0 = Date.now();
     const r = await withClient((c) => c.query<{ value: T }>("SELECT value FROM kv_store WHERE key = $1", [key]));
+    const ms = Date.now() - t0;
+    if (ms > 200) {
+      _slowQueries.push({ key, ms, ts: Date.now() });
+      if (_slowQueries.length > 500) _slowQueries = _slowQueries.slice(-200);
+      console.warn(`[storage] SLOW readJson ${key} → ${ms}ms`);
+    }
     if (r.rows[0]) {
       cacheSet(key, r.rows[0].value);
       return r.rows[0].value;

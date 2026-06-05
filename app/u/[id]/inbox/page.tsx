@@ -919,16 +919,20 @@ function ComposeModal({ uniboxId, accounts, initial, onClose, onSent }: any) {
           </select>
 
           <label style={composeLabel}>Para</label>
-          <input style={composeInput} value={to} onChange={(e) => setTo(e.target.value)} placeholder="destinatario@..." />
+          <RecipientInput
+            value={to}
+            onChange={setTo}
+            placeholder="destinatario@empresa.com (puedes añadir varios separados por coma o Enter)"
+          />
 
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
             <div>
               <label style={composeLabel}>CC</label>
-              <input style={composeInput} value={cc} onChange={(e) => setCc(e.target.value)} />
+              <RecipientInput value={cc} onChange={setCc} placeholder="opcional" />
             </div>
             <div>
               <label style={composeLabel}>CCO</label>
-              <input style={composeInput} value={bcc} onChange={(e) => setBcc(e.target.value)} />
+              <RecipientInput value={bcc} onChange={setBcc} placeholder="opcional" />
             </div>
           </div>
 
@@ -1384,6 +1388,148 @@ function ThreadCard({
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+/* ─────────── Multi-recipient input (chips) ─────────── */
+function RecipientInput({
+  value, onChange, placeholder,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  placeholder?: string;
+}) {
+  const [draft, setDraft] = useState("");
+  // Convertir la cadena value a array de emails (limpio)
+  const emails = (value || "")
+    .split(/[,;]\s*|\s+/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+
+  function commit(parts: string[]) {
+    // Filtrar duplicados manteniendo orden
+    const seen = new Set<string>();
+    const unique: string[] = [];
+    for (const p of parts) {
+      const k = p.toLowerCase();
+      if (!seen.has(k)) { seen.add(k); unique.push(p); }
+    }
+    onChange(unique.join(", "));
+  }
+
+  function addFromDraft(includeTrailing = false) {
+    const d = draft.trim();
+    if (!d) return;
+    // Si el draft termina con espacio/coma o forzamos, añade
+    const newParts = d.split(/[,;]\s*|\s+/).map((s) => s.trim()).filter(Boolean);
+    if (newParts.length === 0) return;
+    commit([...emails, ...newParts]);
+    setDraft("");
+  }
+
+  function removeAt(idx: number) {
+    const next = emails.filter((_, i) => i !== idx);
+    commit(next);
+  }
+
+  function onKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (e.key === "Enter" || e.key === "," || e.key === ";") {
+      e.preventDefault();
+      addFromDraft(true);
+    } else if (e.key === "Backspace" && !draft && emails.length > 0) {
+      // Si la caja está vacía y pulsan backspace, quitar último chip
+      e.preventDefault();
+      removeAt(emails.length - 1);
+    } else if (e.key === " " && draft.includes("@")) {
+      // Espacio cuando ya hay un @ → añadir
+      e.preventDefault();
+      addFromDraft(true);
+    }
+  }
+
+  function onPaste(e: React.ClipboardEvent<HTMLInputElement>) {
+    const text = e.clipboardData.getData("text");
+    if (/[,;\n\s]/.test(text)) {
+      e.preventDefault();
+      const parts = text.split(/[,;\n\s]+/).map((s) => s.trim()).filter(Boolean);
+      if (parts.length > 0) commit([...emails, ...parts]);
+      setDraft("");
+    }
+  }
+
+  return (
+    <div
+      onClick={(e) => {
+        // Click en el contenedor → focus al input interno
+        const input = (e.currentTarget.querySelector("input.recipient-draft") as HTMLInputElement);
+        input?.focus();
+      }}
+      style={{
+        ...composeInput,
+        height: "auto",
+        minHeight: 40,
+        padding: "6px 8px",
+        display: "flex",
+        flexWrap: "wrap",
+        alignItems: "center",
+        gap: 5,
+        cursor: "text",
+      }}
+    >
+      {emails.map((em, i) => {
+        const isValid = /^[^\s,;<>"'()\[\]{}]+@[^\s,;<>"'()\[\]{}]+\.[^\s,;<>"'()\[\]{}]+$/.test(em);
+        return (
+          <span
+            key={`${em}-${i}`}
+            style={{
+              display: "inline-flex", alignItems: "center", gap: 4,
+              padding: "3px 5px 3px 10px",
+              background: isValid ? "rgba(99,102,241,0.1)" : "rgba(239,68,68,0.08)",
+              color: isValid ? "#0f172a" : "#dc2626",
+              border: `1px solid ${isValid ? "rgba(99,102,241,0.25)" : "rgba(239,68,68,0.25)"}`,
+              borderRadius: 99,
+              fontSize: 12.5,
+              fontWeight: 500,
+              maxWidth: "100%",
+            }}
+            title={isValid ? em : `${em} — formato no válido`}
+          >
+            <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 260 }}>{em}</span>
+            <button
+              type="button"
+              onClick={(e) => { e.stopPropagation(); removeAt(i); }}
+              aria-label="Quitar destinatario"
+              style={{
+                background: "transparent", border: "none",
+                color: "inherit", cursor: "pointer",
+                fontSize: 13, lineHeight: 1,
+                padding: "1px 4px", opacity: 0.7,
+                borderRadius: 99,
+              }}
+            >×</button>
+          </span>
+        );
+      })}
+      <input
+        className="recipient-draft"
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onKeyDown={onKeyDown}
+        onPaste={onPaste}
+        onBlur={() => addFromDraft(true)}
+        placeholder={emails.length === 0 ? placeholder : ""}
+        style={{
+          flex: 1,
+          minWidth: 140,
+          border: "none",
+          outline: "none",
+          background: "transparent",
+          padding: "5px 4px",
+          fontSize: 13.5,
+          fontFamily: "inherit",
+        }}
+      />
     </div>
   );
 }

@@ -11,12 +11,51 @@ import path from "path";
 import { getPool, ensureSchema, isDbEnabled, withClient } from "./db";
 import { dataPath } from "./data-dir";
 
+// ─────────────────────────────────────────────────────────────────────────────
+// CACHÉ EN MEMORIA con TTL — elimina round-trips a Postgres en lecturas hot.
+// Cada readJson() costaba 20-100ms (latencia DB). Con cache de 5s, una key
+// leída 10 veces por minuto pasa de 600ms acumulados/min a 60ms (1 lectura
+// real + 9 cache hits). Las escrituras invalidan automáticamente.
+// ─────────────────────────────────────────────────────────────────────────────
+type CacheEntry = { value: any; expires: number };
+const CACHE = new Map<string, CacheEntry>();
+const CACHE_TTL_MS = 5_000; // 5s — muy corto, conservador pero efectivo
+const CACHE_MAX_SIZE = 500; // evita memory leak en uniboxes grandes
+
+function cacheGet(key: string): any | undefined {
+  const e = CACHE.get(key);
+  if (!e) return undefined;
+  if (Date.now() > e.expires) {
+    CACHE.delete(key);
+    return undefined;
+  }
+  return e.value;
+}
+function cacheSet(key: string, value: any): void {
+  if (CACHE.size >= CACHE_MAX_SIZE) {
+    // Evict el más viejo (LRU simple — la primera key del Map es la más vieja).
+    const firstKey = CACHE.keys().next().value;
+    if (firstKey) CACHE.delete(firstKey);
+  }
+  CACHE.set(key, { value, expires: Date.now() + CACHE_TTL_MS });
+}
+function cacheInvalidate(key: string): void {
+  CACHE.delete(key);
+}
+
 /** Lee un valor JSON por clave. Devuelve null si no existe. */
 export async function readJson<T = any>(key: string): Promise<T | null> {
+  // Fast path: cache hit
+  const cached = cacheGet(key);
+  if (cached !== undefined) return cached;
+
   if (isDbEnabled()) {
     await ensureSchema();
     const r = await withClient((c) => c.query<{ value: T }>("SELECT value FROM kv_store WHERE key = $1", [key]));
-    if (r.rows[0]) return r.rows[0].value;
+    if (r.rows[0]) {
+      cacheSet(key, r.rows[0].value);
+      return r.rows[0].value;
+    }
     // Auto-seed: si no está en Postgres pero hay un archivo bundled en el repo,
     // lo cargamos y lo escribimos a Postgres para futuras lecturas.
     try {
@@ -24,8 +63,10 @@ export async function readJson<T = any>(key: string): Promise<T | null> {
       const raw = await fs.readFile(filePath, "utf-8");
       const value = JSON.parse(raw) as T;
       await writeJson(key, value).catch(() => {});
+      cacheSet(key, value);
       return value;
     } catch {
+      cacheSet(key, null); // cachear el "no existe" también
       return null;
     }
   }
@@ -44,6 +85,8 @@ export async function readJson<T = any>(key: string): Promise<T | null> {
  *  LANZA el error en vez de caer a fs (que en Railway se pierde en cada restart).
  *  En dev (sin DATABASE_URL) escribe a fs local. */
 export async function writeJson(key: string, value: any): Promise<void> {
+  // Update cache inmediato (write-through): la próxima lectura ya ve el valor.
+  cacheSet(key, value);
   if (isDbEnabled()) {
     try {
       await ensureSchema();
@@ -57,8 +100,10 @@ export async function writeJson(key: string, value: any): Promise<void> {
       );
       return;
     } catch (e: any) {
+      // Si el write a DB falla, invalidamos el cache para que la próxima
+      // lectura vaya a DB (no sirva valor que no se persistió).
+      cacheInvalidate(key);
       console.error(`[storage] FATAL: writeJson Postgres falló para key=${key}:`, e.message);
-      // Re-lanzar para que el caller sepa que el guardado falló
       throw new Error(`Postgres write failed: ${e.message}`);
     }
   }
@@ -70,6 +115,7 @@ export async function writeJson(key: string, value: any): Promise<void> {
 
 /** Borra una entrada por clave. */
 export async function deleteJson(key: string): Promise<void> {
+  cacheInvalidate(key);
   if (isDbEnabled()) {
     await ensureSchema();
     await withClient((c) => c.query("DELETE FROM kv_store WHERE key = $1", [key]));

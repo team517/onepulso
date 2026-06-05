@@ -15,9 +15,15 @@ export function getPool(): Pool | null {
   globalThis.__pgPool = new Pool({
     connectionString: url,
     ssl: url.includes("railway.internal") ? false : { rejectUnauthorized: false },
-    max: 5,
+    // PERFORMANCE: pool grande para no esperar nunca a connect() en cargas
+    // burst (40 cuentas sincronizando en paralelo). 5 era cuello de botella.
+    max: 20,
+    min: 2, // pre-warm 2 conexiones siempre listas → primera query sin handshake
     idleTimeoutMillis: 30_000,
-    connectionTimeoutMillis: 10_000,
+    connectionTimeoutMillis: 5_000,
+    // Statement timeout: evita queries colgadas que bloqueen conexiones
+    statement_timeout: 15_000,
+    query_timeout: 15_000,
   });
   return globalThis.__pgPool;
 }

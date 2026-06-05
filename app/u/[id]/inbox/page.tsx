@@ -819,7 +819,21 @@ export default function ClientInboxPage() {
           uniboxId={id}
           accounts={accounts}
           onClose={() => setSignatureModalOpen(false)}
-          onSaved={() => loadAccounts()}
+          onSaved={(updated) => {
+            // Si el modal nos pasa la cuenta actualizada (o un bulk),
+            // actualizamos el state local AL INSTANTE sin esperar fetch.
+            if (updated?.__bulk && Array.isArray(updated.accounts)) {
+              setAccounts((prev) => prev.map((a) => {
+                const u = updated.accounts.find((x: any) => x.id === a.id);
+                return u ? { ...a, ...u } : a;
+              }));
+            } else if (updated?.id) {
+              setAccounts((prev) => prev.map((a) => a.id === updated.id ? { ...a, ...updated } : a));
+            } else {
+              // Fallback: re-fetch normal
+              loadAccounts();
+            }
+          }}
         />
       )}
     </div>
@@ -1535,7 +1549,7 @@ function RecipientInput({
 }
 
 /* ─────────── Modal de Firmas ─────────── */
-function SignatureModal({ uniboxId, accounts, onClose, onSaved }: { uniboxId: string; accounts: any[]; onClose: () => void; onSaved: () => void }) {
+function SignatureModal({ uniboxId, accounts, onClose, onSaved }: { uniboxId: string; accounts: any[]; onClose: () => void; onSaved: (updated?: any) => void }) {
   const [accountId, setAccountId] = useState<string>(accounts[0]?.id || "");
   const [signature, setSignature] = useState<string>("");
   const [saving, setSaving] = useState(false);
@@ -1544,15 +1558,22 @@ function SignatureModal({ uniboxId, accounts, onClose, onSaved }: { uniboxId: st
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [fileName, setFileName] = useState<string>("");
   const [dragOver, setDragOver] = useState(false);
+  // Ref para evitar re-leer del server cuando solo cambia accounts (otro re-fetch).
+  // SOLO recargamos signature local si el accountId cambia.
+  const lastAccountIdRef = useRef<string>("");
 
-  // Cargar la firma actual cuando cambia la cuenta seleccionada
+  // Cargar la firma cuando cambia LA CUENTA SELECCIONADA — NO cuando cambia
+  // el array accounts (eso provocaba reset del draft + del flag "Guardado").
   useEffect(() => {
+    if (accountId === lastAccountIdRef.current) return; // misma cuenta → no re-leer
+    lastAccountIdRef.current = accountId;
     const acc = accounts.find((a) => a.id === accountId);
     setSignature(acc?.signature_html || "");
-    setSavedFlag(false);
     setFileName("");
     setMode(acc?.signature_html ? "edit" : "upload");
-  }, [accountId, accounts]);
+    setSavedFlag(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [accountId]);
 
   async function handleFile(file: File) {
     if (!file) return;
@@ -1587,13 +1608,19 @@ function SignatureModal({ uniboxId, accounts, onClose, onSaved }: { uniboxId: st
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ signature_html: signature }),
       });
+      const data = await r.json().catch(() => null);
       if (r.ok) {
         setSavedFlag(true);
-        onSaved();
-        setTimeout(() => setSavedFlag(false), 2400);
+        // Pasamos la cuenta actualizada al padre para que actualice su state
+        // directamente sin esperar a un refetch (que podría sobreescribir
+        // con datos viejos por race condition).
+        onSaved(data?.account);
+        setTimeout(() => setSavedFlag(false), 2800);
       } else {
-        alert("Error al guardar");
+        alert("Error al guardar: " + (data?.error || `HTTP ${r.status}`));
       }
+    } catch (e: any) {
+      alert("Error de red al guardar: " + (e?.message || String(e)));
     } finally {
       setSaving(false);
     }
@@ -1603,16 +1630,20 @@ function SignatureModal({ uniboxId, accounts, onClose, onSaved }: { uniboxId: st
     if (!confirm(`Esto aplicará la firma actual a TODAS las ${accounts.length} cuentas. ¿Seguir?`)) return;
     setSaving(true);
     try {
+      const updatedAccounts: any[] = [];
       for (const a of accounts) {
-        await fetch(`/api/uniboxes/${uniboxId}/accounts/${a.id}`, {
+        const r = await fetch(`/api/uniboxes/${uniboxId}/accounts/${a.id}`, {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ signature_html: signature }),
         });
+        const d = await r.json().catch(() => null);
+        if (r.ok && d?.account) updatedAccounts.push(d.account);
       }
-      onSaved();
+      // Notificar al padre con un objeto especial para que refresque todas
+      onSaved({ __bulk: true, accounts: updatedAccounts });
       setSavedFlag(true);
-      setTimeout(() => setSavedFlag(false), 3000);
+      setTimeout(() => setSavedFlag(false), 3500);
     } finally {
       setSaving(false);
     }

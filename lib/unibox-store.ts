@@ -46,6 +46,10 @@ export type UniboxAccount = {
   /** Firma HTML que se añade automáticamente al final de cada email enviado
    *  desde esta cuenta. Puede incluir nombre, cargo, web, redes, logo. */
   signature_html?: string | null;
+  /** UID máximo visto en INBOX — para sync incremental (sólo bajar nuevos). */
+  last_uid_inbox?: number | null;
+  /** UID máximo visto en Sent — para sync incremental. */
+  last_uid_sent?: number | null;
 };
 
 export type UniboxMessage = {

@@ -16,6 +16,8 @@ export default function ClientInboxPage() {
   const [reminders, setReminders] = useState<any[]>([]);
   const [signatureModalOpen, setSignatureModalOpen] = useState(false);
   const [lastSyncTs, setLastSyncTs] = useState<number | null>(null);
+  const [isSyncing, setIsSyncing] = useState(false);
+  const syncingRef = useRef(false);
   const [warmupCount, setWarmupCount] = useState(0);
   // Por defecto warmup OCULTO. La preferencia se persiste en localStorage por
   // unibox, así que si el usuario decide mostrarlos, se queda mostrando entre
@@ -143,30 +145,41 @@ export default function ClientInboxPage() {
 
   useEffect(() => { if (me) loadMessages(); }, [selectedAccount, showWarmup]);
 
-  // Auto-refresh cache cada 25s SOLO cuando la pestaña está visible.
-  // Si el usuario tiene otra pestaña abierta, no consumimos recursos.
+  // Auto-refresh cache cada 10s SOLO cuando la pestaña está visible.
+  // Como ahora el sync IMAP es incremental (sólo trae nuevos), la
+  // operación es barata: estimulamos refresh a 10s para que los nuevos
+  // mensajes aparezcan inmediatamente tras llegar al servidor.
   useEffect(() => {
     if (!me) return;
     const tick = () => { if (!document.hidden) loadMessages(); };
-    const t = setInterval(tick, 25_000);
+    const t = setInterval(tick, 10_000);
     return () => clearInterval(t);
   }, [me, selectedAccount, showWarmup]);
 
-  // Sync IMAP cada 60s cuando la pestaña está activa. Si está oculta,
-  // el scheduler de backend (cada 90s) sigue trayendo mensajes — solo
-  // pausamos el sync iniciado desde cliente.
+  // Sync IMAP cada 20s cuando la pestaña está activa (antes 60s).
+  // Esto es seguro porque el sync ahora es INCREMENTAL: cada cuenta
+  // sólo trae UIDs > last_uid_seen, así que un sync vacío cuesta
+  // <100ms por cuenta. 40 cuentas en paralelo = ~3-5s totales.
+  // Equivalente a lo que hace Instantly (poll constante + IMAP IDLE).
   useEffect(() => {
     if (!me || accounts.length === 0) return;
     const doSync = async () => {
       if (document.hidden) return;
+      if (syncingRef.current) return; // anti-overlap
+      syncingRef.current = true;
+      setIsSyncing(true);
       try {
         await fetch(`/api/uniboxes/${id}/sync-all`, { method: "POST" });
         await loadMessages();
         setLastSyncTs(Date.now());
       } catch {}
+      finally {
+        syncingRef.current = false;
+        setIsSyncing(false);
+      }
     };
     const initial = setTimeout(doSync, 1500);
-    const interval = setInterval(doSync, 60_000);
+    const interval = setInterval(doSync, 20_000);
     // Cuando la pestaña vuelve a primer plano tras estar oculta, sync inmediato
     const onVisible = () => { if (!document.hidden) doSync(); };
     document.addEventListener("visibilitychange", onVisible);
@@ -508,8 +521,19 @@ export default function ClientInboxPage() {
           fontSize: 10.5, color: "#94a3b8",
           textAlign: "center", padding: "2px 4px",
           letterSpacing: "0.02em",
+          display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
         }}>
-          Última sync: <strong style={{ color: lastSyncTs ? "#10b981" : "#94a3b8" }}>{fmtLastSync()}</strong>
+          {isSyncing && (
+            <span style={{
+              display: "inline-block", width: 7, height: 7, borderRadius: "50%",
+              background: "#10b981", animation: "pulse 1.2s ease-in-out infinite",
+            }} />
+          )}
+          {isSyncing ? (
+            <span style={{ color: "#10b981", fontWeight: 600 }}>Sincronizando…</span>
+          ) : (
+            <>Última sync: <strong style={{ color: lastSyncTs ? "#10b981" : "#94a3b8" }}>{fmtLastSync()}</strong></>
+          )}
         </div>
         <button style={ghostBtn} onClick={() => setSignatureModalOpen(true)} title="Gestionar firmas de cada cuenta">
           ✍ Firmas

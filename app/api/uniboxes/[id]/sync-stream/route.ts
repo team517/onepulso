@@ -5,10 +5,10 @@ import { requireAdmin, requireClientForUnibox } from "@/lib/unibox-auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-export const maxDuration = 60;
+export const maxDuration = 300; // 5 min — suficiente para uniboxes de 50+ cuentas
 
 const CONCURRENCY = 10;
-const PER_ACCOUNT_TIMEOUT_MS = 15_000;
+const PER_ACCOUNT_TIMEOUT_MS = 20_000;
 
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;

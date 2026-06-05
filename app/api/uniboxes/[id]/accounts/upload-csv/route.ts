@@ -109,6 +109,45 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 
   await saveAccounts(id, accounts);
 
+  // AUTO-SYNC en background — espera 5 segundos antes de empezar para dar
+  // tiempo al sync-stream del frontend a coger las primeras cuentas. Luego
+  // procesa SOLO las cuentas que sigan sin last_sync (no compite con el
+  // stream que muestra progreso visible al usuario).
+  if (newIds.length > 0) {
+    setTimeout(async () => {
+      try {
+        const { syncAccount, syncAccountSent } = await import("@/lib/unibox-sync");
+        const { listAccounts: relistAccounts } = await import("@/lib/unibox-store");
+        // Re-leer cuentas para saber cuáles YA están sincronizadas
+        const fresh = await relistAccounts(id);
+        const pending = newIds.filter((accId) => {
+          const a = fresh.find((x) => x.id === accId);
+          return a && !a.last_sync; // sólo las que no se han sincronizado aún
+        });
+        if (pending.length === 0) {
+          console.log("[unibox upload-csv] background: todas las cuentas ya sincronizadas por el stream");
+          return;
+        }
+        console.log(`[unibox upload-csv] background: sincronizando ${pending.length} cuentas pendientes`);
+        const CONCURRENCY = 8;
+        for (let i = 0; i < pending.length; i += CONCURRENCY) {
+          const batch = pending.slice(i, i + CONCURRENCY);
+          await Promise.allSettled(
+            batch.map(async (accId) => {
+              await Promise.all([
+                syncAccount(id, accId).catch(() => 0),
+                syncAccountSent(id, accId).catch(() => 0),
+              ]);
+            })
+          );
+        }
+        console.log(`[unibox upload-csv] background sync terminado para ${pending.length} cuentas`);
+      } catch (e: any) {
+        console.warn("[unibox upload-csv] auto-sync background falló:", e.message);
+      }
+    }, 5000);
+  }
+
   return NextResponse.json({
     added,
     skipped_dup: skippedDup,
@@ -119,5 +158,6 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     errors: errors.slice(0, 30),
     new_ids: newIds,
     total: accounts.length,
+    auto_sync_started: newIds.length > 0,
   });
 }

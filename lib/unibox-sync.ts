@@ -33,6 +33,7 @@ export async function syncAccount(uniboxId: string, accountId: string): Promise<
   });
 
   let newCount = 0;
+  let maxUidSeen = account.last_uid_inbox || 0;
   try {
     await client.connect();
     const lock = await client.getMailboxLock("INBOX");
@@ -41,7 +42,7 @@ export async function syncAccount(uniboxId: string, accountId: string): Promise<
       const existing = msgsMap[accountId] || [];
       const existingUids = new Set(existing.map((m) => String(m.uid)));
 
-      const status = await client.status("INBOX", { messages: true });
+      const status = await client.status("INBOX", { messages: true, uidNext: true });
       const total = status.messages || 0;
       if (total === 0) {
         accs[idx].last_sync = new Date().toISOString();
@@ -50,16 +51,34 @@ export async function syncAccount(uniboxId: string, accountId: string): Promise<
         await client.logout();
         return 0;
       }
-      // Traer hasta los últimos 1500 mensajes (antes 500). Para uniboxes con
-      // mucho tráfico, respuestas en varios idiomas, y campañas grandes,
-      // 500 se quedaba corto. Como deduplicamos por UID, los ya vistos no
-      // se reprocesan así que el coste real es mínimo en runs posteriores.
-      const start = Math.max(1, total - 1499);
-      const range = `${start}:*`;
+
+      // SYNC INCREMENTAL: si ya tenemos last_uid_inbox, pedimos sólo UIDs
+      // mayores → near-instant, similar al patrón de Instantly. Sin esto,
+      // pedíamos 1500 envelopes cada vez (lento).
+      // Primera sync (sin last_uid_inbox): pedimos los últimos 1500 como antes.
+      const lastUid = account.last_uid_inbox || 0;
+      let range: string;
+      let isIncremental = false;
+      if (lastUid > 0) {
+        // Pedimos UIDs (lastUid+1):* — sólo los nuevos. Usamos UID FETCH.
+        range = `${lastUid + 1}:*`;
+        isIncremental = true;
+      } else {
+        // Primer sync de esta cuenta: usar rango sequence-number tradicional
+        // para traer los últimos 1500.
+        const start = Math.max(1, total - 1499);
+        range = `${start}:*`;
+      }
 
       const fresh: UniboxMessage[] = [];
-      for await (const msg of client.fetch(range, { envelope: true, source: true, uid: true, flags: true })) {
+      // Cuando es incremental usamos UID FETCH (rango ya está en formato UID:UID).
+      // Sin incremental, usamos sequence-number FETCH normal.
+      const fetcher = isIncremental
+        ? client.fetch(range, { envelope: true, source: true, uid: true, flags: true }, { uid: true })
+        : client.fetch(range, { envelope: true, source: true, uid: true, flags: true });
+      for await (const msg of fetcher) {
         const uidStr = String(msg.uid);
+        if (msg.uid && msg.uid > maxUidSeen) maxUidSeen = msg.uid;
         if (existingUids.has(uidStr)) continue;
         try {
           if (!msg.source) continue;
@@ -133,6 +152,10 @@ export async function syncAccount(uniboxId: string, accountId: string): Promise<
     await client.logout();
     accs[idx].last_sync = new Date().toISOString();
     accs[idx].last_error = null;
+    // Guardamos el max UID visto — próximo sync arranca de aquí.
+    if (maxUidSeen > (accs[idx].last_uid_inbox || 0)) {
+      accs[idx].last_uid_inbox = maxUidSeen;
+    }
     await saveAccounts(uniboxId, accs);
     return newCount;
   } catch (e: any) {
@@ -163,6 +186,7 @@ export async function syncAccountSent(uniboxId: string, accountId: string): Prom
   });
 
   let newCount = 0;
+  let maxUidSentSeen = account.last_uid_sent || 0;
   try {
     await client.connect();
     // Buscar carpeta Sent (gmail: [Gmail]/Sent Mail, IMAP genérico: Sent)
@@ -182,17 +206,30 @@ export async function syncAccountSent(uniboxId: string, accountId: string): Prom
       const existing = msgsMap[accountId] || [];
       const existingUids = new Set(existing.map((m) => String(m.uid)));
 
-      const status = await client.status(sentFolder.path, { messages: true });
+      const status = await client.status(sentFolder.path, { messages: true, uidNext: true });
       const total = status.messages || 0;
       if (total === 0) { await client.logout(); return 0; }
-      // Antes 500 — subido a 1500 para campañas grandes con miles de enviados.
-      // Como deduplicamos por UID, los ya vistos no se reprocesan.
-      const start = Math.max(1, total - 1499);
-      const range = `${start}:*`;
+
+      // SYNC INCREMENTAL para Sent — mismo patrón que INBOX.
+      const lastSentUid = account.last_uid_sent || 0;
+      let range: string;
+      let isIncrementalSent = false;
+      if (lastSentUid > 0) {
+        range = `${lastSentUid + 1}:*`;
+        isIncrementalSent = true;
+      } else {
+        const start = Math.max(1, total - 1499);
+        range = `${start}:*`;
+      }
 
       const fresh: UniboxMessage[] = [];
-      for await (const msg of client.fetch(range, { envelope: true, source: true, uid: true, flags: true })) {
-        // Para Sent usamos UID con prefijo 's' para no colisionar con INBOX UIDs
+      const fetcher = isIncrementalSent
+        ? client.fetch(range, { envelope: true, source: true, uid: true, flags: true }, { uid: true })
+        : client.fetch(range, { envelope: true, source: true, uid: true, flags: true });
+      for await (const msg of fetcher) {
+        // Para Sent guardamos UIDs como negativos en el cache para no colisionar
+        // con INBOX. Pero el UID real (positivo) es lo que comparamos contra IMAP.
+        if (msg.uid && msg.uid > maxUidSentSeen) maxUidSentSeen = msg.uid;
         const uidPseudo = -1 * msg.uid; // negative UIDs identifican Sent
         const uidStr = String(uidPseudo);
         if (existingUids.has(uidStr)) continue;
@@ -250,6 +287,11 @@ export async function syncAccountSent(uniboxId: string, accountId: string): Prom
       }
     } finally { lock.release(); }
     await client.logout();
+    // Guardar max UID Sent visto para próximo sync incremental.
+    if (maxUidSentSeen > (accs[idx].last_uid_sent || 0)) {
+      accs[idx].last_uid_sent = maxUidSentSeen;
+      await saveAccounts(uniboxId, accs);
+    }
   } catch (e) {
     try { await client.logout(); } catch {}
   }

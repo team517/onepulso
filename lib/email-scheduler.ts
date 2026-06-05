@@ -57,7 +57,7 @@ let lastDeepRefresh = 0;
 let lastUniboxSync = 0;
 const INBOX_SYNC_MS = 30_000;      // sync incremental cada 30s
 const DEEP_REFRESH_MS = 2 * 60_000; // deep refresh cada 2 minutos
-const UNIBOX_SYNC_MS = 90_000;      // sync de uniboxes cada 90 segundos
+const UNIBOX_SYNC_MS = 30_000;      // sync de uniboxes cada 30 segundos (incremental: barato)
 
 /**
  * Rescata follow-ups atascadas en "sending" durante más de N minutos.

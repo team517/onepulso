@@ -37,6 +37,10 @@ export default function ClientInboxPage() {
   const [selectedAccount, setSelectedAccount] = useState<string | null>(null);
   // Carpetas custom del usuario (creadas en runtime)
   const [folders, setFolders] = useState<Array<{ id: string; name: string; color?: string }>>([]);
+  const [folderModalOpen, setFolderModalOpen] = useState(false);
+  const [newFolderName, setNewFolderName] = useState("");
+  const [newFolderColor, setNewFolderColor] = useState("#6366f1");
+  const [savingFolder, setSavingFolder] = useState(false);
   // Filtro: una de las "carpetas de sistema" o una custom (folder_id)
   // Filtro de bandeja: "all" muestra todo, "sent" sólo los que enviaste,
   // "received" sólo los recibidos (los entrantes del prospect).
@@ -151,24 +155,35 @@ export default function ClientInboxPage() {
   }
   useEffect(() => { if (me) loadFolders(); }, [me, id]);
 
+  function openFolderModal() {
+    setNewFolderName("");
+    setNewFolderColor("#6366f1");
+    setFolderModalOpen(true);
+  }
+
   async function createFolder() {
-    const name = window.prompt("Nombre de la nueva carpeta:");
-    if (!name || !name.trim()) return;
+    const name = newFolderName.trim();
+    if (!name) return;
+    setSavingFolder(true);
     try {
       const r = await fetch(`/api/uniboxes/${id}/folders`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: name.trim() }),
+        body: JSON.stringify({ name, color: newFolderColor }),
       });
-      if (r.ok) {
-        const f = await r.json();
-        setFolders((prev) => [...prev, f]);
-      } else {
-        const d = await r.json().catch(() => ({}));
-        alert("Error: " + (d?.error || "no se pudo crear"));
-      }
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(d?.error || "no se pudo crear");
+      // Añadir la carpeta nueva al state y seleccionarla para que el
+      // usuario vea claramente que apareció.
+      setFolders((prev) => [...prev, d]);
+      setFolderFilter(d.id);
+      setFolderModalOpen(false);
+      // Refresh background (por si otra pestaña creó otras también)
+      loadFolders().catch(() => {});
     } catch (e: any) {
-      alert("Error: " + (e?.message || e));
+      alert("Error al crear carpeta: " + (e?.message || e));
+    } finally {
+      setSavingFolder(false);
     }
   }
 
@@ -671,7 +686,7 @@ export default function ClientInboxPage() {
           })}
           {/* Botón añadir carpeta */}
           <button
-            onClick={createFolder}
+            onClick={openFolderModal}
             style={{
               display: "flex", alignItems: "center", gap: 8,
               padding: "8px 10px", marginTop: 2,
@@ -1167,6 +1182,108 @@ export default function ClientInboxPage() {
           }}
         />
       )}
+
+      {/* Modal: crear nueva carpeta */}
+      {folderModalOpen && (
+        <div
+          onClick={() => !savingFolder && setFolderModalOpen(false)}
+          style={{
+            position: "fixed", inset: 0, background: "rgba(15,23,42,0.5)",
+            backdropFilter: "blur(4px)", zIndex: 9999,
+            display: "flex", alignItems: "center", justifyContent: "center",
+            padding: 20,
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              background: "#fff", borderRadius: 14, width: "100%", maxWidth: 420,
+              boxShadow: "0 20px 50px rgba(15,23,42,0.25)", overflow: "hidden",
+            }}
+          >
+            <div style={{
+              padding: "18px 22px", borderBottom: "1px solid #e2e8f0",
+              display: "flex", alignItems: "center", justifyContent: "space-between",
+            }}>
+              <div style={{ fontWeight: 700, fontSize: 15, color: "#0f172a" }}>📁 Nueva carpeta</div>
+              <button
+                onClick={() => !savingFolder && setFolderModalOpen(false)}
+                style={{ background: "none", border: 0, cursor: "pointer", fontSize: 18, color: "#64748b" }}
+              >✕</button>
+            </div>
+            <div style={{ padding: "20px 22px" }}>
+              <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "#475569", marginBottom: 6 }}>
+                Nombre
+              </label>
+              <input
+                type="text"
+                autoFocus
+                value={newFolderName}
+                onChange={(e) => setNewFolderName(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && newFolderName.trim() && !savingFolder) createFolder();
+                  if (e.key === "Escape" && !savingFolder) setFolderModalOpen(false);
+                }}
+                placeholder="Ej. Importantes, Leads calientes, Reuniones…"
+                style={{
+                  width: "100%", padding: "10px 12px", border: "1px solid #cbd5e1",
+                  borderRadius: 9, fontSize: 14, outline: "none",
+                  fontFamily: "inherit",
+                }}
+              />
+              <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "#475569", margin: "16px 0 8px" }}>
+                Color
+              </label>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                {[
+                  "#6366f1", "#3b82f6", "#06b6d4", "#10b981", "#84cc16",
+                  "#eab308", "#f59e0b", "#f97316", "#ef4444", "#ec4899",
+                  "#a855f7", "#64748b",
+                ].map((c) => (
+                  <button
+                    key={c}
+                    type="button"
+                    onClick={() => setNewFolderColor(c)}
+                    style={{
+                      width: 28, height: 28, borderRadius: 7,
+                      background: c, cursor: "pointer",
+                      border: newFolderColor === c ? "3px solid #0f172a" : "2px solid transparent",
+                      transition: "border 0.12s",
+                      padding: 0,
+                    }}
+                    aria-label={c}
+                  />
+                ))}
+              </div>
+              <div style={{ display: "flex", gap: 8, marginTop: 22, justifyContent: "flex-end" }}>
+                <button
+                  onClick={() => setFolderModalOpen(false)}
+                  disabled={savingFolder}
+                  style={{
+                    padding: "9px 16px", background: "#f1f5f9", border: "1px solid #e2e8f0",
+                    borderRadius: 9, color: "#475569", fontWeight: 600, fontSize: 13,
+                    cursor: savingFolder ? "default" : "pointer",
+                    fontFamily: "inherit",
+                  }}
+                >Cancelar</button>
+                <button
+                  onClick={createFolder}
+                  disabled={!newFolderName.trim() || savingFolder}
+                  style={{
+                    padding: "9px 18px",
+                    background: newFolderName.trim() && !savingFolder
+                      ? "linear-gradient(135deg, #f9a603, #d15cfe)"
+                      : "#cbd5e1",
+                    border: 0, borderRadius: 9, color: "#fff", fontWeight: 700,
+                    fontSize: 13, cursor: (!newFolderName.trim() || savingFolder) ? "default" : "pointer",
+                    fontFamily: "inherit",
+                  }}
+                >{savingFolder ? "Creando…" : "Crear carpeta"}</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -1462,7 +1579,14 @@ const sectionTitle: React.CSSProperties = {
   fontSize: 11, color: "#8b94a7", letterSpacing: "0.08em", padding: "8px 6px 4px", fontWeight: 600,
 };
 // CARPETAS: no crece — solo el alto necesario para sus 3 items
-const folderListStyle: React.CSSProperties = { display: "flex", flexDirection: "column", gap: 2, flexShrink: 0 };
+const folderListStyle: React.CSSProperties = {
+  display: "flex", flexDirection: "column", gap: 2,
+  flexShrink: 0,
+  // Si el usuario crea muchas carpetas, se vuelve scrollable en vez
+  // de empujar BANDEJAS fuera de la pantalla.
+  maxHeight: "40vh",
+  overflowY: "auto",
+};
 // BANDEJAS: crece y scrollea — toma el espacio sobrante
 const accountList: React.CSSProperties = { flex: 1, minHeight: 80, overflowY: "auto", display: "flex", flexDirection: "column", gap: 2 };
 const accountItem: React.CSSProperties = {

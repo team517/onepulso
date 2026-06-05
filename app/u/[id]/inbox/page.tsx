@@ -420,7 +420,7 @@ export default function ClientInboxPage() {
 
         {/* Filtros tipo carpeta: Todos / Recibidos / Enviados */}
         <div style={sectionTitle}>CARPETAS</div>
-        <div style={accountList}>
+        <div style={folderListStyle}>
           <FolderPill
             label="Todos"
             icon="📥"
@@ -1080,6 +1080,7 @@ const appStyle: React.CSSProperties = {
 const sidebarStyle: React.CSSProperties = {
   background: "#f8fafc", borderRight: "1px solid #e2e8f0",
   display: "flex", flexDirection: "column", padding: "18px 14px", gap: 14,
+  height: "100%", minHeight: 0, overflow: "hidden",
 };
 const brandRow: React.CSSProperties = { display: "flex", alignItems: "center", gap: 10, padding: "0 4px" };
 const logoMark: React.CSSProperties = {
@@ -1106,7 +1107,10 @@ const primaryBtn: React.CSSProperties = {
 const sectionTitle: React.CSSProperties = {
   fontSize: 11, color: "#8b94a7", letterSpacing: "0.08em", padding: "8px 6px 4px", fontWeight: 600,
 };
-const accountList: React.CSSProperties = { flex: 1, overflowY: "auto", display: "flex", flexDirection: "column", gap: 2 };
+// CARPETAS: no crece — solo el alto necesario para sus 3 items
+const folderListStyle: React.CSSProperties = { display: "flex", flexDirection: "column", gap: 2, flexShrink: 0 };
+// BANDEJAS: crece y scrollea — toma el espacio sobrante
+const accountList: React.CSSProperties = { flex: 1, minHeight: 80, overflowY: "auto", display: "flex", flexDirection: "column", gap: 2 };
 const accountItem: React.CSSProperties = {
   display: "flex", alignItems: "center", gap: 10,
   padding: "9px 10px", borderRadius: 8, cursor: "pointer",

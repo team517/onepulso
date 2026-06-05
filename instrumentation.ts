@@ -13,6 +13,17 @@
 export async function register() {
   if (process.env.NEXT_RUNTIME !== "nodejs") return;
 
+  // 🚨 MODO EMERGENCIA: si EMERGENCY_MODE=1 en Railway → NO arrancamos
+  // ningún scheduler de fondo. Útil cuando Postgres está saturado y
+  // queremos liberar el pool para peticiones de usuario.
+  // Se desactiva quitando la variable o poniéndola a 0.
+  const emergency = process.env.EMERGENCY_MODE === "1" || process.env.EMERGENCY_MODE === "true";
+  if (emergency) {
+    console.warn("🚨 [instrumentation] EMERGENCY_MODE activo — NO se arrancan schedulers de background");
+    console.warn("    La app sigue funcionando para uso de usuario. Quita EMERGENCY_MODE para reactivar.");
+    return;
+  }
+
   try {
     const { startEmailScheduler } = await import("./lib/email-scheduler");
     startEmailScheduler();

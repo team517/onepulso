@@ -108,16 +108,27 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   try {
     const info = await transporter.sendMail(mail);
 
-    // Tras enviar, disparar un sync de la carpeta Sent (en background)
-    // para que el reply aparezca cuanto antes en la unibox.
-    setImmediate(async () => {
-      try {
-        const { syncUnibox } = await import("@/lib/unibox-sync");
-        await syncUnibox(id);
-      } catch {}
-    });
+    // Tras enviar, sincronizar SOLO LA CUENTA QUE ENVIÓ (no todas las
+    // 40 — eso tardaba 2 min). Reintentamos si Sent folder aún no
+    // muestra el mensaje (Gmail a veces tarda 3-8s en indexarlo).
+    let sentSyncOk = false;
+    try {
+      const { syncAccountSent } = await import("@/lib/unibox-sync");
+      for (let attempt = 0; attempt < 3; attempt++) {
+        if (attempt > 0) await new Promise((r) => setTimeout(r, 2500));
+        const n = await syncAccountSent(id, acc.id).catch(() => 0);
+        if (n > 0) { sentSyncOk = true; break; }
+        // Si no encontró nuevos en este intento, espera y reintenta
+      }
+    } catch {}
 
-    return NextResponse.json({ ok: true, messageId: info.messageId });
+    // Ya sincronizado el Sent — el cliente puede mostrar el mensaje
+    // recién enviado inmediatamente al recibir el response.
+    return NextResponse.json({
+      ok: true,
+      messageId: info.messageId,
+      sent_synced: sentSyncOk,
+    });
   } catch (e: any) {
     return NextResponse.json({ error: e.message || String(e) }, { status: 500 });
   }

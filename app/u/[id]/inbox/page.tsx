@@ -15,6 +15,7 @@ export default function ClientInboxPage() {
   const [messages, setMessages] = useState<Msg[]>([]);
   const [reminders, setReminders] = useState<any[]>([]);
   const [signatureModalOpen, setSignatureModalOpen] = useState(false);
+  const [lastSyncTs, setLastSyncTs] = useState<number | null>(null);
   const [warmupCount, setWarmupCount] = useState(0);
   // Por defecto warmup OCULTO. La preferencia se persiste en localStorage por
   // unibox, así que si el usuario decide mostrarlos, se queda mostrando entre
@@ -142,27 +143,38 @@ export default function ClientInboxPage() {
 
   useEffect(() => { if (me) loadMessages(); }, [selectedAccount, showWarmup]);
 
-  // Auto-refresh cada 45s (antes 20s — demasiado agresivo: con miles de
-  // mensajes en cache, re-fetchar cada 20s causaba lag y crashes).
+  // Auto-refresh cache cada 25s SOLO cuando la pestaña está visible.
+  // Si el usuario tiene otra pestaña abierta, no consumimos recursos.
   useEffect(() => {
     if (!me) return;
-    const t = setInterval(() => loadMessages(), 45_000);
+    const tick = () => { if (!document.hidden) loadMessages(); };
+    const t = setInterval(tick, 25_000);
     return () => clearInterval(t);
   }, [me, selectedAccount, showWarmup]);
 
-  // Sync IMAP completo cada 3 min (antes 90s — el sync paraleliza pero con
-  // 40+ cuentas y 1500 msgs cada una era pesado de más).
+  // Sync IMAP cada 60s cuando la pestaña está activa. Si está oculta,
+  // el scheduler de backend (cada 90s) sigue trayendo mensajes — solo
+  // pausamos el sync iniciado desde cliente.
   useEffect(() => {
     if (!me || accounts.length === 0) return;
     const doSync = async () => {
+      if (document.hidden) return;
       try {
         await fetch(`/api/uniboxes/${id}/sync-all`, { method: "POST" });
         await loadMessages();
+        setLastSyncTs(Date.now());
       } catch {}
     };
-    const initial = setTimeout(doSync, 3000);
-    const interval = setInterval(doSync, 180_000);
-    return () => { clearTimeout(initial); clearInterval(interval); };
+    const initial = setTimeout(doSync, 1500);
+    const interval = setInterval(doSync, 60_000);
+    // Cuando la pestaña vuelve a primer plano tras estar oculta, sync inmediato
+    const onVisible = () => { if (!document.hidden) doSync(); };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      clearTimeout(initial);
+      clearInterval(interval);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [me, accounts.length, id]);
 
@@ -238,9 +250,27 @@ export default function ClientInboxPage() {
       es.close();
       setSyncing(false);
       await loadMessages();
+      setLastSyncTs(Date.now());
     });
     es.onerror = () => { es.close(); setSyncing(false); };
   }
+
+  // Formato amigable del timestamp última sync
+  function fmtLastSync(): string {
+    if (!lastSyncTs) return "esperando primera sync…";
+    const sec = Math.floor((Date.now() - lastSyncTs) / 1000);
+    if (sec < 5) return "ahora mismo";
+    if (sec < 60) return `hace ${sec}s`;
+    const min = Math.floor(sec / 60);
+    if (min < 60) return `hace ${min} min`;
+    return `hace ${Math.floor(min / 60)}h`;
+  }
+  // Forzar re-render del timestamp cada 10s
+  const [, forceTick] = useState(0);
+  useEffect(() => {
+    const t = setInterval(() => forceTick((v) => v + 1), 10_000);
+    return () => clearInterval(t);
+  }, []);
 
   async function clearAllMessages() {
     if (!confirm("¿Eliminar TODOS los mensajes de la bandeja?\n\nLas cuentas IMAP permanecen conectadas. Si quieres recuperar los mensajes válidos, pulsa luego 'Sincronizar todo'.")) return;
@@ -474,6 +504,13 @@ export default function ClientInboxPage() {
         <button style={ghostBtn} onClick={syncAll} disabled={syncing}>
           {syncing ? "Sincronizando…" : "↻ Sincronizar todo"}
         </button>
+        <div style={{
+          fontSize: 10.5, color: "#94a3b8",
+          textAlign: "center", padding: "2px 4px",
+          letterSpacing: "0.02em",
+        }}>
+          Última sync: <strong style={{ color: lastSyncTs ? "#10b981" : "#94a3b8" }}>{fmtLastSync()}</strong>
+        </div>
         <button style={ghostBtn} onClick={() => setSignatureModalOpen(true)} title="Gestionar firmas de cada cuenta">
           ✍ Firmas
         </button>
@@ -811,7 +848,16 @@ export default function ClientInboxPage() {
           accounts={accounts}
           initial={composeData}
           onClose={() => setComposeOpen(false)}
-          onSent={() => { setComposeOpen(false); loadMessages(); loadReminders(); }}
+          onSent={() => {
+            setComposeOpen(false);
+            loadMessages();
+            loadReminders();
+            // Segundo refresh tras 5s: a veces el Sent folder de Gmail tarda
+            // unos segundos en indexar el mensaje. Doble loadMessages garantiza
+            // que el mensaje recién enviado aparezca en "Enviados".
+            setTimeout(() => loadMessages(), 5000);
+            setLastSyncTs(Date.now());
+          }}
         />
       )}
       {signatureModalOpen && (

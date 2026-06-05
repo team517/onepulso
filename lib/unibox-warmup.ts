@@ -17,7 +17,10 @@
  */
 
 // Blacklist de tokens que parecen código pero son marcas / acrónimos.
-const BRAND_BLACKLIST = /^(TCX|H3|3M|EY|4D|3D|2K|AWS|GCP|API|EC2|S3|AI|ML|SA|CRM|ERP|UX|UI|SEO|SEM|B2B|B2C|D2C|SAAS|PAAS|IAAS|VAT|IRPF|IVA|IBAN|SWIFT|CIF|NIF|DNI|VIP|CEO|CTO|CFO|COO|CMO|RRHH|HR|IT|PM|QA|UAT|SLA|KPI|ROI|MVP|GDPR|RGPD)\d*$/;
+// Blacklist: marca + cualquier sufijo alfanumérico (TCX2024, TCXMICRO,
+// TCX2024A, B2B1, AWS3, etc.). Estas son referencias a productos / marcas
+// legítimas, no códigos warmup aleatorios.
+const BRAND_BLACKLIST = /^(TCX|H3|3M|EY|4D|3D|2K|AWS|GCP|API|EC2|S3|AI|ML|SA|CRM|ERP|UX|UI|SEO|SEM|B2B|B2C|D2C|SAAS|PAAS|IAAS|VAT|IRPF|IVA|IBAN|SWIFT|CIF|NIF|DNI|VIP|CEO|CTO|CFO|COO|CMO|RRHH|HR|IT|PM|QA|UAT|SLA|KPI|ROI|MVP|GDPR|RGPD|MICRO|MACRO|PRO|PREMIUM|STANDARD|LIGHT|BASIC|PLUS|ULTRA|ALPHA|BETA|GAMMA|DELTA|OMEGA)[A-Z0-9]{0,12}$/;
 
 function isUppercaseCode(t: string): boolean {
   if (!t || t.length < 5 || t.length > 16) return false;

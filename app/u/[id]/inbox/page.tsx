@@ -200,17 +200,37 @@ export default function ClientInboxPage() {
   }
 
   async function moveToFolder(accountId: string, uid: number, folderId: string | null) {
-    // Update optimista
+    // Update optimista — actualiza el listado Y el mensaje seleccionado
     setMessages((prev) => prev.map((m: any) =>
       m.accountId === accountId && m.uid === uid ? { ...m, folder_id: folderId } : m
     ));
+    setSelectedMsg((prev: any) =>
+      prev && prev.accountId === accountId && prev.uid === uid
+        ? { ...prev, folder_id: folderId }
+        : prev
+    );
+    // Si estamos viendo "Todos" y movemos a una carpeta, el msg desaparece
+    // del listado (gracias a carpetas exclusivas). Si estábamos viendo la
+    // carpeta destino, el msg aparece. Auto-saltamos a la carpeta destino
+    // si no estamos viendo "Todos" (UX: confirmación visual de dónde fue).
+    if (folderId && folderFilter !== "all" && folderFilter !== folderId) {
+      // Si estaba en otra carpeta o en Recibidos/Enviados, mantenerlo
+      // visible saltando a la carpeta destino.
+      setFolderFilter(folderId);
+    }
     try {
-      await fetch(`/api/uniboxes/${id}/messages/${accountId}/${uid}/folder`, {
+      const r = await fetch(`/api/uniboxes/${id}/messages/${accountId}/${uid}/folder`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ folder_id: folderId }),
       });
-    } catch {}
+      if (!r.ok) {
+        // Rollback si falla el servidor
+        await loadMessages();
+      }
+    } catch {
+      await loadMessages();
+    }
   }
 
   // PERFORMANCE: refresh del cache cada 20s en lugar de 10s. El sync IMAP
@@ -488,23 +508,30 @@ export default function ClientInboxPage() {
     return false;
   }, [myEmailsSet]);
 
-  // Pre-calcular outbound/inbound UNA sola vez para todos los mensajes
-  // y reutilizar en folderFilter + contadores. Antes recorríamos 3 veces.
-  const { sentMessages, receivedMessages } = useMemo(() => {
+  // Pre-calcular outbound/inbound UNA sola vez para todos los mensajes.
+  // CARPETAS EXCLUSIVAS: si un mensaje tiene folder_id (movido a carpeta
+  // custom), NO aparece en "Todos" / "Recibidos" / "Enviados". Solo
+  // aparece en la carpeta donde fue movido. Comportamiento estilo
+  // carpeta (no etiqueta) — como pidió el usuario.
+  const { sentMessages, receivedMessages, unfiledMessages } = useMemo(() => {
     const sent: any[] = [];
     const recv: any[] = [];
+    const unfiled: any[] = [];
     for (const m of messages) {
+      // Mensajes movidos a carpeta custom NO entran en las bandejas globales
+      if ((m as any).folder_id) continue;
+      unfiled.push(m);
       if (isOutboundMsg(m)) sent.push(m); else recv.push(m);
     }
-    return { sentMessages: sent, receivedMessages: recv };
+    return { sentMessages: sent, receivedMessages: recv, unfiledMessages: unfiled };
   }, [messages, isOutboundMsg]);
 
   const baseList = useMemo(() => {
     if (folderFilter === "sent") return sentMessages;
     if (folderFilter === "received") return receivedMessages;
-    if (folderFilter === "all") return messages;
+    if (folderFilter === "all") return unfiledMessages;
     return messages.filter((m: any) => m.folder_id === folderFilter);
-  }, [folderFilter, messages, sentMessages, receivedMessages]);
+  }, [folderFilter, messages, sentMessages, receivedMessages, unfiledMessages]);
 
   const filteredAll = useMemo(() => {
     if (!search) return baseList;
@@ -639,7 +666,7 @@ export default function ClientInboxPage() {
           <FolderPill
             label="Todos"
             icon="📥"
-            count={messages.length}
+            count={unfiledMessages.length}
             active={folderFilter === "all"}
             onClick={() => setFolderFilter("all")}
           />

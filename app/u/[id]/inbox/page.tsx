@@ -535,6 +535,27 @@ export default function ClientInboxPage() {
             <>Última sync: <strong style={{ color: lastSyncTs ? "#10b981" : "#94a3b8" }}>{fmtLastSync()}</strong></>
           )}
         </div>
+        <button
+          style={{ ...ghostBtn, fontSize: 11.5, color: "#f59e0b", borderColor: "rgba(245,158,11,0.3)" }}
+          onClick={async () => {
+            if (!confirm("Esto trae los últimos 1500 mensajes por cuenta desde IMAP (puede tardar 1-2 min). ¿Continuar?")) return;
+            setIsSyncing(true);
+            try {
+              const r = await fetch(`/api/uniboxes/${id}/force-resync`, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
+              const data = await r.json().catch(() => ({}));
+              await loadMessages();
+              setLastSyncTs(Date.now());
+              alert(`Resync completo: ${data?.totalInbox || 0} INBOX + ${data?.totalSent || 0} Sent recuperados en ${data?.accounts || 0} cuentas.${data?.errors ? ` ${data.errors} errores.` : ""}`);
+            } catch (e: any) {
+              alert("Error en force-resync: " + (e?.message || e));
+            } finally {
+              setIsSyncing(false);
+            }
+          }}
+          title="Trae los últimos 1500 mensajes de IMAP forzando bypass del estado incremental — usar si crees que faltan mensajes"
+        >
+          🔧 Forzar resync completo
+        </button>
         <button style={ghostBtn} onClick={() => setSignatureModalOpen(true)} title="Gestionar firmas de cada cuenta">
           ✍ Firmas
         </button>

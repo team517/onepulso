@@ -70,74 +70,118 @@ export async function syncAccount(uniboxId: string, accountId: string): Promise<
         range = `${start}:*`;
       }
 
+      console.log(`[unibox-sync] ${account.email}: ${isIncremental ? `incremental UID > ${lastUid}` : `inicial seq ${range}`} (UIDNEXT=${status.uidNext}, total=${total})`);
+
       const fresh: UniboxMessage[] = [];
+      let fetched = 0;
+      let skippedDupe = 0;
+      let skippedFilter = 0;
+      let parseErrors = 0;
       // Cuando es incremental usamos UID FETCH (rango ya está en formato UID:UID).
       // Sin incremental, usamos sequence-number FETCH normal.
       const fetcher = isIncremental
         ? client.fetch(range, { envelope: true, source: true, uid: true, flags: true }, { uid: true })
         : client.fetch(range, { envelope: true, source: true, uid: true, flags: true });
       for await (const msg of fetcher) {
+        fetched++;
         const uidStr = String(msg.uid);
-        if (msg.uid && msg.uid > maxUidSeen) maxUidSeen = msg.uid;
-        if (existingUids.has(uidStr)) continue;
-        try {
-          if (!msg.source) continue;
-          const parsed = await simpleParser(msg.source);
-          const subject = parsed.subject || (msg.envelope as any)?.subject || "(sin asunto)";
-          const text = parsed.text || "";
-          const html = (parsed.html as string) || "";
-          const fromAddr = parsed.from?.text || (msg.envelope as any)?.from?.[0]?.address || "";
-          const fromName = (msg.envelope as any)?.from?.[0]?.name || "";
-          const fromAddress = (msg.envelope as any)?.from?.[0]?.address || "";
-          const warmup = isWarmupMessage({ subject, text, html, from: fromAddr });
 
-          // FILTRO BOUNCE: si es un mensaje de delivery failure / mailer-daemon
-          // / "user unknown", lo descartamos para que no llene la bandeja.
-          if (isBounceOrFailure({ from: fromAddr, fromAddress, fromName, subject, text })) {
-            continue;
+        // CRITICAL: NO avanzamos maxUidSeen aquí. Sólo cuando el mensaje
+        // se ha procesado con éxito (o filtrado intencionalmente). Si el
+        // parseo falla, queremos que el próximo sync lo reintente.
+
+        if (existingUids.has(uidStr)) {
+          // Ya está en cache — avanzamos UID porque sabemos que existe.
+          if (msg.uid && msg.uid > maxUidSeen) maxUidSeen = msg.uid;
+          skippedDupe++;
+          continue;
+        }
+
+        // Datos del envelope (siempre disponibles, no fallan).
+        const envelope = (msg.envelope as any) || {};
+        const envSubject = envelope.subject || "(sin asunto)";
+        const envFromAddr = envelope.from?.[0]?.address || "";
+        const envFromName = envelope.from?.[0]?.name || "";
+        const envToAddr = envelope.to?.[0]?.address || "";
+        const envDate = envelope.date ? new Date(envelope.date).toISOString() : new Date().toISOString();
+        const envMessageId = envelope.messageId || "";
+        const envInReplyTo = envelope.inReplyTo || "";
+
+        // Intentamos parsear el cuerpo completo. Si falla, hacemos fallback
+        // con datos del envelope — el mensaje aparece en la bandeja
+        // aunque sin cuerpo (mejor que perderlo).
+        let parsed: any = null;
+        if (msg.source) {
+          try {
+            parsed = await simpleParser(msg.source);
+          } catch (parseErr: any) {
+            parseErrors++;
+            console.warn(`[unibox-sync] ${account.email} UID ${msg.uid}: parse error (${parseErr?.message || parseErr}). Usando fallback envelope.`);
           }
+        } else {
+          parseErrors++;
+          console.warn(`[unibox-sync] ${account.email} UID ${msg.uid}: msg.source vacío. Usando fallback envelope.`);
+        }
 
-          // Normalizamos message-ids: SIEMPRE con <> para que los servidores
-          // SMTP los reconozcan como referencias válidas al responder.
-          const wrap = (s: string): string => {
-            const t = String(s || "").trim();
-            if (!t) return "";
-            const cleaned = t.replace(/^<+|>+$/g, "");
-            return cleaned ? `<${cleaned}>` : "";
-          };
-          // messageId: parsed prioritario, fallback al envelope (más fiable IMAP)
-          const messageId = wrap(parsed.messageId || (msg.envelope as any)?.messageId || "");
-          const inReplyTo = wrap((parsed.inReplyTo as string) || (msg.envelope as any)?.inReplyTo || "");
-          const refsRaw = parsed.references;
-          const refsArr = Array.isArray(refsRaw) ? refsRaw : refsRaw ? [refsRaw] : [];
-          const references = refsArr.map(wrap).filter(Boolean);
+        const subject = parsed?.subject || envSubject;
+        const text = parsed?.text || "";
+        const html = (parsed?.html as string) || "";
+        const fromAddr = parsed?.from?.text || envFromAddr;
+        const fromName = envFromName;
+        const fromAddress = envFromAddr;
+        const warmup = isWarmupMessage({ subject, text, html, from: fromAddr });
 
-          fresh.push({
-            uid: msg.uid,
-            messageId,
-            inReplyTo,
-            references,
-            from: fromAddr,
-            fromName,
-            fromAddress,
-            to: parsed.to ? (Array.isArray(parsed.to) ? parsed.to.map(t => t.text).join(", ") : parsed.to.text) : "",
-            toAddress: (msg.envelope as any)?.to?.[0]?.address || "",
-            subject,
-            date: (parsed.date || (msg.envelope as any)?.date || new Date()).toISOString(),
-            preview: text.replace(/\s+/g, " ").trim().slice(0, 180),
-            text,
-            html,
-            unread: !(msg.flags && msg.flags.has("\\Seen")),
-            is_warmup: warmup,
-            attachments: (parsed.attachments || []).map((a: any) => ({
-              filename: a.filename || "",
-              contentType: a.contentType || "",
-              size: a.size || 0,
-            })),
-          });
-          newCount++;
-        } catch {}
+        // FILTRO BOUNCE
+        if (isBounceOrFailure({ from: fromAddr, fromAddress, fromName, subject, text })) {
+          if (msg.uid && msg.uid > maxUidSeen) maxUidSeen = msg.uid;
+          skippedFilter++;
+          continue;
+        }
+
+        const wrap = (s: string): string => {
+          const t = String(s || "").trim();
+          if (!t) return "";
+          const cleaned = t.replace(/^<+|>+$/g, "");
+          return cleaned ? `<${cleaned}>` : "";
+        };
+        const messageId = wrap(parsed?.messageId || envMessageId);
+        const inReplyTo = wrap((parsed?.inReplyTo as string) || envInReplyTo);
+        const refsRaw = parsed?.references;
+        const refsArr = Array.isArray(refsRaw) ? refsRaw : refsRaw ? [refsRaw] : [];
+        const references = refsArr.map(wrap).filter(Boolean);
+
+        // Preview: usa text del parsed, o si falló, intenta extraer del HTML,
+        // o como último fallback subject.
+        const previewText = text || (html ? html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim() : "");
+
+        fresh.push({
+          uid: msg.uid,
+          messageId,
+          inReplyTo,
+          references,
+          from: fromAddr,
+          fromName,
+          fromAddress,
+          to: parsed?.to ? (Array.isArray(parsed.to) ? parsed.to.map((t: any) => t.text).join(", ") : parsed.to.text) : envToAddr,
+          toAddress: envToAddr,
+          subject,
+          date: (parsed?.date ? new Date(parsed.date).toISOString() : envDate),
+          preview: previewText.slice(0, 180),
+          text,
+          html,
+          unread: !(msg.flags && msg.flags.has("\\Seen")),
+          is_warmup: warmup,
+          attachments: (parsed?.attachments || []).map((a: any) => ({
+            filename: a.filename || "",
+            contentType: a.contentType || "",
+            size: a.size || 0,
+          })),
+        });
+        // SOLO avanzar maxUidSeen tras añadir el mensaje al cache.
+        if (msg.uid && msg.uid > maxUidSeen) maxUidSeen = msg.uid;
+        newCount++;
       }
+      console.log(`[unibox-sync] ${account.email}: fetched=${fetched} new=${newCount} dupe=${skippedDupe} filtered=${skippedFilter} parseErr=${parseErrors}`);
 
       // Mantener cache de 5000 mensajes (antes 2000). Histórico amplio
       // para uniboxes con campañas grandes y respuestas multi-idioma.
@@ -166,6 +210,25 @@ export async function syncAccount(uniboxId: string, accountId: string): Promise<
     try { await client.logout(); } catch {}
     throw e;
   }
+}
+
+/**
+ * Fuerza un sync completo de una cuenta resetando last_uid_inbox y
+ * last_uid_sent a 0. La próxima sync (o este mismo call si lo invocas
+ * justo después) traerá los últimos 1500 mensajes desde cero, ignorando
+ * el estado incremental. Útil cuando el cliente cree que faltan mensajes.
+ */
+export async function forceFullResync(uniboxId: string, accountId: string): Promise<{ inbox: number; sent: number }> {
+  const accs = await listAccounts(uniboxId);
+  const idx = accs.findIndex((a) => a.id === accountId);
+  if (idx === -1) return { inbox: 0, sent: 0 };
+  accs[idx].last_uid_inbox = 0;
+  accs[idx].last_uid_sent = 0;
+  await saveAccounts(uniboxId, accs);
+  console.log(`[unibox-sync] forceFullResync: ${accs[idx].email} → UIDs reseteados`);
+  const inboxN = await syncAccount(uniboxId, accountId).catch(() => 0);
+  const sentN = await syncAccountSent(uniboxId, accountId).catch(() => 0);
+  return { inbox: inboxN, sent: sentN };
 }
 
 /** Sincroniza también la carpeta Sent (envíos del propio usuario) — opcional, no falla si no existe. */
@@ -228,55 +291,76 @@ export async function syncAccountSent(uniboxId: string, accountId: string): Prom
         : client.fetch(range, { envelope: true, source: true, uid: true, flags: true });
       for await (const msg of fetcher) {
         // Para Sent guardamos UIDs como negativos en el cache para no colisionar
-        // con INBOX. Pero el UID real (positivo) es lo que comparamos contra IMAP.
-        if (msg.uid && msg.uid > maxUidSentSeen) maxUidSentSeen = msg.uid;
+        // con INBOX. NO avanzamos maxUidSentSeen hasta procesar con éxito.
         const uidPseudo = -1 * msg.uid; // negative UIDs identifican Sent
         const uidStr = String(uidPseudo);
-        if (existingUids.has(uidStr)) continue;
-        try {
-          if (!msg.source) continue;
-          const parsed = await simpleParser(msg.source);
-          const subject = parsed.subject || "(sin asunto)";
-          const text = parsed.text || "";
-          const html = (parsed.html as string) || "";
-          const fromAddr = parsed.from?.text || (msg.envelope as any)?.from?.[0]?.address || "";
-          const fromName = (msg.envelope as any)?.from?.[0]?.name || "";
-          const fromAddress = (msg.envelope as any)?.from?.[0]?.address || "";
-          if (isBounceOrFailure({ from: fromAddr, fromAddress, fromName, subject, text })) continue;
-          const warmup = isWarmupMessage({ subject, text, html, from: fromAddr });
-          const wrap = (s: string): string => {
-            const t = String(s || "").trim();
-            if (!t) return "";
-            const cleaned = t.replace(/^<+|>+$/g, "");
-            return cleaned ? `<${cleaned}>` : "";
-          };
-          const messageId = wrap(parsed.messageId || (msg.envelope as any)?.messageId || "");
-          const inReplyTo = wrap((parsed.inReplyTo as string) || (msg.envelope as any)?.inReplyTo || "");
-          const refsRaw = parsed.references;
-          const refsArr = Array.isArray(refsRaw) ? refsRaw : refsRaw ? [refsRaw] : [];
-          const references = refsArr.map(wrap).filter(Boolean);
-          fresh.push({
-            uid: uidPseudo,
-            messageId,
-            inReplyTo,
-            references,
-            from: fromAddr,
-            fromName,
-            fromAddress,
-            to: parsed.to ? (Array.isArray(parsed.to) ? parsed.to.map(t => t.text).join(", ") : parsed.to.text) : "",
-            toAddress: (msg.envelope as any)?.to?.[0]?.address || "",
-            subject,
-            date: (parsed.date || (msg.envelope as any)?.date || new Date()).toISOString(),
-            preview: text.replace(/\s+/g, " ").trim().slice(0, 180),
-            text,
-            html,
-            unread: false, // los enviados nunca son "no leídos"
-            is_warmup: warmup,
-            attachments: (parsed.attachments || []).map((a: any) => ({ filename: a.filename || "", contentType: a.contentType || "", size: a.size || 0 })),
-          } as any);
-          (fresh[fresh.length - 1] as any).is_sent = true;
-          newCount++;
-        } catch {}
+        if (existingUids.has(uidStr)) {
+          if (msg.uid && msg.uid > maxUidSentSeen) maxUidSentSeen = msg.uid;
+          continue;
+        }
+
+        const envelope = (msg.envelope as any) || {};
+        const envSubject = envelope.subject || "(sin asunto)";
+        const envFromAddr = envelope.from?.[0]?.address || "";
+        const envFromName = envelope.from?.[0]?.name || "";
+        const envToAddr = envelope.to?.[0]?.address || "";
+        const envDate = envelope.date ? new Date(envelope.date).toISOString() : new Date().toISOString();
+        const envMessageId = envelope.messageId || "";
+        const envInReplyTo = envelope.inReplyTo || "";
+
+        let parsed: any = null;
+        if (msg.source) {
+          try { parsed = await simpleParser(msg.source); }
+          catch (parseErr: any) {
+            console.warn(`[unibox-sync sent] ${account.email} UID ${msg.uid}: parse error (${parseErr?.message}). Fallback envelope.`);
+          }
+        }
+
+        const subject = parsed?.subject || envSubject;
+        const text = parsed?.text || "";
+        const html = (parsed?.html as string) || "";
+        const fromAddr = parsed?.from?.text || envFromAddr;
+        const fromName = envFromName;
+        const fromAddress = envFromAddr;
+        if (isBounceOrFailure({ from: fromAddr, fromAddress, fromName, subject, text })) {
+          if (msg.uid && msg.uid > maxUidSentSeen) maxUidSentSeen = msg.uid;
+          continue;
+        }
+        const warmup = isWarmupMessage({ subject, text, html, from: fromAddr });
+        const wrap = (s: string): string => {
+          const t = String(s || "").trim();
+          if (!t) return "";
+          const cleaned = t.replace(/^<+|>+$/g, "");
+          return cleaned ? `<${cleaned}>` : "";
+        };
+        const messageId = wrap(parsed?.messageId || envMessageId);
+        const inReplyTo = wrap((parsed?.inReplyTo as string) || envInReplyTo);
+        const refsRaw = parsed?.references;
+        const refsArr = Array.isArray(refsRaw) ? refsRaw : refsRaw ? [refsRaw] : [];
+        const references = refsArr.map(wrap).filter(Boolean);
+        const previewText = text || (html ? html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim() : "");
+        fresh.push({
+          uid: uidPseudo,
+          messageId,
+          inReplyTo,
+          references,
+          from: fromAddr,
+          fromName,
+          fromAddress,
+          to: parsed?.to ? (Array.isArray(parsed.to) ? parsed.to.map((t: any) => t.text).join(", ") : parsed.to.text) : envToAddr,
+          toAddress: envToAddr,
+          subject,
+          date: parsed?.date ? new Date(parsed.date).toISOString() : envDate,
+          preview: previewText.slice(0, 180),
+          text,
+          html,
+          unread: false,
+          is_warmup: warmup,
+          attachments: (parsed?.attachments || []).map((a: any) => ({ filename: a.filename || "", contentType: a.contentType || "", size: a.size || 0 })),
+        } as any);
+        (fresh[fresh.length - 1] as any).is_sent = true;
+        if (msg.uid && msg.uid > maxUidSentSeen) maxUidSentSeen = msg.uid;
+        newCount++;
       }
       // Cap total subido a 5000 (antes 2000). Alineado con INBOX cap para
       // conservar histórico completo de respuestas en campañas grandes.

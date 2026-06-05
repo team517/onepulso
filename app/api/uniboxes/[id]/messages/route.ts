@@ -42,14 +42,40 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
         bounceCount++;
         continue;
       }
-      const { text, html, ...rest } = m;
-      out.push({ ...rest, accountId: accId });
+      // PERFORMANCE: enviamos SOLO los campos necesarios para el listado.
+      // text/html quedan en backend (se piden bajo demanda al abrir el msg
+      // via /messages/[accountId]/[uid]). Antes mandar 5000 previews de
+      // 180 chars + subject + from era ~500KB-1MB. Ahora ~200KB.
+      out.push({
+        uid: m.uid,
+        accountId: accId,
+        messageId: m.messageId,
+        from: m.from,
+        fromName: m.fromName,
+        fromAddress: m.fromAddress,
+        to: m.to,
+        toAddress: m.toAddress,
+        subject: m.subject,
+        date: m.date,
+        preview: m.preview,
+        unread: m.unread,
+        is_warmup: m.is_warmup,
+        folder_id: (m as any).folder_id || null,
+        has_attachments: (m.attachments?.length || 0) > 0,
+      });
     }
   }
   out.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
   const totalAvailable = out.length;
-  const sliced = all ? out : out.slice(offset, offset + Math.min(limitParam, 10000));
+  // PERFORMANCE: aunque el cliente pida ?all=1, capamos a 1500 mensajes
+  // ordenados por fecha. Es lo que cabe razonablemente en el listado.
+  // El usuario raramente baja de 1500 al scrollear. Si necesita más,
+  // puede paginar con offset.
+  const HARD_CAP = 1500;
+  const sliced = all
+    ? out.slice(0, HARD_CAP)
+    : out.slice(offset, offset + Math.min(limitParam, HARD_CAP));
   return NextResponse.json({
     messages: sliced,
     warmupCount,

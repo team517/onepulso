@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef, useMemo, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
 
 type Msg = any;
@@ -119,18 +119,10 @@ export default function ClientInboxPage() {
     }
   }
 
-  // Auto-reclasificar SILENCIOSAMENTE al cargar — limpia mensajes antiguos
-  // que se sincronizaron con detección obsoleta.
-  useEffect(() => {
-    if (!me) return;
-    const k = `unibox_reclassified_${id}_${new Date().toDateString()}`;
-    try {
-      if (localStorage.getItem(k)) return; // ya reclasificada hoy
-      localStorage.setItem(k, "1");
-      reclassifyNow(true).catch(() => {});
-    } catch {}
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [me, id]);
+  // PERFORMANCE: quitamos el auto-reclassify diario al cargar — la
+  // reclassificación ya se ejecuta en syncUnibox() tras cada sync IMAP,
+  // así que llamarla otra vez en cada primer load del día era trabajo
+  // duplicado que ralentizaba la apertura del unibox.
 
   async function loadMessages() {
     const p = new URLSearchParams();
@@ -206,14 +198,15 @@ export default function ClientInboxPage() {
     } catch {}
   }
 
-  // Auto-refresh cache cada 10s SOLO cuando la pestaña está visible.
-  // Como ahora el sync IMAP es incremental (sólo trae nuevos), la
-  // operación es barata: estimulamos refresh a 10s para que los nuevos
-  // mensajes aparezcan inmediatamente tras llegar al servidor.
+  // PERFORMANCE: refresh del cache cada 20s en lugar de 10s. El sync IMAP
+  // se dispara a los 20s también, así que coordinamos. Antes el cache se
+  // recargaba a los 10s + sync a los 20s = 6 fetches/min innecesarios.
+  // Después de cada sync exitoso, loadMessages() ya se llama directamente
+  // así que el refresh extra solo cubre casos edge.
   useEffect(() => {
     if (!me) return;
     const tick = () => { if (!document.hidden) loadMessages(); };
-    const t = setInterval(tick, 10_000);
+    const t = setInterval(tick, 30_000);
     return () => clearInterval(t);
   }, [me, selectedAccount, showWarmup]);
 
@@ -460,38 +453,87 @@ export default function ClientInboxPage() {
 
   if (!me) return <div style={{ padding: 40, textAlign: "center", color: "#94a3b8" }}>Cargando…</div>;
 
+  // PERFORMANCE: memoizamos todo lo que se recalcula con cada render.
+  // Antes en 5000 msgs cada cambio de search/folder = 4 .filter() sobre
+  // 5000 items + 2 contadores. Con useMemo solo se recalcula si cambian
+  // las deps reales.
+
   // Helper: ¿el mensaje fue ENVIADO por nosotros? UID < 0 (sent folder) o
   // remitente coincide con una cuenta nuestra.
-  const myEmailsSet = new Set(accounts.map((a) => (a.email || "").toLowerCase()));
-  const isOutboundMsg = (m: any) => {
+  const myEmailsSet = useMemo(
+    () => new Set(accounts.map((a: any) => (a.email || "").toLowerCase())),
+    [accounts]
+  );
+  const isOutboundMsg = useCallback((m: any) => {
     if (typeof m.uid === "number" && m.uid < 0) return true;
     const fromAddr = (m.fromAddress || m.from || "").toLowerCase();
     if (fromAddr && myEmailsSet.has(fromAddr)) return true;
-    // Si el campo from tiene un email envuelto, extraerlo
     const match = (m.from || "").match(/<([^>]+)>/);
     if (match && myEmailsSet.has(match[1].toLowerCase())) return true;
     return false;
-  };
+  }, [myEmailsSet]);
 
-  let baseList = messages;
-  if (folderFilter === "sent")     baseList = messages.filter(isOutboundMsg);
-  else if (folderFilter === "received") baseList = messages.filter((m) => !isOutboundMsg(m));
-  else if (folderFilter !== "all") {
-    // folderFilter es el ID de una carpeta custom
-    baseList = messages.filter((m: any) => m.folder_id === folderFilter);
-  }
+  // Pre-calcular outbound/inbound UNA sola vez para todos los mensajes
+  // y reutilizar en folderFilter + contadores. Antes recorríamos 3 veces.
+  const { sentMessages, receivedMessages } = useMemo(() => {
+    const sent: any[] = [];
+    const recv: any[] = [];
+    for (const m of messages) {
+      if (isOutboundMsg(m)) sent.push(m); else recv.push(m);
+    }
+    return { sentMessages: sent, receivedMessages: recv };
+  }, [messages, isOutboundMsg]);
 
-  const filtered = search
-    ? baseList.filter(m =>
-        (m.from || "").toLowerCase().includes(search.toLowerCase()) ||
-        (m.to || "").toLowerCase().includes(search.toLowerCase()) ||
-        (m.subject || "").toLowerCase().includes(search.toLowerCase()) ||
-        (m.preview || "").toLowerCase().includes(search.toLowerCase()))
-    : baseList;
+  const baseList = useMemo(() => {
+    if (folderFilter === "sent") return sentMessages;
+    if (folderFilter === "received") return receivedMessages;
+    if (folderFilter === "all") return messages;
+    return messages.filter((m: any) => m.folder_id === folderFilter);
+  }, [folderFilter, messages, sentMessages, receivedMessages]);
 
-  // Contadores para el sidebar
-  const sentCount = messages.filter(isOutboundMsg).length;
-  const receivedCount = messages.length - sentCount;
+  const filteredAll = useMemo(() => {
+    if (!search) return baseList;
+    const q = search.toLowerCase();
+    return baseList.filter((m: any) =>
+      (m.from || "").toLowerCase().includes(q) ||
+      (m.to || "").toLowerCase().includes(q) ||
+      (m.subject || "").toLowerCase().includes(q) ||
+      (m.preview || "").toLowerCase().includes(q)
+    );
+  }, [baseList, search]);
+
+  // PERFORMANCE: virtualización ligera. Solo renderizamos N items.
+  // El usuario casi nunca baja de 300 (scroll). Si lo hace, sube el cap.
+  const [visibleCap, setVisibleCap] = useState(300);
+  useEffect(() => { setVisibleCap(300); }, [folderFilter, selectedAccount, search]); // reset al cambiar filtro
+  const filtered = useMemo(
+    () => filteredAll.slice(0, visibleCap),
+    [filteredAll, visibleCap]
+  );
+  const hasMoreToShow = filteredAll.length > visibleCap;
+
+  const sentCount = sentMessages.length;
+  const receivedCount = receivedMessages.length;
+
+  // PERFORMANCE: account lookup O(1) — antes accounts.find() en cada
+  // mensaje renderizado = O(N×M). Con 1500 msgs × 40 cuentas = 60k ops.
+  const accountsById = useMemo(() => {
+    const map = new Map<string, any>();
+    for (const a of accounts) map.set(a.id, a);
+    return map;
+  }, [accounts]);
+
+  // PERFORMANCE: índice de reminders por (accountId+recipient) para no
+  // hacer reminders.find() en cada mensaje outbound.
+  const remindersIndex = useMemo(() => {
+    const map = new Map<string, any>();
+    for (const r of reminders) {
+      if (r.status !== "pending") continue;
+      const key = `${r.account_id}|${(r.recipient || "").toLowerCase()}`;
+      map.set(key, r);
+    }
+    return map;
+  }, [reminders]);
 
   // Build thread for selected msg — matching ROBUSTO con múltiples capas.
   // Subject normalizado: quita "Re:", "Fwd:", "RV:", "FW:" y los acoplados
@@ -819,15 +861,10 @@ export default function ClientInboxPage() {
             <div style={emptyStyle}>No hay mensajes en la bandeja.</div>
           ) : filtered.map(m => {
             const isSelected = selectedMsg && selectedMsg.uid === m.uid && selectedMsg.accountId === m.accountId;
-            const acc = accounts.find(a => a.id === m.accountId);
-            // ¿Este mensaje fue ENVIADO por nosotros?
+            const acc = accountsById.get(m.accountId);
             const isOutbound = isOutboundMsg(m);
-            const pendingReminder = isOutbound
-              ? reminders.find((r: any) =>
-                  r.status === "pending" &&
-                  r.account_id === m.accountId &&
-                  m.toAddress && r.recipient.toLowerCase() === String(m.toAddress).toLowerCase()
-                )
+            const pendingReminder = isOutbound && m.toAddress
+              ? remindersIndex.get(`${m.accountId}|${String(m.toAddress).toLowerCase()}`)
               : null;
             return (
               <div
@@ -918,6 +955,26 @@ export default function ClientInboxPage() {
               </div>
             );
           })}
+          {hasMoreToShow && (
+            <button
+              onClick={() => setVisibleCap((c) => c + 500)}
+              style={{
+                margin: "12px auto",
+                padding: "10px 20px",
+                background: "rgba(99,102,241,0.06)",
+                border: "1px solid rgba(99,102,241,0.2)",
+                borderRadius: 10,
+                color: "#6366f1",
+                fontSize: 12.5,
+                fontWeight: 600,
+                cursor: "pointer",
+                fontFamily: "inherit",
+                display: "block",
+              }}
+            >
+              Mostrar 500 más ({filteredAll.length - visibleCap} ocultos)
+            </button>
+          )}
         </div>
       </section>
 

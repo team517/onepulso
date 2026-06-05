@@ -12,6 +12,24 @@ export function getPool(): Pool | null {
   const url = process.env.DATABASE_URL;
   if (!url) return null;
   if (globalThis.__pgPool) return globalThis.__pgPool;
+
+  // PERFORMANCE WARNING: si la URL es pública (proxy.rlwy.net), gastamos
+  // 10-50x más latencia + se cobra egress. Avisamos en logs para que
+  // el operador lo cambie a la URL interna .railway.internal.
+  if (/proxy\.rlwy\.net|\.proxy\.rlwy\.net/i.test(url)) {
+    console.error(
+      "⚠️  ⚠️  ⚠️  PERFORMANCE WARNING ⚠️  ⚠️  ⚠️\n" +
+      "DATABASE_URL apunta a la URL PÚBLICA de Postgres (proxy.rlwy.net).\n" +
+      "Esto causa: 1) latencia 10-50x mayor por query, 2) egress fees.\n" +
+      "SOLUCIÓN: En Railway → Next.js service → Variables → cambia DATABASE_URL\n" +
+      "para que apunte a la URL interna (.railway.internal) del servicio Postgres.\n" +
+      "Usa 'Variable Reference' → Postgres → DATABASE_URL.\n" +
+      "──────────────────────────────────────────────────────────"
+    );
+  } else if (url.includes(".railway.internal")) {
+    console.log("[db] ✓ usando URL interna de Postgres (.railway.internal) — óptimo");
+  }
+
   globalThis.__pgPool = new Pool({
     connectionString: url,
     ssl: url.includes("railway.internal") ? false : { rejectUnauthorized: false },

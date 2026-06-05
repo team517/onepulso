@@ -26,7 +26,17 @@ export async function GET(req: NextRequest) {
     env: {
       has_database_url: !!process.env.DATABASE_URL,
       database_url_internal: process.env.DATABASE_URL?.includes("railway.internal") || false,
+      database_url_public_proxy: /proxy\.rlwy\.net/i.test(process.env.DATABASE_URL || ""),
       node_env: process.env.NODE_ENV,
+      region: process.env.RAILWAY_REGION || "unknown",
     },
+    warnings: [
+      ...(/proxy\.rlwy\.net/i.test(process.env.DATABASE_URL || "")
+        ? ["DATABASE_URL apunta a la URL PÚBLICA — cambia a .railway.internal en Railway → Variables → DATABASE_URL"]
+        : []),
+      ...(process.env.NODE_ENV !== "production"
+        ? ["NODE_ENV no es 'production' — el build no está optimizado"]
+        : []),
+    ],
   });
 }

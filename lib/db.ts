@@ -15,11 +15,32 @@ export function getPool(): Pool | null {
   globalThis.__pgPool = new Pool({
     connectionString: url,
     ssl: url.includes("railway.internal") ? false : { rejectUnauthorized: false },
-    max: 5,
-    idleTimeoutMillis: 30_000,
-    connectionTimeoutMillis: 10_000,
+    max: 3,
+    idleTimeoutMillis: 10_000,
+    connectionTimeoutMillis: 15_000,
   });
-  return globalThis.__pgPool;
+  // Limpiar conexiones zombi de procesos antiguos al arrancar.
+  // Esto resuelve "too many clients already" tras múltiples deploys.
+  const pool = globalThis.__pgPool;
+  pool.connect().then(async (c) => {
+    try {
+      await c.query(
+        `SELECT pg_terminate_backend(pid) FROM pg_stat_activity
+         WHERE state IN ('idle', 'idle in transaction')
+           AND pid <> pg_backend_pid()
+           AND backend_type = 'client backend'
+           AND state_change < NOW() - INTERVAL '30 seconds'`
+      );
+      console.log("[db] conexiones zombi limpiadas en arranque");
+    } catch (e: any) {
+      console.warn("[db] no se pudieron limpiar zombi:", e?.message);
+    } finally {
+      c.release();
+    }
+  }).catch((e) => {
+    console.warn("[db] cleanup zombi falló:", e?.message);
+  });
+  return pool;
 }
 
 /** Inicializa el schema (tablas KV y blobs) si no existe. Idempotente. */

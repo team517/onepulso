@@ -259,6 +259,16 @@ export function isBounceOrFailure(m: { from?: string; fromAddress?: string; from
     return true;
   }
 
+  // 1stcontact.ai — herramienta de warmup/outreach. Todos sus mails son ruido
+  // automático (warmup loops, notificaciones, reports). Bloqueamos el dominio
+  // completo: 1stcontact.ai, mail.1stcontact.ai, send.1stcontact.ai, etc.
+  if (
+    /@(.+\.)?1stcontact\.ai\b/i.test(from) ||
+    /<\s*[^>]*@(.+\.)?1stcontact\.ai\b/i.test(from)
+  ) {
+    return true;
+  }
+
   // CAPA 3 — noreply/no-reply NO descarta por si solo: muchas notificaciones
   // legítimas (TCX, GitHub, Calendly, demos confirmadas, etc.) usan noreply@.
   // SOLO descartamos si ADEMÁS el subject coincide con un patrón de bounce.

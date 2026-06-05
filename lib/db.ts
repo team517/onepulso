@@ -74,17 +74,30 @@ export async function ensureSchema(): Promise<void> {
   }
 }
 
+/** Recrea el pool de Postgres — útil cuando las conexiones quedan zombi
+ *  tras una migración de región o un restart de Postgres. */
+export async function resetPool(): Promise<void> {
+  if (globalThis.__pgPool) {
+    try { await globalThis.__pgPool.end(); } catch {}
+  }
+  globalThis.__pgPool = undefined;
+  globalThis.__pgInitDone = undefined;
+  console.warn("[db] pool reseteado — próxima query reconectará desde cero");
+}
+
+let _consecutiveErrors = 0;
+
 /** Helper para ejecutar query con conexión auto-gestionada.
- *  RESILIENCIA: si la conexión falla (Postgres se cae o se está migrando),
- *  reintentamos hasta 3 veces con backoff exponencial. Crítico para que
- *  durante migraciones / restarts de Railway la app no devuelva 500. */
+ *  RESILIENCIA:
+ *  - Hasta 3 reintentos con backoff exponencial para errores transientes
+ *  - Si hay 5 errores seguidos, RESETEA el pool entero (recovery de
+ *    pool con conexiones zombi tras migración Postgres) */
 export async function withClient<T>(fn: (c: PoolClient) => Promise<T>): Promise<T> {
   const pool = getPool();
   if (!pool) throw new Error("DATABASE_URL no configurado");
   let lastError: any;
   for (let attempt = 0; attempt < 3; attempt++) {
     if (attempt > 0) {
-      // Backoff: 200ms, 600ms
       await new Promise((r) => setTimeout(r, 200 * (3 ** attempt - 1)));
       console.warn(`[db] reintento ${attempt}/2 tras error: ${lastError?.message}`);
     }
@@ -93,21 +106,42 @@ export async function withClient<T>(fn: (c: PoolClient) => Promise<T>): Promise<
       client = await pool.connect();
       const result = await fn(client);
       client.release();
+      _consecutiveErrors = 0; // success → reset contador
       return result;
     } catch (e: any) {
       lastError = e;
       if (client) {
-        try { client.release(true); } catch {} // release con error → descarta del pool
+        try { client.release(true); } catch {}
       }
-      // Solo reintentamos errores de conexión, no errores de lógica
       const isTransient =
         e?.code === "ECONNREFUSED" ||
         e?.code === "ETIMEDOUT" ||
         e?.code === "ENOTFOUND" ||
         e?.code === "EPIPE" ||
         e?.code === "ECONNRESET" ||
-        /Connection terminated|Connection refused|server closed/i.test(e?.message || "");
+        /Connection terminated|Connection refused|server closed|timeout/i.test(e?.message || "");
       if (!isTransient) throw e;
+      _consecutiveErrors++;
+      // 5 errores seguidos = pool corrupto → resetear
+      if (_consecutiveErrors >= 5) {
+        console.error(`[db] ${_consecutiveErrors} errores seguidos → RESET del pool`);
+        await resetPool();
+        _consecutiveErrors = 0;
+        // Reintentamos con pool nuevo
+        const newPool = getPool();
+        if (newPool) {
+          let c2: PoolClient | null = null;
+          try {
+            c2 = await newPool.connect();
+            const r = await fn(c2);
+            c2.release();
+            return r;
+          } catch (e2) {
+            if (c2) { try { c2.release(true); } catch {} }
+            throw e2;
+          }
+        }
+      }
     }
   }
   throw lastError;

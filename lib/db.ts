@@ -44,49 +44,66 @@ export function getPool(): Pool | null {
   return globalThis.__pgPool;
 }
 
-/** Inicializa el schema (tablas KV y blobs) si no existe. Idempotente.
- *  RESILIENCIA: si falla (timeout, lock), marca como hecho de todos modos
- *  para no bloquear queries posteriores. Si las tablas ya existen (caso
- *  más común tras migración), los siguientes queries funcionarán; si no
- *  existen, fallarán explícitamente y verás el error real. */
+/** Inicializa el schema (tablas KV y blobs) si no existe.
+ *  OPTIMIZACIÓN CRÍTICA: primero CHECK existencia con SELECT rápido (~5ms).
+ *  Solo intenta CREATE si las tablas NO existen. Esto evita el problema
+ *  de CREATE TABLE/INDEX timeouteando en cada conexión nueva tras una
+ *  migración Postgres con índices lentos. */
 export async function ensureSchema(): Promise<void> {
   if (globalThis.__pgInitDone) return;
   const pool = getPool();
   if (!pool) return;
-  // Marcamos como done ANTES de intentar — así si timeout no entramos
-  // en loop infinito intentando crear schema en cada query.
+  // Marcar done ANTES → si todo timeoutea, no entramos en bucle infinito
   globalThis.__pgInitDone = true;
-  const client = await pool.connect();
+  let client;
   try {
-    // Statement separados — si CREATE INDEX falla (lock), las tablas
-    // siguen creándose. Antes era un solo statement multilinea que
-    // fallaba entero ante cualquier timeout.
-    await client.query(`
-      CREATE TABLE IF NOT EXISTS kv_store (
-        key TEXT PRIMARY KEY,
-        value JSONB NOT NULL,
-        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-      )
-    `).catch((e) => console.warn("[db] CREATE kv_store:", e.message));
+    client = await pool.connect();
+  } catch (e: any) {
+    console.warn("[db] ensureSchema: no se pudo conectar:", e.message);
+    return; // la próxima query mostrará el error real
+  }
+  try {
+    // FAST CHECK: ¿existen las tablas ya? (la mayoría de las veces sí)
+    const check = await client.query(
+      "SELECT to_regclass('public.kv_store') AS kv, to_regclass('public.blob_store') AS blob"
+    ).catch(() => null);
+    const kvExists = check?.rows?.[0]?.kv !== null;
+    const blobExists = check?.rows?.[0]?.blob !== null;
 
-    await client.query(`
-      CREATE TABLE IF NOT EXISTS blob_store (
-        key TEXT PRIMARY KEY,
-        mime TEXT NOT NULL DEFAULT 'application/octet-stream',
-        data BYTEA NOT NULL,
-        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-      )
-    `).catch((e) => console.warn("[db] CREATE blob_store:", e.message));
+    if (kvExists && blobExists) {
+      // Caso normal: tablas ya existen → no hacer nada más.
+      console.log("[db] schema OK (tablas existentes)");
+      return;
+    }
 
-    // CREATE INDEX puede ser slow en tablas grandes recién migradas
-    // (porque Postgres reconstruye el índice). NO bloqueamos al app:
-    // si falla por timeout, la app sigue funcionando sin ese index
-    // (queries más lentas pero funcionales).
-    await client.query(
+    // Solo si falta algo, intentamos crear (puede tardar mucho en DB recién
+    // migrada — pero solo pasa una vez por proceso).
+    console.log(`[db] creando schema faltante (kv=${kvExists}, blob=${blobExists})`);
+    if (!kvExists) {
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS kv_store (
+          key TEXT PRIMARY KEY,
+          value JSONB NOT NULL,
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+      `).catch((e) => console.warn("[db] CREATE kv_store:", e.message));
+    }
+    if (!blobExists) {
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS blob_store (
+          key TEXT PRIMARY KEY,
+          mime TEXT NOT NULL DEFAULT 'application/octet-stream',
+          data BYTEA NOT NULL,
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+      `).catch((e) => console.warn("[db] CREATE blob_store:", e.message));
+    }
+    // Index: opcional. Si falla, queries van más lentas pero funcionan.
+    client.query(
       `CREATE INDEX IF NOT EXISTS kv_store_key_prefix_idx ON kv_store (key text_pattern_ops)`
-    ).catch((e) => console.warn("[db] CREATE INDEX:", e.message));
+    ).catch((e) => console.warn("[db] CREATE INDEX (no bloqueante):", e.message));
   } finally {
-    client.release();
+    try { client.release(); } catch {}
   }
 }
 

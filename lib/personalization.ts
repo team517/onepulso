@@ -116,6 +116,10 @@ declare global {
 
 export function startPersonalizationWatchdog(intervalMs = 60_000) {
   if (globalThis.__personalizationWatchdog) return;
+  if (process.env.EMERGENCY_MODE === "1" || process.env.EMERGENCY_MODE === "true") {
+    console.warn("[personalization-watchdog] EMERGENCY_MODE activo — start IGNORADO");
+    return;
+  }
   console.log(`[personalization-watchdog] starting (${intervalMs}ms tick — auto-resume jobs atascados)`);
 
   const safeTick = async () => {

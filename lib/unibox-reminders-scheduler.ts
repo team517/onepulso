@@ -13,6 +13,10 @@ const TICK_MS = 60_000; // cada minuto
 
 export function startUniboxRemindersScheduler() {
   if (globalThis.__uniboxRemindersScheduler) return;
+  if (process.env.EMERGENCY_MODE === "1" || process.env.EMERGENCY_MODE === "true") {
+    console.warn("[unibox-reminders] EMERGENCY_MODE activo — start IGNORADO");
+    return;
+  }
   console.log("[unibox-reminders-scheduler] starting (60s tick)");
   const safeTick = async () => {
     if (globalThis.__uniboxRemindersRunning) return;

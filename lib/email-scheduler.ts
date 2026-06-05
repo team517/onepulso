@@ -20,6 +20,13 @@ const TICK_MS = 60_000;
 
 export function startEmailScheduler() {
   if (globalThis.__emailScheduler) return;
+  // EMERGENCY_MODE: blocking guard en TODAS las funciones de arranque,
+  // no solo en instrumentation.ts. Endpoints como /api/cron/tick también
+  // llamaban a esta función → bypaseaban el guard de instrumentation.
+  if (process.env.EMERGENCY_MODE === "1" || process.env.EMERGENCY_MODE === "true") {
+    console.warn("[email-scheduler] EMERGENCY_MODE activo — start IGNORADO");
+    return;
+  }
   console.log("[email-scheduler] starting (30s tick: followups + inbox sync)");
 
   // Wrapper que evita reentrancia: si un tick tarda más de 30s, el siguiente
@@ -93,6 +100,10 @@ let lastStuckCheck = 0;
 const STUCK_CHECK_MS = 5 * 60_000; // cada 5 min
 
 export async function tick() {
+  // EMERGENCY_MODE bypass — no hacer trabajo de fondo si está activo.
+  if (process.env.EMERGENCY_MODE === "1" || process.env.EMERGENCY_MODE === "true") {
+    return { skipped: true, reason: "EMERGENCY_MODE" } as any;
+  }
   // 0. Cada 5 min, rescatar followups "sending" atascadas
   if (Date.now() - lastStuckCheck > STUCK_CHECK_MS) {
     lastStuckCheck = Date.now();

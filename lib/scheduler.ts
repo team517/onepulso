@@ -11,6 +11,10 @@ const TICK_MS = 30_000; // 30s
 
 export function startScheduler() {
   if (globalThis.__linkedinScheduler) return;
+  if (process.env.EMERGENCY_MODE === "1" || process.env.EMERGENCY_MODE === "true") {
+    console.warn("[linkedin-scheduler] EMERGENCY_MODE activo — start IGNORADO");
+    return;
+  }
   console.log("[linkedin-scheduler] starting (30s tick, anti-reentrant)");
 
   const safeTick = async () => {

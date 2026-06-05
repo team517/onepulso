@@ -20,9 +20,10 @@ import { dataPath } from "./data-dir";
 type CacheEntry = { value: any; expires: number; bytes: number };
 const CACHE = new Map<string, CacheEntry>();
 const CACHE_MAX_SIZE = 500;
-// Skip cache si el valor serializado supera esto — previene memory bloat
-// cuando hay blobs gigantes (email-threads, etc).
-const CACHE_MAX_VALUE_BYTES = 2 * 1024 * 1024; // 2 MB
+// Skip cache si el valor serializado supera esto. Subido a 15MB porque
+// email-threads puede ser grande y necesitamos cachearlo SÍ O SÍ para
+// que el scheduler tick no haga 5-10s de DB read cada vez.
+const CACHE_MAX_VALUE_BYTES = 15 * 1024 * 1024; // 15 MB
 
 /** TTL por tipo de key. Background keys (scheduler, follow-ups, accounts)
  *  pueden tener TTL alto porque se acceden por procesos automáticos que

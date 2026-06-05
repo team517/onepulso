@@ -14,7 +14,9 @@ declare global {
   var __emailSchedulerRunning: boolean | undefined;
 }
 
-const TICK_MS = 30_000; // 30s — más reactivo
+// 60s entre ticks — antes 30s, pero con email-threads grande el tick
+// anterior aún no acababa y se acumulaban. Tras compactThreads bajamos a 30s.
+const TICK_MS = 60_000;
 
 export function startEmailScheduler() {
   if (globalThis.__emailScheduler) return;
@@ -55,9 +57,12 @@ export function startEmailScheduler() {
 let lastInboxSync = 0;
 let lastDeepRefresh = 0;
 let lastUniboxSync = 0;
-const INBOX_SYNC_MS = 30_000;      // sync incremental cada 30s
-const DEEP_REFRESH_MS = 2 * 60_000; // deep refresh cada 2 minutos
-const UNIBOX_SYNC_MS = 30_000;      // sync de uniboxes cada 30 segundos (incremental: barato)
+// INTERVALOS subidos para reducir presión sobre Postgres mientras el
+// blob email-threads sigue siendo grande. Tras compactThreads se puede
+// volver a bajar a 30s.
+const INBOX_SYNC_MS = 60_000;        // sync incremental cada 60s (antes 30s)
+const DEEP_REFRESH_MS = 5 * 60_000;  // deep refresh cada 5 min (antes 2 min)
+const UNIBOX_SYNC_MS = 60_000;        // sync de uniboxes cada 60s (antes 30s)
 
 /**
  * Rescata follow-ups atascadas en "sending" durante más de N minutos.

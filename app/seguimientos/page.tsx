@@ -1518,7 +1518,15 @@ export default function SeguimientosPage() {
         </div>
       )}
 
-      {storageStatus && (!storageStatus.has_database_url || (storageStatus.postgres && !storageStatus.postgres.connected)) && (
+      {storageStatus &&
+        // El aviso SOLO debe salir si DATABASE_URL no existe O si Postgres
+        // no conecta Y NO HAY datos guardados. Si hay kv_rows > 0, la BD
+        // claramente funciona (puede tardar pero sí guarda) — no alertes
+        // por falsos positivos durante incidencias de Railway.
+        (!storageStatus.has_database_url ||
+          (storageStatus.postgres &&
+            !storageStatus.postgres.connected &&
+            Number(storageStatus.postgres.kv_rows || 0) === 0)) && (
         <div style={{
           background: "linear-gradient(135deg, #fef2f2, #fee2e2)",
           border: "2px solid #dc2626",

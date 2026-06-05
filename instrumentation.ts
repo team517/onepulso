@@ -66,22 +66,4 @@ export async function register() {
     console.warn("[instrumentation] personalization watchdog skipped:", e?.message);
   }
 
-  // AUTO-COMPACTACIÓN: si el blob email-threads ha crecido demasiado, lo
-  // compactamos solo. Esto evita que reads de 5-10s saturen Postgres.
-  // Solo corre una vez por boot, en background, sin bloquear el arranque.
-  setTimeout(async () => {
-    try {
-      const { compactThreads } = await import("./lib/email-threads");
-      // Compactar threads sin actividad > 14 días — agresivo pero seguro
-      // (los archivados se pueden recuperar).
-      const r = await compactThreads({ olderThanDays: 14 });
-      if (r.archivedNow > 0) {
-        console.log(`[instrumentation] auto-compact: ${r.archivedNow} threads archivados, ${r.keptActive} activos quedan`);
-      } else {
-        console.log(`[instrumentation] auto-compact: nada que archivar (${r.keptActive} activos)`);
-      }
-    } catch (e: any) {
-      console.warn("[instrumentation] auto-compact threads skipped:", e?.message);
-    }
-  }, 30_000); // 30s después del arranque para no competir con primeras peticiones
 }

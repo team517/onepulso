@@ -178,14 +178,64 @@ export default function ClientInboxPage() {
         setIsSyncing(false);
       }
     };
-    const initial = setTimeout(doSync, 1500);
+
+    // AUTO-RESCATE en primera carga: si las cuentas no tienen last_sync
+    // reciente (>3 min), forzamos un sync completo silencioso. Esto
+    // garantiza que aunque el scheduler de backend haya estado caído,
+    // al abrir el unibox automáticamente recuperamos lo perdido.
+    const autoRescue = async () => {
+      const stale = accounts.some((a: any) => {
+        if (!a.last_sync) return true;
+        const ageMs = Date.now() - new Date(a.last_sync).getTime();
+        return ageMs > 3 * 60_000; // >3 min sin sync
+      });
+      if (!stale) return;
+      if (syncingRef.current) return;
+      console.log("[unibox] auto-rescate: alguna cuenta lleva >3 min sin sync → force-resync");
+      syncingRef.current = true;
+      setIsSyncing(true);
+      try {
+        await fetch(`/api/uniboxes/${id}/force-resync`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: "{}",
+        });
+        await loadMessages();
+        setLastSyncTs(Date.now());
+      } catch {}
+      finally {
+        syncingRef.current = false;
+        setIsSyncing(false);
+      }
+    };
+
+    // KEEPALIVE del scheduler backend: pingeamos /api/cron/tick cada 60s
+    // para asegurar que el background scheduler (que puede dormirse en
+    // Railway) siga vivo. Idempotente — sólo arranca el scheduler si
+    // está caído, no duplica.
+    const keepalive = () => {
+      fetch(`/api/cron/tick`, { method: "GET" }).catch(() => {});
+    };
+    keepalive();
+    const keepaliveInterval = setInterval(keepalive, 60_000);
+
+    // 1. Auto-rescate inmediato (si hace falta) — primera carga
+    autoRescue();
+    // 2. Sync incremental a los 2s y luego cada 20s
+    const initial = setTimeout(doSync, 2000);
     const interval = setInterval(doSync, 20_000);
     // Cuando la pestaña vuelve a primer plano tras estar oculta, sync inmediato
-    const onVisible = () => { if (!document.hidden) doSync(); };
+    // + chequeo de auto-rescate (si estuvo cerrada mucho rato)
+    const onVisible = () => {
+      if (!document.hidden) {
+        autoRescue().then(() => doSync());
+      }
+    };
     document.addEventListener("visibilitychange", onVisible);
     return () => {
       clearTimeout(initial);
       clearInterval(interval);
+      clearInterval(keepaliveInterval);
       document.removeEventListener("visibilitychange", onVisible);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps

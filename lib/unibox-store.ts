@@ -43,6 +43,9 @@ export type UniboxAccount = {
   warmup_increment?: number | null;
   last_sync?: string | null;
   last_error?: string | null;
+  /** Firma HTML que se añade automáticamente al final de cada email enviado
+   *  desde esta cuenta. Puede incluir nombre, cargo, web, redes, logo. */
+  signature_html?: string | null;
 };
 
 export type UniboxMessage = {
@@ -255,6 +258,25 @@ export function isBounceOrFailure(m: { from?: string; fromAddress?: string; from
     /^test\s*email\b.*\bstatus\b/i.test(subject)
   ) {
     return true;
+  }
+
+  // CAPA 6 — SPAM EVIDENTE (Viagra, lotería, herencias nigerianas, etc.):
+  // patrones tan específicos que casi nunca aparecen en cold outreach legítimo.
+  // SOLO con AMBOS subject + body indicador, para no caer en falsos positivos.
+  const subjectSpamIndicators = [
+    /\bviagra|cialis|levitra\b/i,
+    /\b(you|usted)\s+(have|ha)\s+(won|ganado)\b/i,
+    /lottery|lotería|jackpot|sweepstake/i,
+    /nigerian?\s+prince/i,
+    /inheritance|herencia\s+de/i,
+    /\$\s*\d+[\,\.]\d{3}[\,\.]\d{3}/i, // grandes cantidades $X.XXX.XXX
+    /\bcrypto\s+(giveaway|airdrop|profit)/i,
+    /(?:click\s+here|haz\s+clic\s+aquí)\s+(now|ahora|immediately|inmediatamente)/i,
+  ];
+  const subjectHitsSpam = subjectSpamIndicators.some((re) => re.test(subject));
+  if (subjectHitsSpam) {
+    const bodySpamIndicators = /\b(claim\s+(now|today)|reclamar?\s+ahora|wire\s+transfer|western\s+union|bitcoin\s+wallet|send\s+\$?\d{4,}|tx\s+id|moneygram)\b/i;
+    if (bodySpamIndicators.test(text)) return true;
   }
 
   // CAPA 6 — contenido: bounce sólo si el TEXTO tiene 2+ indicadores claros,

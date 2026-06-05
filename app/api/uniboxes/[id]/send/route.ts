@@ -46,7 +46,22 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   );
 
   const hasHtml = /<[a-z][\s\S]*>/i.test(body);
-  const html = hasHtml ? body : body.replace(/\n/g, "<br>");
+  let html = hasHtml ? body : body.replace(/\n/g, "<br>");
+
+  // AUTO-FIRMA: si la cuenta tiene signature_html configurada, la añadimos
+  // al final del body (a menos que el usuario ya la haya incluido).
+  // Detección simple: si el body NO contiene un fragmento de la firma, append.
+  if (acc.signature_html && acc.signature_html.trim().length > 0) {
+    // Tomar las primeras palabras significativas de la firma como huella
+    const sigPlain = acc.signature_html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+    const sigSample = sigPlain.slice(0, 40);
+    const bodyPlain = body.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
+    const alreadyHasSig = sigSample && bodyPlain.includes(sigSample);
+    if (!alreadyHasSig) {
+      html = html + `\n<br><br>\n${acc.signature_html}`;
+    }
+  }
+
   const displayName = [acc.first_name, acc.last_name].filter(Boolean).join(" ") || acc.email;
 
   /** Normaliza un message-id para que SIEMPRE tenga <...>.
@@ -73,7 +88,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     cc: cc || undefined,
     bcc: bcc || undefined,
     subject: finalSubject,
-    text: body.replace(/<[^>]+>/g, ""),
+    text: html.replace(/<[^>]+>/g, "").replace(/\s+\n/g, "\n").trim(),
     html,
     attachments,
   };

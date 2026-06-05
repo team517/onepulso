@@ -14,6 +14,7 @@ export default function ClientInboxPage() {
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [messages, setMessages] = useState<Msg[]>([]);
   const [reminders, setReminders] = useState<any[]>([]);
+  const [signatureModalOpen, setSignatureModalOpen] = useState(false);
   const [warmupCount, setWarmupCount] = useState(0);
   // Por defecto warmup OCULTO. La preferencia se persiste en localStorage por
   // unibox, así que si el usuario decide mostrarlos, se queda mostrando entre
@@ -124,18 +125,16 @@ export default function ClientInboxPage() {
 
   useEffect(() => { if (me) loadMessages(); }, [selectedAccount, showWarmup]);
 
-  // Auto-refresh every 20s (solo recarga caché — el sync IMAP corre en backend)
-  // Así en cuanto un mensaje nuevo aterriza en la caché de Postgres, aparece
-  // en pantalla en máximo 20s.
+  // Auto-refresh cada 45s (antes 20s — demasiado agresivo: con miles de
+  // mensajes en cache, re-fetchar cada 20s causaba lag y crashes).
   useEffect(() => {
     if (!me) return;
-    const t = setInterval(() => loadMessages(), 20_000);
+    const t = setInterval(() => loadMessages(), 45_000);
     return () => clearInterval(t);
   }, [me, selectedAccount, showWarmup]);
 
-  // Sync IMAP completo cada 90s mientras el usuario tenga la página abierta.
-  // Es ADEMÁS del scheduler de backend (cada 90s). En total: latencia máxima
-  // de mensajes nuevos = ~90s (uno u otro pillará el evento).
+  // Sync IMAP completo cada 3 min (antes 90s — el sync paraleliza pero con
+  // 40+ cuentas y 1500 msgs cada una era pesado de más).
   useEffect(() => {
     if (!me || accounts.length === 0) return;
     const doSync = async () => {
@@ -144,10 +143,8 @@ export default function ClientInboxPage() {
         await loadMessages();
       } catch {}
     };
-    // Lanzar uno al cargar (2s después para no bloquear primer paint)
-    const initial = setTimeout(doSync, 2000);
-    // Y cada 90s mientras esté abierta
-    const interval = setInterval(doSync, 90_000);
+    const initial = setTimeout(doSync, 3000);
+    const interval = setInterval(doSync, 180_000);
     return () => { clearTimeout(initial); clearInterval(interval); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [me, accounts.length, id]);
@@ -265,6 +262,27 @@ export default function ClientInboxPage() {
     setComposeData({
       accountId: accounts[0]?.id || "",
       to: "", subject: "", body: "",
+    });
+    setComposeOpen(true);
+  }
+
+  function forwardMsg(m: any) {
+    const subj = /^fwd?:/i.test(m.subject || "") ? m.subject : `Fwd: ${m.subject || ""}`;
+    const dateStr = new Date(m.date).toLocaleString("es");
+    const fwdBlock = `<br><br><div style="border-top:1px solid #ddd;padding-top:14px;margin-top:14px;color:#475569">
+      <div style="font-size:12px"><strong>---------- Mensaje reenviado ----------</strong></div>
+      <div style="font-size:12px"><strong>De:</strong> ${escapeHtml(m.from || "")}</div>
+      <div style="font-size:12px"><strong>Fecha:</strong> ${dateStr}</div>
+      <div style="font-size:12px"><strong>Asunto:</strong> ${escapeHtml(m.subject || "")}</div>
+      <div style="font-size:12px"><strong>Para:</strong> ${escapeHtml(m.to || "")}</div>
+      <br>${m.html || (m.text || "").replace(/\n/g, "<br>")}
+    </div>`;
+    setComposeData({
+      accountId: m.accountId,
+      to: "",
+      subject: subj,
+      body: fwdBlock,
+      // No incluimos inReplyTo / references — es un mensaje NUEVO (no reply)
     });
     setComposeOpen(true);
   }
@@ -438,6 +456,9 @@ export default function ClientInboxPage() {
 
         <button style={ghostBtn} onClick={syncAll} disabled={syncing}>
           {syncing ? "Sincronizando…" : "↻ Sincronizar todo"}
+        </button>
+        <button style={ghostBtn} onClick={() => setSignatureModalOpen(true)} title="Gestionar firmas de cada cuenta">
+          ✍ Firmas
         </button>
         <button style={{ ...ghostBtn, color: "#ef4444", borderColor: "rgba(239,68,68,0.3)" }} onClick={logout}>
           Cerrar sesión
@@ -666,8 +687,23 @@ export default function ClientInboxPage() {
               <h2 style={{ margin: 0, fontSize: 22, fontWeight: 600, color: "#0f172a", letterSpacing: "-0.01em", flex: 1, minWidth: 200 }}>
                 {selectedMsg.subject || "(sin asunto)"}
               </h2>
-              <div style={{ display: "flex", gap: 8 }}>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                 <button style={replyBtnStyle} onClick={() => replyTo(selectedMsg)}>↩ Responder</button>
+                <button
+                  onClick={() => forwardMsg(selectedMsg)}
+                  title="Reenviar este mensaje a otra dirección"
+                  style={{
+                    background: "#fff",
+                    border: "1px solid rgba(99,102,241,0.3)",
+                    borderRadius: 10,
+                    padding: "8px 12px",
+                    color: "#6366f1",
+                    cursor: "pointer",
+                    fontSize: 13,
+                    fontWeight: 600,
+                    fontFamily: "inherit",
+                  }}
+                >↪ Reenviar</button>
                 <button
                   onClick={() => deleteMessage(selectedMsg.accountId, selectedMsg.uid)}
                   title="Eliminar este mensaje de la bandeja"
@@ -759,6 +795,14 @@ export default function ClientInboxPage() {
           initial={composeData}
           onClose={() => setComposeOpen(false)}
           onSent={() => { setComposeOpen(false); loadMessages(); loadReminders(); }}
+        />
+      )}
+      {signatureModalOpen && (
+        <SignatureModal
+          uniboxId={id}
+          accounts={accounts}
+          onClose={() => setSignatureModalOpen(false)}
+          onSaved={() => loadAccounts()}
         />
       )}
     </div>
@@ -1319,6 +1363,213 @@ function ThreadCard({
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+/* ─────────── Modal de Firmas ─────────── */
+function SignatureModal({ uniboxId, accounts, onClose, onSaved }: { uniboxId: string; accounts: any[]; onClose: () => void; onSaved: () => void }) {
+  const [accountId, setAccountId] = useState<string>(accounts[0]?.id || "");
+  const [signature, setSignature] = useState<string>("");
+  const [saving, setSaving] = useState(false);
+  const [savedFlag, setSavedFlag] = useState(false);
+
+  // Cargar la firma actual cuando cambia la cuenta seleccionada
+  useEffect(() => {
+    const acc = accounts.find((a) => a.id === accountId);
+    setSignature(acc?.signature_html || "");
+    setSavedFlag(false);
+  }, [accountId, accounts]);
+
+  async function save() {
+    if (!accountId) return;
+    setSaving(true);
+    try {
+      const r = await fetch(`/api/uniboxes/${uniboxId}/accounts/${accountId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ signature_html: signature }),
+      });
+      if (r.ok) {
+        setSavedFlag(true);
+        onSaved();
+        setTimeout(() => setSavedFlag(false), 2400);
+      } else {
+        alert("Error al guardar");
+      }
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function applyToAll() {
+    if (!confirm(`Esto aplicará la firma actual a TODAS las ${accounts.length} cuentas. ¿Seguir?`)) return;
+    setSaving(true);
+    try {
+      for (const a of accounts) {
+        await fetch(`/api/uniboxes/${uniboxId}/accounts/${a.id}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ signature_html: signature }),
+        });
+      }
+      onSaved();
+      setSavedFlag(true);
+      setTimeout(() => setSavedFlag(false), 3000);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const selectedAcc = accounts.find((a) => a.id === accountId);
+
+  return (
+    <div onClick={onClose} style={{
+      position: "fixed", inset: 0, background: "rgba(15,23,42,0.5)",
+      backdropFilter: "blur(4px)",
+      display: "flex", alignItems: "center", justifyContent: "center",
+      zIndex: 1000, padding: 20,
+    }}>
+      <div onClick={(e) => e.stopPropagation()} style={{
+        background: "#fff", borderRadius: 16, padding: 0,
+        maxWidth: 640, width: "100%",
+        maxHeight: "90vh", overflow: "hidden",
+        display: "flex", flexDirection: "column",
+        boxShadow: "0 24px 80px rgba(15,23,42,0.3)",
+      }}>
+        <div style={{
+          padding: "18px 22px", borderBottom: "1px solid #e2e8f0",
+          display: "flex", justifyContent: "space-between", alignItems: "center",
+        }}>
+          <div>
+            <h2 style={{ margin: 0, fontSize: 17, fontWeight: 700, color: "#0f172a" }}>✍ Firmas por cuenta</h2>
+            <div style={{ fontSize: 12, color: "#64748b", marginTop: 2 }}>Se añade automáticamente al enviar desde la cuenta elegida.</div>
+          </div>
+          <button onClick={onClose} style={{ background: "transparent", border: "none", fontSize: 22, color: "#94a3b8", cursor: "pointer" }}>×</button>
+        </div>
+
+        <div style={{ padding: "18px 22px", overflowY: "auto", flex: 1 }}>
+          <label style={{ display: "block", fontSize: 11, fontWeight: 700, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 6 }}>
+            Cuenta
+          </label>
+          <select
+            value={accountId}
+            onChange={(e) => setAccountId(e.target.value)}
+            style={{
+              width: "100%", padding: "10px 12px",
+              border: "1px solid rgba(15,23,42,0.12)",
+              borderRadius: 10, fontSize: 14, fontFamily: "inherit",
+              marginBottom: 16,
+            }}
+          >
+            {accounts.map((a) => (
+              <option key={a.id} value={a.id}>
+                {a.email}{a.signature_html ? "  ✓" : ""}
+              </option>
+            ))}
+          </select>
+
+          <label style={{ display: "block", fontSize: 11, fontWeight: 700, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 6 }}>
+            Firma HTML (se puede usar &lt;br&gt;, &lt;strong&gt;, &lt;a&gt;, &lt;img&gt;)
+          </label>
+          <textarea
+            value={signature}
+            onChange={(e) => setSignature(e.target.value)}
+            placeholder={`<p>Un saludo,<br><strong>${selectedAcc?.first_name || "Tu nombre"}</strong><br>${selectedAcc?.email || "tu@empresa.com"}</p>`}
+            rows={9}
+            style={{
+              width: "100%", padding: "10px 12px",
+              border: "1px solid rgba(15,23,42,0.12)",
+              borderRadius: 10, fontSize: 13,
+              fontFamily: "ui-monospace, Menlo, monospace",
+              resize: "vertical",
+              boxSizing: "border-box",
+            }}
+          />
+
+          {signature && (
+            <>
+              <label style={{ display: "block", fontSize: 11, fontWeight: 700, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.05em", marginTop: 14, marginBottom: 6 }}>
+                Vista previa
+              </label>
+              <div
+                style={{
+                  border: "1px dashed rgba(15,23,42,0.15)",
+                  borderRadius: 10,
+                  padding: 14,
+                  background: "#fafbfc",
+                  fontSize: 14,
+                  lineHeight: 1.5,
+                  color: "#0f172a",
+                }}
+                dangerouslySetInnerHTML={{ __html: signature.replace(/<script[\s\S]*?<\/script>/gi, "") }}
+              />
+            </>
+          )}
+
+          <div style={{
+            marginTop: 16, padding: "10px 14px",
+            background: "rgba(99,102,241,0.06)",
+            border: "1px solid rgba(99,102,241,0.2)",
+            borderRadius: 10,
+            fontSize: 12, color: "#475569", lineHeight: 1.5,
+          }}>
+            💡 Cada cuenta puede tener su propia firma. La firma se añade automáticamente al final de cada email que envíes desde esa cuenta — tanto en respuestas como en mensajes nuevos.
+          </div>
+        </div>
+
+        <div style={{
+          padding: "14px 22px", borderTop: "1px solid #e2e8f0",
+          display: "flex", justifyContent: "space-between", alignItems: "center",
+          gap: 10, flexWrap: "wrap",
+        }}>
+          <button
+            onClick={applyToAll}
+            disabled={saving || !signature}
+            style={{
+              background: "#fff",
+              border: "1px solid rgba(99,102,241,0.4)",
+              borderRadius: 10,
+              padding: "9px 14px",
+              fontSize: 12.5, fontWeight: 600,
+              color: "#6366f1",
+              cursor: saving ? "wait" : "pointer",
+              fontFamily: "inherit",
+              opacity: !signature ? 0.5 : 1,
+            }}
+            title="Copia esta firma a TODAS las cuentas de la unibox"
+          >
+            📋 Aplicar a todas las cuentas
+          </button>
+          <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+            {savedFlag && <span style={{ color: "#16a34a", fontSize: 13, fontWeight: 600 }}>✓ Guardado</span>}
+            <button
+              onClick={onClose}
+              style={{
+                background: "#fff", border: "1px solid rgba(15,23,42,0.12)",
+                borderRadius: 10, padding: "9px 16px",
+                fontSize: 13, fontWeight: 500,
+                color: "#0f172a", cursor: "pointer", fontFamily: "inherit",
+              }}
+            >Cerrar</button>
+            <button
+              onClick={save}
+              disabled={saving}
+              style={{
+                background: "linear-gradient(135deg, #0071e3, #3b82f6)",
+                border: "none", borderRadius: 10,
+                padding: "10px 18px",
+                fontSize: 13, fontWeight: 600,
+                color: "#fff", cursor: saving ? "wait" : "pointer",
+                fontFamily: "inherit",
+                boxShadow: "0 2px 8px rgba(0,113,227,0.3)",
+              }}
+            >
+              {saving ? "Guardando…" : "Guardar firma"}
+            </button>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

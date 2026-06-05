@@ -248,13 +248,13 @@ export function isBounceOrFailure(m: { from?: string; fromAddress?: string; from
   ) {
     return true;
   }
-  // IONOS: filtramos sus emails SISTEMA (newsletter, notificaciones, billing)
-  // pero NO los emails personales enviados POR USUARIOS A TRAVÉS de IONOS.
-  // Los mails del sistema vienen de @ionos.com, no de @ionos.es (hostings).
+  // IONOS: filtramos sus emails SISTEMA (newsletter, notificaciones, billing,
+  // soporte) pero NO los emails personales enviados POR USUARIOS A TRAVÉS
+  // de IONOS. Los mails del sistema vienen de @ionos.com / @ionos.es.
   if (
-    /^(no-?reply|noreply|notification|notifications|info|servicio|service|sistema|system|billing|admin)@ionos\.(com|es|de|fr|co\.uk)$/i.test(from) ||
+    /^(no-?reply|noreply|notification|notifications|info|servicio|service|sistema|system|billing|admin|soporte|support|atencion|contacto)@ionos\.(com|es|de|fr|co\.uk)$/i.test(from) ||
     /^@?ionos\.(com|de)$/i.test(from) ||
-    /<\s*(no-?reply|noreply|notification|billing)@ionos\./i.test(from)
+    /<\s*(no-?reply|noreply|notification|billing|soporte|support)@ionos\./i.test(from)
   ) {
     return true;
   }
@@ -265,6 +265,18 @@ export function isBounceOrFailure(m: { from?: string; fromAddress?: string; from
   if (
     /@(.+\.)?1stcontact\.ai\b/i.test(from) ||
     /<\s*[^>]*@(.+\.)?1stcontact\.ai\b/i.test(from)
+  ) {
+    return true;
+  }
+
+  // Instantly.ai — herramienta de outreach. Sus emails de support/notification/
+  // billing son ruido automático para el usuario. Bloqueamos remitentes
+  // típicos del sistema (support, noreply, notification, billing, info).
+  // NO bloqueamos el dominio completo porque algunos clientes podrían
+  // recibir comunicación personal de empleados de Instantly.
+  if (
+    /^(support|noreply|no-?reply|notification|notifications|billing|info|hello|team|alerts)@(.+\.)?instantly\.ai\b/i.test(from) ||
+    /<\s*(support|noreply|no-?reply|notification|notifications|billing|info|hello|team|alerts)@(.+\.)?instantly\.ai\b/i.test(from)
   ) {
     return true;
   }

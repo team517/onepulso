@@ -33,42 +33,58 @@ export function getPool(): Pool | null {
   globalThis.__pgPool = new Pool({
     connectionString: url,
     ssl: url.includes("railway.internal") ? false : { rejectUnauthorized: false },
-    // PERFORMANCE: pool grande para no esperar nunca a connect() en cargas
-    // burst (40 cuentas sincronizando en paralelo). 5 era cuello de botella.
     max: 20,
-    min: 2, // pre-warm 2 conexiones siempre listas → primera query sin handshake
+    min: 2,
     idleTimeoutMillis: 30_000,
-    connectionTimeoutMillis: 5_000,
-    // Statement timeout: evita queries colgadas que bloqueen conexiones
-    statement_timeout: 15_000,
-    query_timeout: 15_000,
+    connectionTimeoutMillis: 10_000,
+    // NO statement_timeout/query_timeout aquí — mataba CREATE INDEX
+    // y otras DDL legítimas tras migraciones. Para queries normales
+    // usamos timeout en el código (withClient ya tiene retry).
   });
   return globalThis.__pgPool;
 }
 
-/** Inicializa el schema (tablas KV y blobs) si no existe. Idempotente. */
+/** Inicializa el schema (tablas KV y blobs) si no existe. Idempotente.
+ *  RESILIENCIA: si falla (timeout, lock), marca como hecho de todos modos
+ *  para no bloquear queries posteriores. Si las tablas ya existen (caso
+ *  más común tras migración), los siguientes queries funcionarán; si no
+ *  existen, fallarán explícitamente y verás el error real. */
 export async function ensureSchema(): Promise<void> {
   if (globalThis.__pgInitDone) return;
   const pool = getPool();
   if (!pool) return;
+  // Marcamos como done ANTES de intentar — así si timeout no entramos
+  // en loop infinito intentando crear schema en cada query.
+  globalThis.__pgInitDone = true;
   const client = await pool.connect();
   try {
+    // Statement separados — si CREATE INDEX falla (lock), las tablas
+    // siguen creándose. Antes era un solo statement multilinea que
+    // fallaba entero ante cualquier timeout.
     await client.query(`
       CREATE TABLE IF NOT EXISTS kv_store (
         key TEXT PRIMARY KEY,
         value JSONB NOT NULL,
         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-      );
-      CREATE INDEX IF NOT EXISTS kv_store_key_prefix_idx ON kv_store (key text_pattern_ops);
+      )
+    `).catch((e) => console.warn("[db] CREATE kv_store:", e.message));
 
+    await client.query(`
       CREATE TABLE IF NOT EXISTS blob_store (
         key TEXT PRIMARY KEY,
         mime TEXT NOT NULL DEFAULT 'application/octet-stream',
         data BYTEA NOT NULL,
         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-      );
-    `);
-    globalThis.__pgInitDone = true;
+      )
+    `).catch((e) => console.warn("[db] CREATE blob_store:", e.message));
+
+    // CREATE INDEX puede ser slow en tablas grandes recién migradas
+    // (porque Postgres reconstruye el índice). NO bloqueamos al app:
+    // si falla por timeout, la app sigue funcionando sin ese index
+    // (queries más lentas pero funcionales).
+    await client.query(
+      `CREATE INDEX IF NOT EXISTS kv_store_key_prefix_idx ON kv_store (key text_pattern_ops)`
+    ).catch((e) => console.warn("[db] CREATE INDEX:", e.message));
   } finally {
     client.release();
   }

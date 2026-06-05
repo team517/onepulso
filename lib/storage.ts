@@ -92,6 +92,11 @@ export function getStorageStats() {
   };
 }
 
+// REQUEST COALESCING: si hay una lectura en vuelo para la misma key,
+// las demás peticiones esperan a esa en vez de hacer DB queries paralelas.
+// Esto reduce 10 lecturas simultáneas de email-threads (10x 5s) a 1 sola.
+const _inflight = new Map<string, Promise<any>>();
+
 /** Lee un valor JSON por clave. Devuelve null si no existe. */
 export async function readJson<T = any>(key: string): Promise<T | null> {
   // Fast path: cache hit
@@ -99,6 +104,17 @@ export async function readJson<T = any>(key: string): Promise<T | null> {
   if (cached !== undefined) { _cacheHits++; return cached; }
   _cacheMisses++;
 
+  // ¿Hay una lectura en vuelo para esta key? Espera a ella.
+  const inflight = _inflight.get(key);
+  if (inflight) return inflight as Promise<T | null>;
+
+  // Iniciamos la lectura y guardamos la promesa para que otros la esperen.
+  const promise = doRead<T>(key).finally(() => _inflight.delete(key));
+  _inflight.set(key, promise);
+  return promise;
+}
+
+async function doRead<T>(key: string): Promise<T | null> {
   if (isDbEnabled()) {
     await ensureSchema();
     const t0 = Date.now();

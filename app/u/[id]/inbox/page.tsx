@@ -60,6 +60,13 @@ export default function ClientInboxPage() {
         const ctrl = new AbortController();
         const timer = setTimeout(() => ctrl.abort(), 10_000);
         const r = await fetch("/api/unibox-client/me", { signal: ctrl.signal, cache: "no-store" });
+        // Si la base de datos está recuperándose, el servidor devuelve 503.
+        // Mostramos un mensaje amigable en lugar de redirigir al login.
+        if (r.status === 503) {
+          console.warn("[unibox] /api/unibox-client/me devolvió 503 — DB recovering");
+          setAuthError("La base de datos se está recuperando, por favor inténtalo de nuevo en un momento.");
+          return;
+        }
         clearTimeout(timer);
         const d = await r.json();
         if (!d.authenticated || d.uniboxId !== id) {

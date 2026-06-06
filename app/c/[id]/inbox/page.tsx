@@ -139,59 +139,15 @@ export default function ClienteInboxPage() {
     } catch {}
   }
 
+  // REFRESH: solo busca nuevos mensajes en los IMAP de todas las cuentas.
+  // No abre modal, solo muestra spinner en el botón. Mucho más rápido
+  // porque las cuentas ya están conectadas/verificadas.
   async function syncAll() {
     setLoading(true);
-    setSyncProgressOpen(true);
-    setSyncProgress({ total: 0, done: 0, ok: 0, fail: 0, items: [] });
-
     try {
-      const evt = new EventSource(`/api/uniboxes/${id}/sync-stream`);
-      await new Promise<void>((resolve) => {
-        evt.addEventListener("start", (e: any) => {
-          try {
-            const d = JSON.parse(e.data);
-            setSyncProgress({ total: d.total || 0, done: 0, ok: 0, fail: 0, items: [] });
-          } catch {}
-        });
-        evt.addEventListener("progress", (e: any) => {
-          try {
-            const d = JSON.parse(e.data);
-            setSyncProgress((prev) => {
-              if (!prev) return prev;
-              // si es phase=connecting, lo añadimos como item nuevo
-              // si es phase=ok/error, actualizamos el último item del email
-              const items = [...prev.items];
-              const last = items[items.length - 1];
-              if (last && last.email === d.email) {
-                items[items.length - 1] = { email: d.email, phase: d.phase, message: d.message };
-              } else {
-                items.push({ email: d.email, phase: d.phase, message: d.message });
-              }
-              return {
-                ...prev,
-                done: d.phase !== "connecting" ? prev.done + 1 : prev.done,
-                ok: d.phase === "ok" ? prev.ok + 1 : prev.ok,
-                fail: d.phase === "error" ? prev.fail + 1 : prev.fail,
-                items,
-              };
-            });
-          } catch {}
-        });
-        evt.addEventListener("done", (e: any) => {
-          try {
-            const d = JSON.parse(e.data);
-            setSyncProgress((prev) => prev ? { ...prev, finished: true, elapsedMs: d.elapsed_ms } : prev);
-          } catch {}
-          evt.close();
-          resolve();
-        });
-        evt.onerror = () => {
-          evt.close();
-          resolve();
-        };
-      });
-
-      // Refrescar cuentas y mensajes tras completar
+      // sync-all (no streaming) — solo trae nuevos mensajes vía sync incremental.
+      await fetch(`/api/uniboxes/${id}/sync-all`, { method: "POST" });
+      // Refrescar lista de mensajes y cuentas
       const accR = await fetch(`/api/uniboxes/${id}/accounts`);
       if (accR.ok) {
         const accD = await accR.json();
@@ -200,7 +156,7 @@ export default function ClienteInboxPage() {
       await loadMessages();
       setLastSync(Date.now());
     } catch (e) {
-      console.error("[unibox] sync error:", e);
+      console.error("[unibox] refresh error:", e);
     }
     setLoading(false);
   }
@@ -639,8 +595,13 @@ export default function ClienteInboxPage() {
         >
           {loading ? "Verificando…" : "⚡ Verificar cuentas (rápido)"}
         </button>
-        <button style={ghostBtn} onClick={syncAll} disabled={loading}>
-          {loading ? "Sincronizando…" : "↻ Sincronizar mensajes"}
+        <button
+          style={{ ...ghostBtn, fontWeight: 700 }}
+          onClick={syncAll}
+          disabled={loading}
+          title="Busca nuevos mensajes en todos los IMAPs. No reconecta cuentas."
+        >
+          {loading ? "Cargando…" : "↻ Refresh"}
         </button>
         <div style={{ fontSize: 10.5, color: "#94a3b8", textAlign: "center" }}>
           {lastSync ? `Última: ${fmtTimeSince(lastSync)}` : "Auto-refresh cada 60s"}

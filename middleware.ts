@@ -7,6 +7,7 @@ export function middleware(req: NextRequest) {
 
   // Rutas públicas - no requieren auth
   if (
+    pathname === "/health" ||
     pathname === "/landing" ||
     pathname.startsWith("/landing/") ||
     pathname.startsWith("/login") ||
@@ -57,3 +58,4 @@ export function middleware(req: NextRequest) {
 export const config = {
   matcher: ["/((?!_next/static|_next/image|favicon.ico).*)"],
 };
+

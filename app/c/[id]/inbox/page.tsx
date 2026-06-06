@@ -31,6 +31,9 @@ export default function ClienteInboxPage() {
   const [folderModalOpen, setFolderModalOpen] = useState(false);
   // Firma
   const [signatureModalOpen, setSignatureModalOpen] = useState(false);
+  const [showWarmup, setShowWarmup] = useState(false);
+  const [warmupCount, setWarmupCount] = useState(0);
+  const [totalAvailable, setTotalAvailable] = useState(0);
 
   // 1) Auth check
   useEffect(() => {
@@ -64,8 +67,8 @@ export default function ClienteInboxPage() {
     loadMessages();
   }, [me, id]);
 
-  // 3) Refresh cuando cambia cuenta seleccionada
-  useEffect(() => { if (me) loadMessages(); }, [selectedAccountId]);
+  // 3) Refresh cuando cambia cuenta o toggle de warmup
+  useEffect(() => { if (me) loadMessages(); }, [selectedAccountId, showWarmup]);
 
   // 4) Auto-refresh cada 60s — sync IMAP + recargar mensajes y cuentas
   // En el primer tick se ejecuta a los 5s para que veas algo rápido.
@@ -113,11 +116,14 @@ export default function ClienteInboxPage() {
     try {
       const p = new URLSearchParams();
       if (selectedAccountId) p.set("account", selectedAccountId);
+      if (showWarmup) p.set("show_warmup", "1");
       p.set("all", "1");
       const r = await fetch(`/api/uniboxes/${id}/messages?${p}`);
       if (r.ok) {
         const d = await r.json();
         setMessages(d.messages || []);
+        setWarmupCount(d.warmupCount || 0);
+        setTotalAvailable(d.total || (d.messages?.length || 0));
       }
     } catch {}
   }
@@ -125,10 +131,22 @@ export default function ClienteInboxPage() {
   async function syncAll() {
     setLoading(true);
     try {
-      await fetch(`/api/uniboxes/${id}/sync-all`, { method: "POST" });
+      const r = await fetch(`/api/uniboxes/${id}/sync-all`, { method: "POST" });
+      const data = await r.json().catch(() => ({}));
+      // Refrescar cuentas para actualizar puntos verdes
+      const accR = await fetch(`/api/uniboxes/${id}/accounts`);
+      if (accR.ok) {
+        const accD = await accR.json();
+        if (Array.isArray(accD) && accD.length > 0) setAccounts(accD);
+      }
       await loadMessages();
       setLastSync(Date.now());
-    } catch {}
+      if (data?.new === 0 && messages.length === 0 && data?.ok > 0) {
+        console.log(`[unibox] sync OK: ${data.ok} cuentas, 0 mensajes nuevos`);
+      }
+    } catch (e) {
+      console.error("[unibox] sync error:", e);
+    }
     setLoading(false);
   }
 
@@ -417,6 +435,13 @@ export default function ClienteInboxPage() {
         <div style={{ fontSize: 10.5, color: "#94a3b8", textAlign: "center" }}>
           {lastSync ? `Última: ${fmtTimeSince(lastSync)}` : "Auto-refresh cada 60s"}
         </div>
+        <button
+          style={{ ...ghostBtn, fontSize: 11.5 }}
+          onClick={() => setShowWarmup(v => !v)}
+          title={`${warmupCount} mensajes están marcados como warmup`}
+        >
+          {showWarmup ? "🔥 Ocultar warmup" : `🔥 Mostrar warmup${warmupCount ? ` (${warmupCount})` : ""}`}
+        </button>
         <button style={ghostBtn} onClick={() => setSignatureModalOpen(true)}>
           ✍ Firmas
         </button>
@@ -440,7 +465,22 @@ export default function ClienteInboxPage() {
             <div style={emptyState}>
               <div style={{ fontSize: 32, marginBottom: 10 }}>📭</div>
               <div>No hay mensajes</div>
-              <button onClick={syncAll} style={{ ...ghostBtn, marginTop: 14, display: "inline-block", width: "auto", padding: "8px 16px" }}>↻ Sincronizar ahora</button>
+              {warmupCount > 0 && !showWarmup && (
+                <div style={{ marginTop: 16, padding: 12, background: "#fef3c7", border: "1px solid #fcd34d", borderRadius: 8, fontSize: 12.5, color: "#92400e", maxWidth: 280, textAlign: "left" }}>
+                  ⚠️ <strong>{warmupCount} mensaje(s)</strong> están filtrados como warmup.
+                  <button
+                    onClick={() => setShowWarmup(true)}
+                    style={{
+                      display: "block", marginTop: 8, padding: "6px 12px",
+                      background: "#f59e0b", color: "#fff", border: 0, borderRadius: 6,
+                      fontWeight: 700, fontSize: 12, cursor: "pointer", fontFamily: "inherit",
+                    }}
+                  >Mostrar mensajes warmup</button>
+                </div>
+              )}
+              <button onClick={syncAll} style={{ ...ghostBtn, marginTop: 14, display: "inline-block", width: "auto", padding: "8px 16px" }} disabled={loading}>
+                {loading ? "Sincronizando…" : "↻ Sincronizar ahora"}
+              </button>
             </div>
           ) : (
             filtered.map((m) => {

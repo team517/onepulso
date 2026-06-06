@@ -24,9 +24,54 @@ export function getPool(): Pool | null {
   // cualquiera mate el proceso entero (lo veíamos como
   // "uncaughtException: Connection terminated unexpectedly").
   globalThis.__pgPool.on("error", (err) => {
-    console.warn("[db pool] error idle client (ignorado):", err.message);
+    console.warn("[db pool] error idle client — forzando recreación del pool:", err.message);
+    // Marcar el pool como corrupto para que la próxima llamada a getPool()
+    // cree uno nuevo en lugar de reutilizar el pool roto.
+    globalThis.__pgPool = undefined;
+    globalThis.__pgInitDone = undefined;
   });
   return globalThis.__pgPool;
+}
+
+/**
+ * Intenta obtener un cliente del pool con reintentos y backoff exponencial.
+ * Útil cuando Postgres acaba de recuperarse y el pool aún no está listo.
+ *
+ * @param maxAttempts  Número máximo de intentos (default: 3)
+ * @param baseDelayMs  Delay inicial en ms antes del primer reintento (default: 500)
+ */
+async function connectWithRetry(
+  pool: Pool,
+  maxAttempts = 3,
+  baseDelayMs = 500
+): Promise<PoolClient> {
+  let lastError: Error | undefined;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      return await pool.connect();
+    } catch (err: any) {
+      lastError = err;
+      const isRetryable =
+        /timeout|ECONNREFUSED|ENOTFOUND|ETIMEDOUT|connection terminated|connection refused/i.test(
+          err?.message || ""
+        );
+      if (!isRetryable || attempt === maxAttempts) break;
+      const delay = baseDelayMs * Math.pow(2, attempt - 1); // 500ms, 1000ms, …
+      console.warn(
+        `[db pool] intento ${attempt}/${maxAttempts} fallido (${err.message}) — reintentando en ${delay}ms`
+      );
+      await new Promise((res) => setTimeout(res, delay));
+      // Si el pool fue marcado como corrupto durante el backoff, recrearlo
+      if (!globalThis.__pgPool) {
+        console.warn("[db pool] pool destruido durante backoff — recreando");
+        getPool();
+        if (!globalThis.__pgPool) throw lastError;
+        // Usar el pool recién creado para el siguiente intento
+        pool = globalThis.__pgPool;
+      }
+    }
+  }
+  throw lastError;
 }
 
 /** Inicializa el schema (tablas KV y blobs) si no existe. Idempotente. */
@@ -34,7 +79,7 @@ export async function ensureSchema(): Promise<void> {
   if (globalThis.__pgInitDone) return;
   const pool = getPool();
   if (!pool) return;
-  const client = await pool.connect();
+  const client = await connectWithRetry(pool);
   try {
     await client.query(`
       CREATE TABLE IF NOT EXISTS kv_store (
@@ -57,11 +102,11 @@ export async function ensureSchema(): Promise<void> {
   }
 }
 
-/** Helper para ejecutar query con conexión auto-gestionada */
+/** Helper para ejecutar query con conexión auto-gestionada y reintentos */
 export async function withClient<T>(fn: (c: PoolClient) => Promise<T>): Promise<T> {
   const pool = getPool();
   if (!pool) throw new Error("DATABASE_URL no configurado");
-  const client = await pool.connect();
+  const client = await connectWithRetry(pool);
   try {
     return await fn(client);
   } finally {

@@ -436,6 +436,36 @@ export default function ClienteInboxPage() {
           {lastSync ? `Última: ${fmtTimeSince(lastSync)}` : "Auto-refresh cada 60s"}
         </div>
         <button
+          style={{ ...ghostBtn, color: "#f59e0b", borderColor: "rgba(245,158,11,0.35)", fontSize: 11.5 }}
+          onClick={async () => {
+            if (!confirm("Esto descarga los últimos 1500 mensajes de IMAP por cuenta (puede tardar 1-3 min). ¿Continuar?")) return;
+            setLoading(true);
+            try {
+              const r = await fetch(`/api/uniboxes/${id}/force-resync`, {
+                method: "POST", headers: { "Content-Type": "application/json" }, body: "{}",
+              });
+              const d = await r.json().catch(() => ({}));
+              await loadMessages();
+              setLastSync(Date.now());
+              alert(
+                `Resync completo:\n` +
+                `${d?.totalInbox || 0} mensajes INBOX\n` +
+                `${d?.totalSent || 0} mensajes Sent\n` +
+                `${d?.accounts || 0} cuentas procesadas` +
+                (d?.errors ? `\n${d.errors} errores` : "")
+              );
+            } catch (e: any) {
+              alert("Error en force-resync: " + (e?.message || e));
+            } finally {
+              setLoading(false);
+            }
+          }}
+          disabled={loading}
+          title="Descarga TODOS los mensajes del IMAP ignorando el cache (usar si crees que faltan mensajes)"
+        >
+          🔧 Forzar resync completo
+        </button>
+        <button
           style={{ ...ghostBtn, fontSize: 11.5 }}
           onClick={() => setShowWarmup(v => !v)}
           title={`${warmupCount} mensajes están marcados como warmup`}

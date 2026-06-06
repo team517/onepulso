@@ -801,7 +801,43 @@ export default function ClienteInboxPage() {
           accounts={accounts}
           initial={composeData}
           onClose={() => setComposeOpen(false)}
-          onSent={() => { setComposeOpen(false); loadMessages(); }}
+          onSent={(sent: any) => {
+            setComposeOpen(false);
+            // OPTIMISTIC UPDATE: añade el mensaje recién enviado a la lista
+            // local INMEDIATAMENTE. Aparece en Enviados sin esperar al
+            // sync IMAP. Cuando el sync traiga la versión "real", el dedup
+            // por messageId la sustituye sin duplicar.
+            if (sent && sent.accountId) {
+              const acc = accounts.find(a => a.id === sent.accountId);
+              const plainBody = (sent.body || "").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+              const fakeUid = -Date.now(); // UID negativo = convención de Sent en el cache
+              const optimisticMsg: any = {
+                uid: fakeUid,
+                accountId: sent.accountId,
+                messageId: sent.messageId || `<optimistic-${fakeUid}@local>`,
+                from: acc?.email || "",
+                fromName: [acc?.first_name, acc?.last_name].filter(Boolean).join(" ") || acc?.email || "",
+                fromAddress: acc?.email || "",
+                to: sent.to,
+                toAddress: (sent.to || "").split(",")[0].trim(),
+                subject: sent.subject || "(sin asunto)",
+                date: new Date().toISOString(),
+                preview: plainBody.slice(0, 180),
+                unread: false,
+                is_warmup: false,
+                folder_id: null,
+                has_attachments: false,
+                is_sent: true,
+                inReplyTo: sent.inReplyTo,
+                references: sent.references ? sent.references.split(/\s+/).filter(Boolean) : [],
+              };
+              setMessages(prev => [optimisticMsg, ...prev]);
+              // Cambiar al filtro Enviados para que el usuario lo vea
+              setFilter("sent");
+            }
+            // Y refrescamos en background por si hay sync paralelo
+            setTimeout(() => loadMessages(), 3000);
+          }}
         />
       )}
 
@@ -936,7 +972,15 @@ function ComposeModal({ uniboxId, accounts, initial, onClose, onSent }: any) {
       const r = await fetch(`/api/uniboxes/${uniboxId}/send`, { method: "POST", body: fd });
       const d = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(d.error || "Error enviando");
-      onSent();
+      // Pasamos al parent los datos del envío para que pueda añadir el
+      // mensaje optimista a la lista (aparece en Enviados al instante,
+      // sin esperar al sync IMAP del Sent folder).
+      onSent({
+        accountId, to, subject, body,
+        messageId: d.messageId,
+        inReplyTo: initial.inReplyTo,
+        references: initial.references,
+      });
     } catch (e: any) {
       setError(e.message);
     } finally {

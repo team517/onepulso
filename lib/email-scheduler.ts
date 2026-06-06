@@ -118,45 +118,11 @@ export async function tick() {
   // 1. Enviar follow-ups vencidos
   const dueResults = await sendDueFollowups();
 
-  // 2. Sync incremental (rápido, cada 30s)
-  if (Date.now() - lastInboxSync > INBOX_SYNC_MS) {
-    lastInboxSync = Date.now();
-    try {
-      const r = await syncInbox({ days: 14, max: 150 });
-      if (r.new_messages > 0) {
-        console.log(`[email-scheduler] inbox sync: ${r.new_messages} new in ${r.threads_touched.length} threads`);
-        try {
-          const ap = await runAutopilot();
-          if (ap.scheduled > 0) {
-            console.log(`[email-scheduler] autopilot: ${ap.processed} procesados, ${ap.scheduled} agendados, ${ap.errors} errores`);
-          }
-        } catch (e) {
-          console.error("[email-scheduler] autopilot error", e);
-        }
-      }
-    } catch (e) {
-      console.error("[email-scheduler] inbox sync error", e);
-    }
-  }
-
-  // 3. DEEP REFRESH (cada 2 min): para CADA hilo abierto, escanea Gmail
-  //    buscando todos los mensajes intercambiados con cada participante en
-  //    los últimos 60 días, en todas las carpetas. Garantiza que cualquier
-  //    respuesta (en cualquier dirección) acabe en la plataforma aunque
-  //    se haya perdido en el sync incremental por threading roto, etc.
-  if (Date.now() - lastDeepRefresh > DEEP_REFRESH_MS) {
-    lastDeepRefresh = Date.now();
-    try {
-      const r = await deepRefreshAllThreads({ days: 60, maxThreads: 100 });
-      if (r.new_messages > 0) {
-        console.log(`[email-scheduler] deep refresh: ${r.new_messages} mensajes nuevos en ${r.threads_refreshed} hilos`);
-        // Si encontramos algo, dispara autopilot por si toca responder
-        try { await runAutopilot(); } catch (e) {}
-      }
-    } catch (e: any) {
-      console.error("[email-scheduler] deep refresh error", e.message);
-    }
-  }
+  // 2 y 3 DESACTIVADOS: syncInbox y deepRefreshAllThreads procesaban
+  // cientos de UIDs en paralelo agotando el pool de Postgres ("Connection
+  // not available"). Esto rompía el unibox para el usuario. Si necesitas
+  // sync de /seguimientos, dispáralo manual desde /api/email/sync-thread.
+  // El UNIBOX tiene su propio sync IMAP (no afectado).
 
   // 4. Recordatorios de tareas (cada tick — fn interna decide qué notificar)
   try {

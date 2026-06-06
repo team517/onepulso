@@ -11,12 +11,39 @@ import path from "path";
 import { getPool, ensureSchema, isDbEnabled, withClient } from "./db";
 import { dataPath } from "./data-dir";
 
-/** Lee un valor JSON por clave. Devuelve null si no existe. */
+/** Timeout en ms para cada query de base de datos. Si se supera, la operación
+ *  devuelve null/void en lugar de quedarse colgada indefinidamente. */
+const DB_QUERY_TIMEOUT_MS = 5_000;
+
+/**
+ * Envuelve una promesa de base de datos con un timeout.
+ * Si la promesa no resuelve en `timeoutMs`, rechaza con un error de timeout.
+ */
+function withDbTimeout<T>(promise: Promise<T>, timeoutMs = DB_QUERY_TIMEOUT_MS): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(new Error(`[storage] DB query timeout after ${timeoutMs}ms`));
+    }, timeoutMs);
+    promise.then(
+      (val) => { clearTimeout(timer); resolve(val); },
+      (err) => { clearTimeout(timer); reject(err); }
+    );
+  });
+}
+
+/** Lee un valor JSON por clave. Devuelve null si no existe o si la DB no responde. */
 export async function readJson<T = any>(key: string): Promise<T | null> {
   if (isDbEnabled()) {
-    await ensureSchema();
-    const r = await withClient((c) => c.query<{ value: T }>("SELECT value FROM kv_store WHERE key = $1", [key]));
-    return r.rows[0]?.value ?? null;
+    try {
+      await withDbTimeout(ensureSchema());
+      const r = await withDbTimeout(
+        withClient((c) => c.query<{ value: T }>("SELECT value FROM kv_store WHERE key = $1", [key]))
+      );
+      return r.rows[0]?.value ?? null;
+    } catch (err: any) {
+      console.error(`[storage] readJson("${key}") failed:`, err.message);
+      return null;
+    }
   }
   // Fallback fs
   try {
@@ -31,15 +58,22 @@ export async function readJson<T = any>(key: string): Promise<T | null> {
 /** Guarda un valor JSON por clave. Sobrescribe si existe. */
 export async function writeJson(key: string, value: any): Promise<void> {
   if (isDbEnabled()) {
-    await ensureSchema();
-    await withClient((c) =>
-      c.query(
-        `INSERT INTO kv_store (key, value, updated_at)
-         VALUES ($1, $2::jsonb, NOW())
-         ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()`,
-        [key, JSON.stringify(value)]
-      )
-    );
+    try {
+      await withDbTimeout(ensureSchema());
+      await withDbTimeout(
+        withClient((c) =>
+          c.query(
+            `INSERT INTO kv_store (key, value, updated_at)
+             VALUES ($1, $2::jsonb, NOW())
+             ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()`,
+            [key, JSON.stringify(value)]
+          )
+        )
+      );
+    } catch (err: any) {
+      console.error(`[storage] writeJson("${key}") failed:`, err.message);
+      throw err;
+    }
     return;
   }
   // Fallback fs
@@ -51,8 +85,15 @@ export async function writeJson(key: string, value: any): Promise<void> {
 /** Borra una entrada por clave. */
 export async function deleteJson(key: string): Promise<void> {
   if (isDbEnabled()) {
-    await ensureSchema();
-    await withClient((c) => c.query("DELETE FROM kv_store WHERE key = $1", [key]));
+    try {
+      await withDbTimeout(ensureSchema());
+      await withDbTimeout(
+        withClient((c) => c.query("DELETE FROM kv_store WHERE key = $1", [key]))
+      );
+    } catch (err: any) {
+      console.error(`[storage] deleteJson("${key}") failed:`, err.message);
+      throw err;
+    }
     return;
   }
   const filePath = keyToPath(key);
@@ -62,11 +103,18 @@ export async function deleteJson(key: string): Promise<void> {
 /** Lista las claves que empiezan por un prefijo (útil para "directorios" como memory/) */
 export async function listKeys(prefix: string): Promise<string[]> {
   if (isDbEnabled()) {
-    await ensureSchema();
-    const r = await withClient((c) =>
-      c.query<{ key: string }>("SELECT key FROM kv_store WHERE key LIKE $1 ORDER BY key", [`${prefix}%`])
-    );
-    return r.rows.map((row) => row.key);
+    try {
+      await withDbTimeout(ensureSchema());
+      const r = await withDbTimeout(
+        withClient((c) =>
+          c.query<{ key: string }>("SELECT key FROM kv_store WHERE key LIKE $1 ORDER BY key", [`${prefix}%`])
+        )
+      );
+      return r.rows.map((row) => row.key);
+    } catch (err: any) {
+      console.error(`[storage] listKeys("${prefix}") failed:`, err.message);
+      return [];
+    }
   }
   // Fallback fs: si la clave es tipo "memory/" listamos los archivos en data/memory/
   try {
@@ -85,11 +133,18 @@ export async function listKeys(prefix: string): Promise<string[]> {
 /** Lee un blob binario (imágenes, etc.) */
 export async function readBlob(key: string): Promise<{ data: Buffer; mime: string } | null> {
   if (isDbEnabled()) {
-    await ensureSchema();
-    const r = await withClient((c) =>
-      c.query<{ data: Buffer; mime: string }>("SELECT data, mime FROM blob_store WHERE key = $1", [key])
-    );
-    return r.rows[0] ?? null;
+    try {
+      await withDbTimeout(ensureSchema());
+      const r = await withDbTimeout(
+        withClient((c) =>
+          c.query<{ data: Buffer; mime: string }>("SELECT data, mime FROM blob_store WHERE key = $1", [key])
+        )
+      );
+      return r.rows[0] ?? null;
+    } catch (err: any) {
+      console.error(`[storage] readBlob("${key}") failed:`, err.message);
+      return null;
+    }
   }
   try {
     const filePath = keyToPath(key);
@@ -110,15 +165,22 @@ export async function readBlob(key: string): Promise<{ data: Buffer; mime: strin
 /** Guarda un blob binario */
 export async function writeBlob(key: string, data: Buffer, mime: string = "application/octet-stream"): Promise<void> {
   if (isDbEnabled()) {
-    await ensureSchema();
-    await withClient((c) =>
-      c.query(
-        `INSERT INTO blob_store (key, mime, data, updated_at)
-         VALUES ($1, $2, $3, NOW())
-         ON CONFLICT (key) DO UPDATE SET mime = EXCLUDED.mime, data = EXCLUDED.data, updated_at = NOW()`,
-        [key, mime, data]
-      )
-    );
+    try {
+      await withDbTimeout(ensureSchema());
+      await withDbTimeout(
+        withClient((c) =>
+          c.query(
+            `INSERT INTO blob_store (key, mime, data, updated_at)
+             VALUES ($1, $2, $3, NOW())
+             ON CONFLICT (key) DO UPDATE SET mime = EXCLUDED.mime, data = EXCLUDED.data, updated_at = NOW()`,
+            [key, mime, data]
+          )
+        )
+      );
+    } catch (err: any) {
+      console.error(`[storage] writeBlob("${key}") failed:`, err.message);
+      throw err;
+    }
     return;
   }
   const filePath = keyToPath(key);

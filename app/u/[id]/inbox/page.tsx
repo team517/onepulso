@@ -51,33 +51,17 @@ export default function ClientInboxPage() {
   const [composeData, setComposeData] = useState<any>({});
   const [syncing, setSyncing] = useState(false);
 
-  // Init — robusto contra timeouts. Si /me tarda más de 10s o falla,
-  // mostramos un error en la UI en vez de quedarnos colgados en "Cargando..."
-  const [authError, setAuthError] = useState<string | null>(null);
+  // Init
   useEffect(() => {
     (async () => {
-      try {
-        const ctrl = new AbortController();
-        const timer = setTimeout(() => ctrl.abort(), 10_000);
-        const r = await fetch("/api/unibox-client/me", { signal: ctrl.signal, cache: "no-store" });
-        clearTimeout(timer);
-        const d = await r.json();
-        if (!d.authenticated || d.uniboxId !== id) {
-          router.push(`/u/${id}/login`);
-          return;
-        }
-        setMe(d);
-        // Las otras cargas no bloquean — si fallan, simplemente
-        // se quedan vacías y el usuario verá la app igualmente.
-        loadAccounts().catch(() => {});
-        loadMessages().catch(() => {});
-        loadReminders().catch(() => {});
-      } catch (e: any) {
-        console.warn("[unibox] init falló:", e?.message);
-        setAuthError(e?.name === "AbortError"
-          ? "El servidor no responde. Comprueba tu conexión."
-          : (e?.message || "Error desconocido"));
+      const r = await fetch("/api/unibox-client/me");
+      const d = await r.json();
+      if (!d.authenticated || d.uniboxId !== id) {
+        router.push(`/u/${id}/login`);
+        return;
       }
+      setMe(d);
+      await Promise.all([loadAccounts(), loadMessages(), loadReminders()]);
     })();
   }, [id]);
 
@@ -502,67 +486,7 @@ export default function ClientInboxPage() {
     setComposeOpen(true);
   }
 
-  if (!me) {
-    return (
-      <div style={{
-        minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center",
-        fontFamily: "'Plus Jakarta Sans', -apple-system, sans-serif",
-        background: "linear-gradient(145deg, #fafbfc 0%, #f4f1ff 50%, #fff5e8 100%)",
-        padding: 24,
-      }}>
-        <div style={{ textAlign: "center", maxWidth: 360 }}>
-          <div style={{
-            width: 56, height: 56, borderRadius: 16,
-            background: "linear-gradient(145deg, #f9a603, #d15cfe)",
-            display: "inline-flex", alignItems: "center", justifyContent: "center",
-            fontSize: 24, color: "#fff", marginBottom: 18,
-            boxShadow: "0 10px 30px rgba(209,92,254,0.3)",
-          }}>✉</div>
-          {authError ? (
-            <>
-              <div style={{ color: "#0f172a", fontWeight: 700, fontSize: 17, marginBottom: 6 }}>
-                No pudimos cargar el unibox
-              </div>
-              <div style={{ color: "#64748b", fontSize: 13.5, lineHeight: 1.5, marginBottom: 18 }}>
-                {authError}
-              </div>
-              <button
-                onClick={() => window.location.reload()}
-                style={{
-                  padding: "10px 22px",
-                  background: "linear-gradient(135deg, #f9a603, #d15cfe)",
-                  border: 0, borderRadius: 10, color: "#fff",
-                  fontWeight: 700, fontSize: 13.5, cursor: "pointer",
-                  boxShadow: "0 8px 20px -4px rgba(209,92,254,0.4)",
-                }}
-              >Reintentar</button>
-              <button
-                onClick={() => router.push(`/u/${id}/login`)}
-                style={{
-                  marginLeft: 8,
-                  padding: "10px 22px",
-                  background: "transparent",
-                  border: "1px solid rgba(15,23,42,0.15)", borderRadius: 10, color: "#475569",
-                  fontWeight: 600, fontSize: 13.5, cursor: "pointer",
-                }}
-              >Volver al login</button>
-            </>
-          ) : (
-            <>
-              <div style={{
-                display: "inline-block", width: 22, height: 22,
-                border: "3px solid rgba(209,92,254,0.2)",
-                borderTopColor: "#d15cfe", borderRadius: "50%",
-                animation: "spin 0.8s linear infinite", marginBottom: 14,
-              }} />
-              <div style={{ color: "#64748b", fontSize: 13.5 }}>Cargando tu unibox…</div>
-            </>
-          )}
-        </div>
-        <style jsx>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
-      </div>
-    );
-  }
+  if (!me) return <div style={{ padding: 40, textAlign: "center", color: "#94a3b8" }}>Cargando…</div>;
 
   // PERFORMANCE: memoizamos todo lo que se recalcula con cada render.
   // Antes en 5000 msgs cada cambio de search/folder = 4 .filter() sobre

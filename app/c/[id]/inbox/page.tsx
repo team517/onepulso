@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
 
 /**
@@ -596,15 +596,26 @@ function ComposeModal({ uniboxId, accounts, initial, onClose, onSent }: any) {
   const [accountId, setAccountId] = useState(initial.accountId || accounts[0]?.id || "");
   const [to, setTo] = useState(initial.to || "");
   const [subject, setSubject] = useState(initial.subject || "");
-  const [body, setBody] = useState(initial.body || "");
+  // body se lee del editor cuando se pulsa Enviar, no en cada keystroke.
+  // Esto evita el bug de escribir al revés (cursor jump al final).
+  const editorRef = useRef<HTMLDivElement>(null);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState("");
+
+  // Inicializa el editor con el body inicial UNA SOLA VEZ (al montar).
+  useEffect(() => {
+    if (editorRef.current && initial.body) {
+      editorRef.current.innerHTML = initial.body;
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   async function send() {
     if (!to.trim()) { setError("Falta destinatario"); return; }
     setSending(true);
     setError("");
     try {
+      const body = editorRef.current?.innerHTML || "";
       const fd = new FormData();
       fd.append("accountId", accountId);
       fd.append("to", to);
@@ -656,10 +667,9 @@ function ComposeModal({ uniboxId, accounts, initial, onClose, onSent }: any) {
 
           <label style={composeLabel}>Mensaje</label>
           <div
+            ref={editorRef}
             contentEditable
             suppressContentEditableWarning
-            onInput={(e) => setBody((e.target as HTMLDivElement).innerHTML)}
-            dangerouslySetInnerHTML={{ __html: body }}
             style={{ ...composeInput, minHeight: 200, padding: 12, outline: "none" }}
           />
 

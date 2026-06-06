@@ -96,7 +96,7 @@ export default function UniboxesAdminPage() {
       } catch {}
 
       setCreatedInfo({
-        url: `${window.location.origin}/u/${data.id}/login`,
+        url: `${window.location.origin}/c/${data.id}/login`,
         email: clientEmail,
         password: clientPassword,
       });

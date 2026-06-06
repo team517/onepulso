@@ -53,7 +53,7 @@ export default function UniboxAdminDetailPage() {
 
   async function copyCredentials() {
     if (!unibox) return;
-    const url = `${window.location.origin}/u/${id}/login`;
+    const url = `${window.location.origin}/c/${id}/login`;
     const password = onboardingClient?.unibox_password;
     const lines = [
       `URL: ${url}`,
@@ -213,7 +213,7 @@ export default function UniboxAdminDetailPage() {
   if (loading) return (<div className="dash-shell"><DashboardNav /><div className="dash-content" style={mainStyle}>Cargando…</div></div>);
   if (!unibox) return (<div className="dash-shell"><DashboardNav /><div className="dash-content" style={mainStyle}>Unibox no encontrada</div></div>);
 
-  const clientUrl = `${typeof window !== "undefined" ? window.location.origin : ""}/u/${id}/login`;
+  const clientUrl = `${typeof window !== "undefined" ? window.location.origin : ""}/c/${id}/login`;
 
   return (
     <div className="dash-shell">
@@ -483,7 +483,7 @@ export default function UniboxAdminDetailPage() {
         )}
 
         <div style={{ marginTop: 28 }}>
-          <Link href={`/u/${id}/inbox`} style={{ ...btnPrimary, textDecoration: "none", display: "inline-block" }}>
+          <Link href={`/c/${id}/inbox`} style={{ ...btnPrimary, textDecoration: "none", display: "inline-block" }}>
             Abrir bandeja del cliente →
           </Link>
         </div>

@@ -301,6 +301,75 @@ export default function ClienteInboxPage() {
     () => accounts.filter(a => accountStatus(a) === "ok").length,
     [accounts]
   );
+  // IDs de cuentas que no están en verde (para reintentar solo esas)
+  const accountsNotOk = useMemo(
+    () => accounts.filter(a => accountStatus(a) !== "ok"),
+    [accounts]
+  );
+
+  async function reconnectFailedAccounts() {
+    if (accountsNotOk.length === 0) return;
+    if (!confirm(`Reintentar conexión IMAP+SMTP de ${accountsNotOk.length} cuenta(s) que no están en verde?`)) return;
+    setLoading(true);
+    setSyncProgressOpen(true);
+    setSyncProgress({ total: accountsNotOk.length, done: 0, ok: 0, fail: 0, items: [] });
+    try {
+      const ids = accountsNotOk.map(a => a.id).join(",");
+      const evt = new EventSource(`/api/uniboxes/${id}/sync-stream?ids=${encodeURIComponent(ids)}`);
+      await new Promise<void>((resolve) => {
+        evt.addEventListener("start", (e: any) => {
+          try {
+            const d = JSON.parse(e.data);
+            setSyncProgress({ total: d.total || 0, done: 0, ok: 0, fail: 0, items: [] });
+          } catch {}
+        });
+        evt.addEventListener("progress", (e: any) => {
+          try {
+            const d = JSON.parse(e.data);
+            setSyncProgress((prev) => {
+              if (!prev) return prev;
+              const items = [...prev.items];
+              const last = items[items.length - 1];
+              if (last && last.email === d.email) {
+                items[items.length - 1] = { email: d.email, phase: d.phase, message: d.message };
+              } else {
+                items.push({ email: d.email, phase: d.phase, message: d.message });
+              }
+              return {
+                ...prev,
+                done: d.phase !== "connecting" ? prev.done + 1 : prev.done,
+                ok: d.phase === "ok" ? prev.ok + 1 : prev.ok,
+                fail: d.phase === "error" ? prev.fail + 1 : prev.fail,
+                items,
+              };
+            });
+          } catch {}
+        });
+        evt.addEventListener("done", (e: any) => {
+          try {
+            const d = JSON.parse(e.data);
+            setSyncProgress((prev) => prev ? { ...prev, finished: true, elapsedMs: d.elapsed_ms } : prev);
+          } catch {}
+          evt.close();
+          resolve();
+        });
+        evt.onerror = () => {
+          evt.close();
+          resolve();
+        };
+      });
+      const accR = await fetch(`/api/uniboxes/${id}/accounts`);
+      if (accR.ok) {
+        const accD = await accR.json();
+        if (Array.isArray(accD) && accD.length > 0) setAccounts(accD);
+      }
+      await loadMessages();
+      setLastSync(Date.now());
+    } catch (e) {
+      console.error("[unibox] reconnect error:", e);
+    }
+    setLoading(false);
+  }
   const isOutbound = (m: any) => {
     if (typeof m.uid === "number" && m.uid < 0) return true;
     const fa = (m.fromAddress || m.from || "").toLowerCase();
@@ -443,6 +512,23 @@ export default function ClienteInboxPage() {
         <div style={sectionTitle}>
           BANDEJAS · <span style={{ color: "#10b981" }}>{accountsConnected}</span>/{accounts.length}
         </div>
+        {accountsNotOk.length > 0 && (
+          <button
+            onClick={reconnectFailedAccounts}
+            disabled={loading}
+            style={{
+              ...ghostBtn,
+              color: "#f59e0b",
+              borderColor: "rgba(245,158,11,0.4)",
+              background: "rgba(245,158,11,0.05)",
+              fontSize: 12, fontWeight: 700,
+              marginBottom: 4,
+            }}
+            title={`Reintentar conexión IMAP+SMTP de las ${accountsNotOk.length} cuentas que no están conectadas`}
+          >
+            🔌 Reconectar {accountsNotOk.length} cuenta(s)
+          </button>
+        )}
         <div style={accountList}>
           <button
             style={{ ...accountBtn, ...(selectedAccountId === null ? accountActive : {}) }}

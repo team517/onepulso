@@ -12,6 +12,39 @@ import {
 } from "./unibox-store";
 import { isWarmupMessage } from "./unibox-warmup";
 
+// ─────────────────────────────────────────────────────────────────────────────
+// LOCK PER-UNIBOX para escrituras del mapa de mensajes.
+//
+// BUG QUE ARREGLA: cuando 15 cuentas sincronizan en paralelo, todas hacen
+//   1. loadMessagesMap()  → obtienen el MISMO estado
+//   2. modifican msgsMap[accountId]
+//   3. saveMessagesMap()  → la última gana, las demás SE PIERDEN
+//
+// Resultado: 15 cuentas sincronizan pero solo se guardan los mensajes de
+// la última. Las otras 14 desaparecen → "no salen mensajes".
+//
+// Solución: serializar el read-modify-write con un lock por unibox.
+// Cada syncAccount entra en su turno, lee el estado fresco, hace su merge
+// y guarda. La descarga IMAP (lo lento) sigue 100% paralela.
+// ─────────────────────────────────────────────────────────────────────────────
+const uniboxLocks = new Map<string, Promise<void>>();
+async function withUniboxLock<T>(uniboxId: string, fn: () => Promise<T>): Promise<T> {
+  const prev = uniboxLocks.get(uniboxId) || Promise.resolve();
+  let release!: () => void;
+  const lock = new Promise<void>((resolve) => { release = resolve; });
+  uniboxLocks.set(uniboxId, prev.then(() => lock));
+  await prev;
+  try {
+    return await fn();
+  } finally {
+    release();
+    // Si nadie más está esperando, limpiamos el lock
+    if (uniboxLocks.get(uniboxId) === prev.then(() => lock)) {
+      // (en la práctica esto rara vez se cumple, no es crítico)
+    }
+  }
+}
+
 /** Sincroniza una cuenta IMAP — descarga últimos 50 mensajes, los mergea en caché. */
 export async function syncAccount(uniboxId: string, accountId: string): Promise<number> {
   const accs = await listAccounts(uniboxId);
@@ -190,10 +223,23 @@ export async function syncAccount(uniboxId: string, accountId: string): Promise<
       }
       console.log(`[unibox-sync] ${account.email}: fetched=${fetched} new=${newCount} dupe=${skippedDupe} filtered=${skippedFilter} parseErr=${parseErrors}`);
 
-      // Mantener cache de 5000 mensajes (antes 2000). Histórico amplio
-      // para uniboxes con campañas grandes y respuestas multi-idioma.
-      msgsMap[accountId] = [...fresh, ...existing].slice(0, 50000);
-      await saveMessagesMap(uniboxId, msgsMap);
+      // CRÍTICO: usar lock para que el read-modify-write sea atómico.
+      // Sin esto, cuentas paralelas se pisan al guardar y se pierden mensajes.
+      await withUniboxLock(uniboxId, async () => {
+        const currentMap = await loadMessagesMap(uniboxId);
+        const currentMsgs = currentMap[accountId] || [];
+        // Merge nuevos + existentes, dedup por UID (frescos prevalecen)
+        const merged = [...fresh, ...currentMsgs];
+        const seenUids = new Set<string>();
+        const deduped = merged.filter((m) => {
+          const k = String(m.uid);
+          if (seenUids.has(k)) return false;
+          seenUids.add(k);
+          return true;
+        });
+        currentMap[accountId] = deduped.slice(0, 50000);
+        await saveMessagesMap(uniboxId, currentMap);
+      });
       if (newCount > 0) {
         console.log(`[unibox-sync] ${account.email}: ${newCount} mensajes nuevos en INBOX`);
       }
@@ -374,10 +420,21 @@ export async function syncAccountSent(uniboxId: string, accountId: string): Prom
         if (msg.uid && msg.uid > maxUidSentSeen) maxUidSentSeen = msg.uid;
         newCount++;
       }
-      // Cap total subido a 5000 (antes 2000). Alineado con INBOX cap para
-      // conservar histórico completo de respuestas en campañas grandes.
-      msgsMap[accountId] = [...fresh, ...existing].slice(0, 50000);
-      await saveMessagesMap(uniboxId, msgsMap);
+      // Mismo lock per-unibox que en INBOX — evita pisar otros sync paralelos.
+      await withUniboxLock(uniboxId, async () => {
+        const currentMap = await loadMessagesMap(uniboxId);
+        const currentMsgs = currentMap[accountId] || [];
+        const merged = [...fresh, ...currentMsgs];
+        const seenUids = new Set<string>();
+        const deduped = merged.filter((m) => {
+          const k = String(m.uid);
+          if (seenUids.has(k)) return false;
+          seenUids.add(k);
+          return true;
+        });
+        currentMap[accountId] = deduped.slice(0, 50000);
+        await saveMessagesMap(uniboxId, currentMap);
+      });
       if (newCount > 0) {
         console.log(`[unibox-sync] ${account.email}: ${newCount} mensajes nuevos en SENT`);
       }

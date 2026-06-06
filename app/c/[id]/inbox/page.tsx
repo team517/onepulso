@@ -307,6 +307,65 @@ export default function ClienteInboxPage() {
     [accounts]
   );
 
+  // VERIFY RÁPIDO: solo conecta IMAP+SMTP, sin descargar mensajes.
+  // 1-3s por cuenta. Para 40 cuentas: ~5-10s total con concurrencia 30.
+  async function verifyAllAccounts() {
+    setLoading(true);
+    setSyncProgressOpen(true);
+    setSyncProgress({ total: accounts.length, done: 0, ok: 0, fail: 0, items: [] });
+    try {
+      const evt = new EventSource(`/api/uniboxes/${id}/verify-all`);
+      await new Promise<void>((resolve) => {
+        evt.addEventListener("start", (e: any) => {
+          try {
+            const d = JSON.parse(e.data);
+            setSyncProgress({ total: d.total || 0, done: 0, ok: 0, fail: 0, items: [] });
+          } catch {}
+        });
+        evt.addEventListener("progress", (e: any) => {
+          try {
+            const d = JSON.parse(e.data);
+            setSyncProgress((prev) => {
+              if (!prev) return prev;
+              const items = [...prev.items];
+              const last = items[items.length - 1];
+              if (last && last.email === d.email) {
+                items[items.length - 1] = { email: d.email, phase: d.phase, message: d.message };
+              } else {
+                items.push({ email: d.email, phase: d.phase, message: d.message });
+              }
+              return {
+                ...prev,
+                done: d.phase !== "connecting" ? prev.done + 1 : prev.done,
+                ok: d.phase === "ok" ? prev.ok + 1 : prev.ok,
+                fail: d.phase === "error" ? prev.fail + 1 : prev.fail,
+                items,
+              };
+            });
+          } catch {}
+        });
+        evt.addEventListener("done", (e: any) => {
+          try {
+            const d = JSON.parse(e.data);
+            setSyncProgress((prev) => prev ? { ...prev, finished: true, elapsedMs: d.elapsed_ms } : prev);
+          } catch {}
+          evt.close();
+          resolve();
+        });
+        evt.onerror = () => { evt.close(); resolve(); };
+      });
+      // Recargar cuentas para actualizar puntos verdes
+      const accR = await fetch(`/api/uniboxes/${id}/accounts`);
+      if (accR.ok) {
+        const accD = await accR.json();
+        if (Array.isArray(accD) && accD.length > 0) setAccounts(accD);
+      }
+    } catch (e) {
+      console.error("[unibox] verify error:", e);
+    }
+    setLoading(false);
+  }
+
   async function reconnectFailedAccounts() {
     if (accountsNotOk.length === 0) return;
     if (!confirm(`Reintentar conexión IMAP+SMTP de ${accountsNotOk.length} cuenta(s) que no están en verde?`)) return;
@@ -572,8 +631,16 @@ export default function ClienteInboxPage() {
           })}
         </div>
 
+        <button
+          style={{ ...ghostBtn, color: "#10b981", borderColor: "rgba(16,185,129,0.35)", background: "rgba(16,185,129,0.05)" }}
+          onClick={verifyAllAccounts}
+          disabled={loading}
+          title="Verificación rápida (~5s): solo conecta IMAP+SMTP y marca cuentas como conectadas, sin descargar mensajes"
+        >
+          {loading ? "Verificando…" : "⚡ Verificar cuentas (rápido)"}
+        </button>
         <button style={ghostBtn} onClick={syncAll} disabled={loading}>
-          {loading ? "Sincronizando…" : "↻ Sincronizar ahora"}
+          {loading ? "Sincronizando…" : "↻ Sincronizar mensajes"}
         </button>
         <div style={{ fontSize: 10.5, color: "#94a3b8", textAlign: "center" }}>
           {lastSync ? `Última: ${fmtTimeSince(lastSync)}` : "Auto-refresh cada 60s"}

@@ -50,8 +50,13 @@ export default function DashboardHome() {
           </div>
           <div className="dash-page-actions" style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "var(--text-dim)", marginRight: 6 }}>
-              <span className={`status-dot ${instantly?.connected ? "status-dot--green" : "status-dot--red"}`} />
-              Instantly {instantly?.connected ? "conectado" : "desconectado"}
+              <span className={`status-dot ${
+                instantly === null ? "status-dot--gray" :
+                  instantly?.connected ? "status-dot--green" : "status-dot--red"
+              }`} />
+              {instantly === null
+                ? "Verificando Instantly…"
+                : `Instantly ${instantly?.connected ? "conectado" : "desconectado"}`}
             </div>
             <Link
               href="/campaigns"

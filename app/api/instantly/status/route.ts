@@ -4,7 +4,17 @@ import { listAccounts } from "@/lib/instantly-accounts";
 
 export const runtime = "nodejs";
 
+// Cache 5 minutos del status. La llamada a Instantly tarda 5-25s en cold start.
+// Con cache, las visitas siguientes son instantáneas.
+let _cached: { ts: number; data: any } | null = null;
+const CACHE_MS = 5 * 60 * 1000;
+
 export async function GET() {
+  // Fast path: si tenemos cache reciente, devolvemos inmediatamente
+  if (_cached && Date.now() - _cached.ts < CACHE_MS) {
+    return NextResponse.json({ ..._cached.data, cached: true });
+  }
+
   try {
     const data: any = await listCampaigns(50);
     const items = data.items ?? [];
@@ -24,7 +34,7 @@ export async function GET() {
       }
     } catch {}
 
-    return NextResponse.json({
+    const result = {
       connected: true,
       campaigns_count: items.length,
       count: items.length,
@@ -33,8 +43,14 @@ export async function GET() {
       renews_at,
       plan_label,
       days_remaining,
-    });
+    };
+    _cached = { ts: Date.now(), data: result };
+    return NextResponse.json(result);
   } catch (e: any) {
-    return NextResponse.json({ connected: false, error: e.message }, { status: 500 });
+    // Cachear también los errores brevemente (1 min) para no martillar
+    // a Instantly si está caído.
+    const errorResult = { connected: false, error: e.message };
+    _cached = { ts: Date.now() - (CACHE_MS - 60_000), data: errorResult };
+    return NextResponse.json(errorResult, { status: 500 });
   }
 }

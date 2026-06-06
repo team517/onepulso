@@ -20,9 +20,9 @@ export function middleware(req: NextRequest) {
     return NextResponse.next();
   }
 
-  // Rutas públicas de portal cliente unibox: /u/* (login + inbox)
+  // Rutas públicas de portal cliente unibox: /u/* y /c/* (alias nuevo)
   // y sus APIs propias (login, messages, send) — usan otro cookie
-  if (pathname.startsWith("/u/") || pathname.startsWith("/api/unibox-client/")) {
+  if (pathname.startsWith("/u/") || pathname.startsWith("/c/") || pathname.startsWith("/api/unibox-client/")) {
     return NextResponse.next();
   }
 

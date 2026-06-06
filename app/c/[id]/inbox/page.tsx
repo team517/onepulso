@@ -1057,22 +1057,26 @@ function SignatureModal({ uniboxId, accounts, onClose, onSaved }: any) {
     if (!bulkHtml.trim() || selected.size === 0) return;
     setSaving(true);
     setDone(false);
-    const updated: any[] = [];
     try {
-      for (const accId of selected) {
-        const r = await fetch(`/api/uniboxes/${uniboxId}/accounts/${accId}`, {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ signature_html: bulkHtml }),
-        });
-        if (r.ok) {
-          const d = await r.json();
-          if (d?.account) updated.push(d.account);
-        }
-      }
+      // PARALELO: las 21 cuentas se actualizan a la vez en vez de
+      // una detrás de otra. 21x más rápido.
+      const accIds = Array.from(selected);
+      const results = await Promise.all(
+        accIds.map((accId) =>
+          fetch(`/api/uniboxes/${uniboxId}/accounts/${accId}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ signature_html: bulkHtml }),
+          })
+            .then((r) => (r.ok ? r.json() : null))
+            .then((d) => d?.account || null)
+            .catch(() => null)
+        )
+      );
+      const updated = results.filter(Boolean);
       onSaved(updated);
       setDone(true);
-      setTimeout(() => setDone(false), 2500);
+      setTimeout(() => setDone(false), 3500);
     } catch {}
     setSaving(false);
   }
@@ -1157,7 +1161,19 @@ function SignatureModal({ uniboxId, accounts, onClose, onSaved }: any) {
           </div>
         </div>
         <div style={modalFooter}>
-          {done && <span style={{ flex: 1, color: "#10b981", fontWeight: 600, fontSize: 13 }}>✓ Firmas guardadas</span>}
+          {done && (
+            <span style={{
+              flex: 1,
+              color: "#10b981", fontWeight: 700, fontSize: 13.5,
+              display: "inline-flex", alignItems: "center", gap: 6,
+              padding: "6px 12px",
+              background: "rgba(16,185,129,0.1)",
+              border: "1px solid rgba(16,185,129,0.3)",
+              borderRadius: 8,
+            }}>
+              <span style={{ fontSize: 16 }}>✅</span> Firmas guardadas en {selected.size} cuenta(s)
+            </span>
+          )}
           <button onClick={onClose} style={cancelBtn}>Cerrar</button>
           <button
             onClick={saveBulk}

@@ -52,19 +52,28 @@ export async function syncAccount(uniboxId: string, accountId: string): Promise<
         return 0;
       }
 
-      // SYNC INCREMENTAL: si ya tenemos last_uid_inbox, pedimos sólo UIDs
-      // mayores → near-instant. En primera sync traemos TODO el histórico
-      // completo del INBOX (sin cap). El usuario quiere ver absolutamente
-      // todos los mensajes que tiene la cuenta.
+      // SYNC INCREMENTAL si ya tenemos last_uid_inbox Y el cache tiene
+      // suficiente histórico (>= 80% del total IMAP).
+      // FULL SYNC automático si:
+      //   - es la primera vez (last_uid_inbox == 0)
+      //   - O el cache tiene MUCHO menos que IMAP (cache < 80% de total)
+      //     → significa que faltan mensajes históricos
+      // Esto garantiza que sin pulsar 'Forzar resync', el usuario siempre
+      // ve TODO el histórico tras una sync.
       const lastUid = account.last_uid_inbox || 0;
+      const cachedCount = existing.length;
+      const cacheCompleteEnough = cachedCount >= total * 0.8;
       let range: string;
       let isIncremental = false;
-      if (lastUid > 0) {
-        // Pedimos UIDs (lastUid+1):* — sólo los nuevos. Usamos UID FETCH.
+      if (lastUid > 0 && cacheCompleteEnough) {
+        // Cache OK + UID guardado → incremental rápido
         range = `${lastUid + 1}:*`;
         isIncremental = true;
       } else {
-        // PRIMER SYNC: TODOS los mensajes del INBOX. range = 1:*
+        // Cache vacío o incompleto → descarga TODOS los mensajes del INBOX
+        if (lastUid > 0 && !cacheCompleteEnough) {
+          console.log(`[unibox-sync] ${account.email}: cache=${cachedCount} pero IMAP=${total} → auto full sync`);
+        }
         range = `1:*`;
       }
 
@@ -271,15 +280,20 @@ export async function syncAccountSent(uniboxId: string, accountId: string): Prom
       const total = status.messages || 0;
       if (total === 0) { await client.logout(); return 0; }
 
-      // SYNC INCREMENTAL para Sent — mismo patrón que INBOX.
+      // SYNC INCREMENTAL para Sent — mismo patrón auto-detección que INBOX.
       const lastSentUid = account.last_uid_sent || 0;
+      // Contamos solo los Sent del cache (UID negativos)
+      const cachedSentCount = existing.filter((m) => m.uid < 0).length;
+      const sentCacheCompleteEnough = cachedSentCount >= total * 0.8;
       let range: string;
       let isIncrementalSent = false;
-      if (lastSentUid > 0) {
+      if (lastSentUid > 0 && sentCacheCompleteEnough) {
         range = `${lastSentUid + 1}:*`;
         isIncrementalSent = true;
       } else {
-        // Primer sync de Sent: TODOS los enviados.
+        if (lastSentUid > 0 && !sentCacheCompleteEnough) {
+          console.log(`[unibox-sync sent] ${account.email}: cache=${cachedSentCount} pero IMAP=${total} → auto full sync`);
+        }
         range = `1:*`;
       }
 

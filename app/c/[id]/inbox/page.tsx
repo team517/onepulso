@@ -72,11 +72,37 @@ export default function ClienteInboxPage() {
   useEffect(() => {
     if (!me) return;
     fetch(`/api/uniboxes/${id}/accounts`).then(r => r.ok ? r.json() : []).then((d) => {
-      if (Array.isArray(d)) setAccounts(d);
+      if (Array.isArray(d)) {
+        setAccounts(d);
+        // AUTO-VERIFY SILENCIOSO: si hay cuentas sin last_sync (nunca
+        // verificadas), las verificamos en background sin modal.
+        // Se ejecuta 1 vez al entrar al inbox.
+        const needsVerify = d.some((a: any) => !a.last_sync && !a.last_error);
+        if (needsVerify) {
+          autoVerifySilent();
+        }
+      }
     }).catch(() => {});
     loadFolders();
     loadMessages();
   }, [me, id]);
+
+  // Auto-verify silencioso (sin modal). Marca cuentas como conectadas en
+  // background al entrar al inbox por primera vez.
+  async function autoVerifySilent() {
+    try {
+      const evt = new EventSource(`/api/uniboxes/${id}/verify-all`);
+      await new Promise<void>((resolve) => {
+        evt.addEventListener("done", () => { evt.close(); resolve(); });
+        evt.onerror = () => { evt.close(); resolve(); };
+      });
+      const accR = await fetch(`/api/uniboxes/${id}/accounts`);
+      if (accR.ok) {
+        const accD = await accR.json();
+        if (Array.isArray(accD) && accD.length > 0) setAccounts(accD);
+      }
+    } catch {}
+  }
 
   // 3) Refresh cuando cambia cuenta o toggle de warmup
   useEffect(() => { if (me) loadMessages(); }, [selectedAccountId, showWarmup]);
@@ -244,14 +270,14 @@ export default function ClienteInboxPage() {
     [accounts]
   );
 
-  // Estado de cada cuenta: verde si sin error y sync reciente,
-  // amarillo si sin sync nunca, rojo si error.
+  // Estado de cada cuenta — MISMA lógica que admin:
+  // - last_error → red
+  // - last_sync existe (sin importar cuándo) → green
+  // - sin sync nunca → yellow
   function accountStatus(a: any): "ok" | "warn" | "error" {
     if (a.last_error) return "error";
-    if (!a.last_sync) return "warn";
-    const ageMs = Date.now() - new Date(a.last_sync).getTime();
-    if (ageMs > 30 * 60_000) return "warn"; // más de 30 min sin sync
-    return "ok";
+    if (a.last_sync) return "ok";
+    return "warn";
   }
   const accountsConnected = useMemo(
     () => accounts.filter(a => accountStatus(a) === "ok").length,

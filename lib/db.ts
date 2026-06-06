@@ -7,7 +7,9 @@ declare global {
   var __pgInitDone: boolean | undefined;
 }
 
-/** Devuelve el pool de Postgres si DATABASE_URL está definido, si no null. */
+/** Devuelve el pool de Postgres si DATABASE_URL está definido, si no null.
+ *  Pre-calienta una conexión al crearlo + keepalive cada 25s para que
+ *  la primera query del usuario sea INSTANTÁNEA (no espera TCP+TLS+auth). */
 export function getPool(): Pool | null {
   const url = process.env.DATABASE_URL;
   if (!url) return null;
@@ -23,6 +25,26 @@ export function getPool(): Pool | null {
   globalThis.__pgPool.on("error", (err) => {
     console.warn("[db pool] error idle client (ignorado):", err.message);
   });
+
+  // PRE-CALENTAMIENTO: ejecuta SELECT 1 ya, abriendo 1 conexión que
+  // queda en el pool. La primera query del usuario reusa esta conexión.
+  globalThis.__pgPool.query("SELECT 1").then(() => {
+    console.log("[db pool] pre-calentado OK — primera query será instantánea");
+  }).catch((e) => {
+    console.warn("[db pool] pre-calentamiento falló:", e?.message);
+  });
+
+  // KEEPALIVE: cada 25s (antes del idleTimeout de 30s) hace SELECT 1
+  // para que la conexión no se cierre por inactividad. Mantiene la
+  // conexión viva sin que Postgres la mate por idle.
+  if (!(globalThis as any).__pgKeepalive) {
+    (globalThis as any).__pgKeepalive = setInterval(() => {
+      globalThis.__pgPool?.query("SELECT 1").catch(() => {
+        // silencio — si falla, withClient se encargará de reconectar
+      });
+    }, 25_000);
+  }
+
   return globalThis.__pgPool;
 }
 

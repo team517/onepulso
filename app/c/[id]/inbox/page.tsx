@@ -19,7 +19,8 @@ export default function ClienteInboxPage() {
   const [selectedMsg, setSelectedMsg] = useState<any>(null);
   const [selectedAccountId, setSelectedAccountId] = useState<string | null>(null);
   // filter puede ser "all" | "received" | "sent" | folderId
-  const [filter, setFilter] = useState<string>("all");
+  // Por defecto "received" para ver las respuestas de prospects, no los enviados.
+  const [filter, setFilter] = useState<string>("received");
   const [composeOpen, setComposeOpen] = useState(false);
   const [composeData, setComposeData] = useState<any>({});
   const [search, setSearch] = useState("");
@@ -66,18 +67,36 @@ export default function ClienteInboxPage() {
   // 3) Refresh cuando cambia cuenta seleccionada
   useEffect(() => { if (me) loadMessages(); }, [selectedAccountId]);
 
-  // 4) Auto-refresh cada 60s — sync IMAP + recargar mensajes
+  // 4) Auto-refresh cada 60s — sync IMAP + recargar mensajes y cuentas
+  // En el primer tick se ejecuta a los 5s para que veas algo rápido.
   useEffect(() => {
     if (!me) return;
-    const t = setInterval(async () => {
+    let firstRun = true;
+    const tick = async () => {
       if (document.hidden) return;
       try {
         await fetch(`/api/uniboxes/${id}/sync-all`, { method: "POST" });
+        // Refrescamos cuentas también para actualizar puntos verdes
+        const accR = await fetch(`/api/uniboxes/${id}/accounts`);
+        if (accR.ok) {
+          const accD = await accR.json();
+          if (Array.isArray(accD) && accD.length > 0) setAccounts(accD);
+        }
         await loadMessages();
         setLastSync(Date.now());
       } catch {}
-    }, 60_000);
-    return () => clearInterval(t);
+    };
+    // Primera vez a los 5s, luego cada 60s
+    const initial = setTimeout(tick, 5000);
+    const interval = setInterval(tick, 60_000);
+    // Re-sync al volver a la pestaña
+    const onVisible = () => { if (!document.hidden) tick(); };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      clearTimeout(initial);
+      clearInterval(interval);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
   }, [me, id]);
 
   async function loadFolders() {
@@ -193,6 +212,20 @@ export default function ClienteInboxPage() {
 
   const myEmails = useMemo(
     () => new Set(accounts.map(a => (a.email || "").toLowerCase())),
+    [accounts]
+  );
+
+  // Estado de cada cuenta: verde si sin error y sync reciente,
+  // amarillo si sin sync nunca, rojo si error.
+  function accountStatus(a: any): "ok" | "warn" | "error" {
+    if (a.last_error) return "error";
+    if (!a.last_sync) return "warn";
+    const ageMs = Date.now() - new Date(a.last_sync).getTime();
+    if (ageMs > 30 * 60_000) return "warn"; // más de 30 min sin sync
+    return "ok";
+  }
+  const accountsConnected = useMemo(
+    () => accounts.filter(a => accountStatus(a) === "ok").length,
     [accounts]
   );
   const isOutbound = (m: any) => {
@@ -332,25 +365,50 @@ export default function ClienteInboxPage() {
           }}
         >＋ Nueva carpeta</button>
 
-        <div style={sectionTitle}>BANDEJAS</div>
+        <div style={sectionTitle}>
+          BANDEJAS · <span style={{ color: "#10b981" }}>{accountsConnected}</span>/{accounts.length}
+        </div>
         <div style={accountList}>
           <button
             style={{ ...accountBtn, ...(selectedAccountId === null ? accountActive : {}) }}
             onClick={() => setSelectedAccountId(null)}
           >
-            <div style={{ fontWeight: 600 }}>Todas las cuentas</div>
-            <div style={{ fontSize: 11, color: "#94a3b8" }}>{accounts.length} buzones</div>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <span style={{
+                width: 8, height: 8, borderRadius: "50%",
+                background: accountsConnected === accounts.length && accounts.length > 0 ? "#10b981" : "#f59e0b",
+                flexShrink: 0,
+              }} />
+              <div>
+                <div style={{ fontWeight: 600 }}>Todas las cuentas</div>
+                <div style={{ fontSize: 11, color: "#94a3b8" }}>{accounts.length} buzones</div>
+              </div>
+            </div>
           </button>
-          {accounts.map((a) => (
-            <button
-              key={a.id}
-              style={{ ...accountBtn, ...(selectedAccountId === a.id ? accountActive : {}) }}
-              onClick={() => setSelectedAccountId(a.id)}
-            >
-              <div style={{ fontSize: 12.5, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{a.email}</div>
-              <div style={{ fontSize: 11, color: "#94a3b8" }}>{[a.first_name, a.last_name].filter(Boolean).join(" ") || a.imap_host}</div>
-            </button>
-          ))}
+          {accounts.map((a) => {
+            const status = accountStatus(a);
+            const dotColor = status === "ok" ? "#10b981" : status === "warn" ? "#f59e0b" : "#ef4444";
+            return (
+              <button
+                key={a.id}
+                style={{ ...accountBtn, ...(selectedAccountId === a.id ? accountActive : {}) }}
+                onClick={() => setSelectedAccountId(a.id)}
+                title={a.last_error ? `Error: ${a.last_error}` : (a.last_sync ? `Última sync: ${new Date(a.last_sync).toLocaleString("es")}` : "Sin sync aún")}
+              >
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <span style={{
+                    width: 8, height: 8, borderRadius: "50%",
+                    background: dotColor, flexShrink: 0,
+                    boxShadow: status === "ok" ? "0 0 6px rgba(16,185,129,0.5)" : "none",
+                  }} />
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 12.5, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{a.email}</div>
+                    <div style={{ fontSize: 11, color: "#94a3b8" }}>{[a.first_name, a.last_name].filter(Boolean).join(" ") || a.imap_host}</div>
+                  </div>
+                </div>
+              </button>
+            );
+          })}
         </div>
 
         <button style={ghostBtn} onClick={syncAll} disabled={loading}>

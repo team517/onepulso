@@ -17,47 +17,60 @@ export function getPool(): Pool | null {
   globalThis.__pgPool = new Pool({
     connectionString: url,
     ssl: url.includes("railway.internal") ? false : { rejectUnauthorized: false },
-    max: 10,
-    idleTimeoutMillis: 30_000,
-    connectionTimeoutMillis: 15_000,
+    max: 50,
+    min: 5,
+    idleTimeoutMillis: 60_000,
+    connectionTimeoutMillis: 20_000,
+    statement_timeout: 30_000,
+    query_timeout: 30_000,
   });
   // Handler de errores idle — evita matar el proceso por desconexiones.
   globalThis.__pgPool.on("error", (err) => {
     console.warn("[db pool] error idle client (ignorado):", err.message);
   });
 
-  // PRE-CALENTAMIENTO: 5 SELECT 1 en paralelo → abre 5 conexiones que
-  // quedan en el pool. Cuando el dashboard hace 5 fetches paralelos,
-  // los 5 reusan estas conexiones — todos instantáneos.
+  // PRE-CALENTAMIENTO: 10 SELECT 1 en paralelo → abre 10 conexiones que
+  // quedan en el pool. Cuando el dashboard hace fetches paralelos,
+  // reusan estas conexiones — todos instantáneos.
   Promise.all([
     globalThis.__pgPool.query("SELECT 1"),
     globalThis.__pgPool.query("SELECT 1"),
     globalThis.__pgPool.query("SELECT 1"),
     globalThis.__pgPool.query("SELECT 1"),
     globalThis.__pgPool.query("SELECT 1"),
+    globalThis.__pgPool.query("SELECT 1"),
+    globalThis.__pgPool.query("SELECT 1"),
+    globalThis.__pgPool.query("SELECT 1"),
+    globalThis.__pgPool.query("SELECT 1"),
+    globalThis.__pgPool.query("SELECT 1"),
   ]).then(() => {
-    console.log("[db pool] 5 conexiones pre-calentadas — peticiones paralelas instantáneas");
+    console.log("[db pool] 10 conexiones pre-calentadas — peticiones paralelas instantáneas");
   }).catch((e) => {
     console.warn("[db pool] pre-calentamiento falló:", e?.message);
   });
 
-  // KEEPALIVE: cada 20s (antes del idleTimeout de 30s) lanza 5 SELECT 1
-  // en paralelo → mantiene las 5 conexiones vivas (no se cierran por idle).
+  // KEEPALIVE: cada 15s (bien antes del idleTimeout de 60s) lanza 10 SELECT 1
+  // en paralelo → mantiene 10 conexiones vivas (no se cierran por idle).
   // Si alguna conexión muere del lado Postgres, withClient + el handler
   // de error del pool la reciclan automáticamente.
   if (!(globalThis as any).__pgKeepalive) {
     (globalThis as any).__pgKeepalive = setInterval(() => {
       const pool = globalThis.__pgPool;
       if (!pool) return;
-      // 5 queries en paralelo mantienen 5 slots warm
+      // 10 queries en paralelo mantienen 10 slots warm
       Promise.all([
         pool.query("SELECT 1").catch(() => {}),
         pool.query("SELECT 1").catch(() => {}),
         pool.query("SELECT 1").catch(() => {}),
         pool.query("SELECT 1").catch(() => {}),
         pool.query("SELECT 1").catch(() => {}),
+        pool.query("SELECT 1").catch(() => {}),
+        pool.query("SELECT 1").catch(() => {}),
+        pool.query("SELECT 1").catch(() => {}),
+        pool.query("SELECT 1").catch(() => {}),
+        pool.query("SELECT 1").catch(() => {}),
       ]).catch(() => {});
-    }, 20_000);
+    }, 15_000);
   }
 
   return globalThis.__pgPool;

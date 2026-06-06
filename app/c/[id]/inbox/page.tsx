@@ -18,11 +18,18 @@ export default function ClienteInboxPage() {
   const [messages, setMessages] = useState<any[]>([]);
   const [selectedMsg, setSelectedMsg] = useState<any>(null);
   const [selectedAccountId, setSelectedAccountId] = useState<string | null>(null);
-  const [filter, setFilter] = useState<"all" | "received" | "sent">("all");
+  // filter puede ser "all" | "received" | "sent" | folderId
+  const [filter, setFilter] = useState<string>("all");
   const [composeOpen, setComposeOpen] = useState(false);
   const [composeData, setComposeData] = useState<any>({});
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(false);
+  const [lastSync, setLastSync] = useState<number | null>(null);
+  // Carpetas custom
+  const [folders, setFolders] = useState<any[]>([]);
+  const [folderModalOpen, setFolderModalOpen] = useState(false);
+  // Firma
+  const [signatureModalOpen, setSignatureModalOpen] = useState(false);
 
   // 1) Auth check
   useEffect(() => {
@@ -46,26 +53,42 @@ export default function ClienteInboxPage() {
     return () => { cancelled = true; };
   }, [id, router]);
 
-  // 2) Cargar cuentas + mensajes cuando hay sesión
+  // 2) Cargar cuentas + mensajes + carpetas cuando hay sesión
   useEffect(() => {
     if (!me) return;
     fetch(`/api/uniboxes/${id}/accounts`).then(r => r.ok ? r.json() : []).then((d) => {
       if (Array.isArray(d)) setAccounts(d);
     }).catch(() => {});
+    loadFolders();
     loadMessages();
   }, [me, id]);
 
   // 3) Refresh cuando cambia cuenta seleccionada
   useEffect(() => { if (me) loadMessages(); }, [selectedAccountId]);
 
-  // 4) Auto-refresh suave cada 30s
+  // 4) Auto-refresh cada 60s — sync IMAP + recargar mensajes
   useEffect(() => {
     if (!me) return;
-    const t = setInterval(() => {
-      if (!document.hidden) loadMessages();
-    }, 30_000);
+    const t = setInterval(async () => {
+      if (document.hidden) return;
+      try {
+        await fetch(`/api/uniboxes/${id}/sync-all`, { method: "POST" });
+        await loadMessages();
+        setLastSync(Date.now());
+      } catch {}
+    }, 60_000);
     return () => clearInterval(t);
-  }, [me]);
+  }, [me, id]);
+
+  async function loadFolders() {
+    try {
+      const r = await fetch(`/api/uniboxes/${id}/folders`);
+      if (r.ok) {
+        const d = await r.json();
+        if (Array.isArray(d)) setFolders(d);
+      }
+    } catch {}
+  }
 
   async function loadMessages() {
     try {
@@ -85,8 +108,25 @@ export default function ClienteInboxPage() {
     try {
       await fetch(`/api/uniboxes/${id}/sync-all`, { method: "POST" });
       await loadMessages();
+      setLastSync(Date.now());
     } catch {}
     setLoading(false);
+  }
+
+  async function moveToFolder(accountId: string, uid: number, folderId: string | null) {
+    setMessages(prev => prev.map(m =>
+      (m.accountId === accountId && m.uid === uid) ? { ...m, folder_id: folderId } : m
+    ));
+    if (selectedMsg && selectedMsg.accountId === accountId && selectedMsg.uid === uid) {
+      setSelectedMsg((p: any) => p ? { ...p, folder_id: folderId } : p);
+    }
+    try {
+      await fetch(`/api/uniboxes/${id}/messages/${accountId}/${uid}/folder`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ folder_id: folderId }),
+      });
+    } catch {}
   }
 
   async function logout() {
@@ -164,20 +204,61 @@ export default function ClienteInboxPage() {
     return false;
   };
 
+  // DEDUP: si tienes cuenta A y B, y A mandó email a B, ambas cuentas
+  // tienen el mismo mensaje (uno en Sent, otro en INBOX). Deduplicamos
+  // por messageId quedándonos con el primero.
+  const dedupedMessages = useMemo(() => {
+    const seen = new Set<string>();
+    const out: any[] = [];
+    for (const m of messages) {
+      const key = m.messageId || `${m.accountId}-${m.uid}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(m);
+    }
+    return out;
+  }, [messages]);
+
   const filtered = useMemo(() => {
-    let list = messages;
-    if (filter === "received") list = list.filter(m => !isOutbound(m));
-    else if (filter === "sent") list = list.filter(isOutbound);
+    let list = dedupedMessages;
+    // Filtros: "all" = mensajes sin carpeta custom
+    //          "received"/"sent" = recibidos/enviados sin carpeta
+    //          [folderId] = mensajes con ese folder_id
+    if (filter === "all") {
+      list = list.filter(m => !m.folder_id);
+    } else if (filter === "received") {
+      list = list.filter(m => !m.folder_id && !isOutbound(m));
+    } else if (filter === "sent") {
+      list = list.filter(m => !m.folder_id && isOutbound(m));
+    } else {
+      // Carpeta custom
+      list = list.filter(m => m.folder_id === filter);
+    }
     if (search) {
       const q = search.toLowerCase();
       list = list.filter(m =>
         (m.from || "").toLowerCase().includes(q) ||
+        (m.to || "").toLowerCase().includes(q) ||
         (m.subject || "").toLowerCase().includes(q) ||
         (m.preview || "").toLowerCase().includes(q)
       );
     }
     return list.slice(0, 300);
-  }, [messages, filter, search, accounts]);
+  }, [dedupedMessages, filter, search, accounts]);
+
+  // Contadores para sidebar
+  const counts = useMemo(() => {
+    const noFolder = dedupedMessages.filter(m => !m.folder_id);
+    return {
+      all: noFolder.length,
+      received: noFolder.filter(m => !isOutbound(m)).length,
+      sent: noFolder.filter(isOutbound).length,
+      byFolder: folders.reduce((acc: any, f: any) => {
+        acc[f.id] = dedupedMessages.filter(m => m.folder_id === f.id).length;
+        return acc;
+      }, {} as Record<string, number>),
+    };
+  }, [dedupedMessages, folders, accounts]);
 
   if (authChecking) {
     return (
@@ -207,15 +288,49 @@ export default function ClienteInboxPage() {
         <button
           style={{ ...folderBtn, ...(filter === "all" ? folderActive : {}) }}
           onClick={() => setFilter("all")}
-        >📥 Todos · {messages.length}</button>
+        >📥 Todos · {counts.all}</button>
         <button
           style={{ ...folderBtn, ...(filter === "received" ? folderActive : {}) }}
           onClick={() => setFilter("received")}
-        >📨 Recibidos</button>
+        >📨 Recibidos · {counts.received}</button>
         <button
           style={{ ...folderBtn, ...(filter === "sent" ? folderActive : {}) }}
           onClick={() => setFilter("sent")}
-        >📤 Enviados</button>
+        >📤 Enviados · {counts.sent}</button>
+
+        <div style={sectionTitle}>CARPETAS</div>
+        {folders.map((f) => (
+          <div key={f.id} style={{ position: "relative" }}>
+            <button
+              style={{ ...folderBtn, ...(filter === f.id ? folderActive : {}), paddingRight: 28 }}
+              onClick={() => setFilter(f.id)}
+            >📁 {f.name} · {counts.byFolder[f.id] || 0}</button>
+            <button
+              onClick={async (e) => {
+                e.stopPropagation();
+                if (!confirm(`¿Eliminar carpeta "${f.name}"? Los mensajes vuelven a Todos.`)) return;
+                await fetch(`/api/uniboxes/${id}/folders/${f.id}`, { method: "DELETE" });
+                if (filter === f.id) setFilter("all");
+                await loadFolders();
+                await loadMessages();
+              }}
+              style={{
+                position: "absolute", right: 6, top: "50%", transform: "translateY(-50%)",
+                background: "transparent", border: 0, cursor: "pointer",
+                color: "#94a3b8", fontSize: 11, padding: 4,
+              }}
+            >✕</button>
+          </div>
+        ))}
+        <button
+          onClick={() => setFolderModalOpen(true)}
+          style={{
+            ...folderBtn,
+            border: "1px dashed #cbd5e1",
+            color: "#64748b",
+            marginTop: 4,
+          }}
+        >＋ Nueva carpeta</button>
 
         <div style={sectionTitle}>BANDEJAS</div>
         <div style={accountList}>
@@ -239,7 +354,13 @@ export default function ClienteInboxPage() {
         </div>
 
         <button style={ghostBtn} onClick={syncAll} disabled={loading}>
-          {loading ? "Sincronizando…" : "↻ Sincronizar"}
+          {loading ? "Sincronizando…" : "↻ Sincronizar ahora"}
+        </button>
+        <div style={{ fontSize: 10.5, color: "#94a3b8", textAlign: "center" }}>
+          {lastSync ? `Última: ${fmtTimeSince(lastSync)}` : "Auto-refresh cada 60s"}
+        </div>
+        <button style={ghostBtn} onClick={() => setSignatureModalOpen(true)}>
+          ✍ Firmas
         </button>
         <button style={{ ...ghostBtn, color: "#ef4444", borderColor: "rgba(239,68,68,0.3)" }} onClick={logout}>
           Cerrar sesión
@@ -304,9 +425,11 @@ export default function ClienteInboxPage() {
           <MessageDetail
             m={selectedMsg}
             uniboxId={id}
+            folders={folders}
             onReply={() => replyTo(selectedMsg)}
             onForward={() => forwardMsg(selectedMsg)}
             onDelete={() => deleteMessage(selectedMsg.accountId, selectedMsg.uid)}
+            onMoveFolder={(fid: string | null) => moveToFolder(selectedMsg.accountId, selectedMsg.uid, fid)}
           />
         )}
       </section>
@@ -320,11 +443,39 @@ export default function ClienteInboxPage() {
           onSent={() => { setComposeOpen(false); loadMessages(); }}
         />
       )}
+
+      {folderModalOpen && (
+        <NewFolderModal
+          uniboxId={id}
+          onClose={() => setFolderModalOpen(false)}
+          onCreated={(newFolder: any) => {
+            setFolders(prev => [...prev, newFolder]);
+            setFilter(newFolder.id);
+            setFolderModalOpen(false);
+          }}
+        />
+      )}
+
+      {signatureModalOpen && (
+        <SignatureModal
+          uniboxId={id}
+          accounts={accounts}
+          onClose={() => setSignatureModalOpen(false)}
+          onSaved={(updated: any[]) => {
+            if (Array.isArray(updated)) {
+              setAccounts(prev => prev.map(a => {
+                const u = updated.find((x: any) => x.id === a.id);
+                return u ? { ...a, signature_html: u.signature_html } : a;
+              }));
+            }
+          }}
+        />
+      )}
     </div>
   );
 }
 
-function MessageDetail({ m, uniboxId, onReply, onForward, onDelete }: any) {
+function MessageDetail({ m, uniboxId, folders, onReply, onForward, onDelete, onMoveFolder }: any) {
   const [full, setFull] = useState<any>(null);
 
   useEffect(() => {
@@ -341,9 +492,25 @@ function MessageDetail({ m, uniboxId, onReply, onForward, onDelete }: any) {
         <h2 style={{ margin: 0, fontSize: 20, fontWeight: 700, color: "#0f172a", flex: 1, minWidth: 200 }}>
           {m.subject || "(sin asunto)"}
         </h2>
-        <div style={{ display: "flex", gap: 6 }}>
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
           <button onClick={onReply} style={actionBtn}>↩ Responder</button>
           <button onClick={onForward} style={actionBtnSecondary}>↪ Reenviar</button>
+          {folders && folders.length > 0 && (
+            <select
+              value={m.folder_id || ""}
+              onChange={(e) => onMoveFolder(e.target.value || null)}
+              style={{
+                ...actionBtnSecondary, padding: "7px 8px",
+                fontSize: 12, cursor: "pointer",
+              }}
+              title="Mover a carpeta"
+            >
+              <option value="">📁 Sin carpeta</option>
+              {folders.map((f: any) => (
+                <option key={f.id} value={f.id}>📁 {f.name}</option>
+              ))}
+            </select>
+          )}
           <button onClick={onDelete} style={{ ...actionBtnSecondary, color: "#dc2626", borderColor: "rgba(220,38,38,0.25)" }}>🗑</button>
         </div>
       </div>
@@ -449,6 +616,228 @@ function ComposeModal({ uniboxId, accounts, initial, onClose, onSent }: any) {
       </div>
     </div>
   );
+}
+
+// ─── Modal nueva carpeta ─────────────────────────────────────────────
+function NewFolderModal({ uniboxId, onClose, onCreated }: any) {
+  const [name, setName] = useState("");
+  const [color, setColor] = useState("#6366f1");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  async function create() {
+    const n = name.trim();
+    if (!n) return;
+    setSaving(true);
+    setError("");
+    try {
+      const r = await fetch(`/api/uniboxes/${uniboxId}/folders`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: n, color }),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || "No se pudo crear");
+      onCreated(d);
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div style={modalBg} onClick={onClose}>
+      <div style={{ ...modalCard, maxWidth: 380 }} onClick={(e) => e.stopPropagation()}>
+        <div style={modalHeader}>
+          <div style={{ fontWeight: 700, fontSize: 15 }}>📁 Nueva carpeta</div>
+          <button onClick={onClose} style={closeBtn}>✕</button>
+        </div>
+        <div style={{ padding: "16px 20px" }}>
+          <label style={composeLabel}>Nombre</label>
+          <input
+            type="text"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="Importantes, Leads calientes…"
+            autoFocus
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && name.trim()) create();
+              if (e.key === "Escape") onClose();
+            }}
+            style={composeInput}
+          />
+          <label style={composeLabel}>Color</label>
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+            {["#6366f1","#3b82f6","#10b981","#84cc16","#eab308","#f59e0b","#ef4444","#ec4899","#a855f7","#64748b"].map((c) => (
+              <button
+                key={c}
+                type="button"
+                onClick={() => setColor(c)}
+                style={{
+                  width: 24, height: 24, borderRadius: 6,
+                  background: c, cursor: "pointer", padding: 0,
+                  border: color === c ? "3px solid #0f172a" : "2px solid transparent",
+                }}
+                aria-label={c}
+              />
+            ))}
+          </div>
+          {error && <div style={errorBox}>{error}</div>}
+        </div>
+        <div style={modalFooter}>
+          <button onClick={onClose} style={cancelBtn}>Cancelar</button>
+          <button onClick={create} disabled={!name.trim() || saving} style={sendBtn}>
+            {saving ? "Creando…" : "Crear carpeta"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Modal de firmas HTML por cuenta + bulk ──────────────────────────
+function SignatureModal({ uniboxId, accounts, onClose, onSaved }: any) {
+  const [bulkHtml, setBulkHtml] = useState("");
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [saving, setSaving] = useState(false);
+  const [done, setDone] = useState(false);
+
+  function toggleAll() {
+    if (selected.size === accounts.length) {
+      setSelected(new Set());
+    } else {
+      setSelected(new Set(accounts.map((a: any) => a.id)));
+    }
+  }
+
+  async function saveBulk() {
+    if (!bulkHtml.trim() || selected.size === 0) return;
+    setSaving(true);
+    setDone(false);
+    const updated: any[] = [];
+    try {
+      for (const accId of selected) {
+        const r = await fetch(`/api/uniboxes/${uniboxId}/accounts/${accId}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ signature_html: bulkHtml }),
+        });
+        if (r.ok) {
+          const d = await r.json();
+          if (d?.account) updated.push(d.account);
+        }
+      }
+      onSaved(updated);
+      setDone(true);
+      setTimeout(() => setDone(false), 2500);
+    } catch {}
+    setSaving(false);
+  }
+
+  return (
+    <div style={modalBg} onClick={onClose}>
+      <div style={{ ...modalCard, maxWidth: 720 }} onClick={(e) => e.stopPropagation()}>
+        <div style={modalHeader}>
+          <div style={{ fontWeight: 700, fontSize: 15 }}>✍ Firmas HTML</div>
+          <button onClick={onClose} style={closeBtn}>✕</button>
+        </div>
+        <div style={{ padding: "16px 20px", maxHeight: "70vh", overflowY: "auto" }}>
+          <p style={{ fontSize: 13, color: "#64748b", margin: "0 0 14px" }}>
+            Pega tu firma HTML y aplícala a las cuentas que quieras. Se añadirá automáticamente al final de cada email enviado.
+          </p>
+
+          <label style={composeLabel}>Código HTML de la firma</label>
+          <textarea
+            value={bulkHtml}
+            onChange={(e) => setBulkHtml(e.target.value)}
+            placeholder={`<div style="color:#475569;font-family:Arial,sans-serif;font-size:13px">
+  <strong>Tu Nombre</strong><br>
+  Cargo · Empresa<br>
+  <a href="https://tuweb.com">tuweb.com</a>
+</div>`}
+            rows={8}
+            style={{ ...composeInput, fontFamily: "ui-monospace,Menlo,monospace", fontSize: 12.5, resize: "vertical" }}
+          />
+
+          {bulkHtml.trim() && (
+            <>
+              <label style={composeLabel}>Vista previa</label>
+              <div
+                style={{
+                  border: "1px solid #cbd5e1", borderRadius: 8,
+                  padding: 14, background: "#fff", maxHeight: 200, overflow: "auto",
+                }}
+                dangerouslySetInnerHTML={{ __html: bulkHtml }}
+              />
+            </>
+          )}
+
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 18, marginBottom: 8 }}>
+            <label style={{ ...composeLabel, marginTop: 0 }}>Aplicar a estas cuentas</label>
+            <button
+              type="button"
+              onClick={toggleAll}
+              style={{ ...ghostBtn, fontSize: 11.5, padding: "5px 10px" }}
+            >
+              {selected.size === accounts.length ? "Deseleccionar todas" : "Seleccionar todas"}
+            </button>
+          </div>
+          <div style={{ maxHeight: 240, overflowY: "auto", border: "1px solid #e2e8f0", borderRadius: 8 }}>
+            {accounts.map((a: any) => (
+              <label
+                key={a.id}
+                style={{
+                  display: "flex", alignItems: "center", gap: 10,
+                  padding: "8px 12px", borderBottom: "1px solid #f1f5f9",
+                  cursor: "pointer", fontSize: 13,
+                }}
+              >
+                <input
+                  type="checkbox"
+                  checked={selected.has(a.id)}
+                  onChange={(e) => {
+                    const next = new Set(selected);
+                    if (e.target.checked) next.add(a.id);
+                    else next.delete(a.id);
+                    setSelected(next);
+                  }}
+                  style={{ cursor: "pointer" }}
+                />
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontWeight: 600 }}>{a.email}</div>
+                  <div style={{ fontSize: 11, color: "#94a3b8" }}>
+                    {a.signature_html ? "✓ firma configurada" : "sin firma"}
+                  </div>
+                </div>
+              </label>
+            ))}
+          </div>
+        </div>
+        <div style={modalFooter}>
+          {done && <span style={{ flex: 1, color: "#10b981", fontWeight: 600, fontSize: 13 }}>✓ Firmas guardadas</span>}
+          <button onClick={onClose} style={cancelBtn}>Cerrar</button>
+          <button
+            onClick={saveBulk}
+            disabled={!bulkHtml.trim() || selected.size === 0 || saving}
+            style={sendBtn}
+          >
+            {saving ? `Guardando…` : `Aplicar a ${selected.size} cuenta(s)`}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function fmtTimeSince(ts: number): string {
+  const sec = Math.floor((Date.now() - ts) / 1000);
+  if (sec < 10) return "ahora";
+  if (sec < 60) return `hace ${sec}s`;
+  const min = Math.floor(sec / 60);
+  if (min < 60) return `hace ${min} min`;
+  const h = Math.floor(min / 60);
+  return `hace ${h}h`;
 }
 
 function escapeHtml(s: string): string {

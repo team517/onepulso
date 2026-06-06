@@ -107,29 +107,47 @@ export default function ClienteInboxPage() {
   // 3) Refresh cuando cambia cuenta o toggle de warmup
   useEffect(() => { if (me) loadMessages(); }, [selectedAccountId, showWarmup]);
 
-  // 4) Auto-refresh cada 60s — sync IMAP + recargar mensajes y cuentas
-  // En el primer tick se ejecuta a los 5s para que veas algo rápido.
+  // 4) Auto-refresh cada 60s REAL — busca nuevos mensajes en IMAP de
+  // todas las cuentas. Visible (indicador en sidebar), anti-overlap.
+  const [autoRefreshing, setAutoRefreshing] = useState(false);
+  const autoRefreshingRef = useRef(false);
   useEffect(() => {
     if (!me) return;
-    let firstRun = true;
     const tick = async () => {
       if (document.hidden) return;
+      // Anti-overlap: si el tick anterior aún corre, saltamos
+      if (autoRefreshingRef.current) {
+        console.log("[auto-refresh] tick anterior aún corre — saltando");
+        return;
+      }
+      autoRefreshingRef.current = true;
+      setAutoRefreshing(true);
+      const t0 = Date.now();
       try {
-        await fetch(`/api/uniboxes/${id}/sync-all`, { method: "POST" });
-        // Refrescamos cuentas también para actualizar puntos verdes
+        const r = await fetch(`/api/uniboxes/${id}/sync-all`, { method: "POST" });
+        const data = await r.json().catch(() => ({}));
+        // Refrescamos cuentas para actualizar dots verdes
         const accR = await fetch(`/api/uniboxes/${id}/accounts`);
         if (accR.ok) {
           const accD = await accR.json();
           if (Array.isArray(accD) && accD.length > 0) setAccounts(accD);
         }
+        const msgsBefore = messages.length;
         await loadMessages();
+        const elapsedMs = Date.now() - t0;
+        const newCount = data?.new || 0;
+        console.log(`[auto-refresh] OK en ${elapsedMs}ms · ${newCount} mensajes nuevos · ${data?.ok || 0}/${data?.ok + data?.fail || 0} cuentas`);
         setLastSync(Date.now());
-      } catch {}
+      } catch (e: any) {
+        console.warn("[auto-refresh] error:", e?.message);
+      }
+      autoRefreshingRef.current = false;
+      setAutoRefreshing(false);
     };
-    // Primera vez a los 5s, luego cada 60s
+    // Primera vez a los 5s, luego cada 60s exactos
     const initial = setTimeout(tick, 5000);
     const interval = setInterval(tick, 60_000);
-    // Re-sync al volver a la pestaña
+    // Re-sync al volver a la pestaña tras estar oculta
     const onVisible = () => { if (!document.hidden) tick(); };
     document.addEventListener("visibilitychange", onVisible);
     return () => {
@@ -137,6 +155,7 @@ export default function ClienteInboxPage() {
       clearInterval(interval);
       document.removeEventListener("visibilitychange", onVisible);
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [me, id]);
 
   async function loadFolders() {
@@ -491,6 +510,7 @@ export default function ClienteInboxPage() {
 
   return (
     <div style={appShell}>
+      <style>{`@keyframes pulse { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.5; transform: scale(1.4); } }`}</style>
       <aside style={sidebar}>
         <div style={brandRow}>
           <div style={logoBox}>✉</div>
@@ -629,8 +649,24 @@ export default function ClienteInboxPage() {
         >
           {loading ? "Cargando…" : "↻ Refresh"}
         </button>
-        <div style={{ fontSize: 10.5, color: "#94a3b8", textAlign: "center" }}>
-          {lastSync ? `Última: ${fmtTimeSince(lastSync)}` : "Auto-refresh cada 60s"}
+        <div style={{
+          fontSize: 10.5,
+          color: autoRefreshing ? "#10b981" : "#94a3b8",
+          textAlign: "center",
+          fontWeight: autoRefreshing ? 700 : 400,
+          display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
+        }}>
+          {autoRefreshing ? (
+            <>
+              <span style={{
+                display: "inline-block", width: 7, height: 7, borderRadius: "50%",
+                background: "#10b981", animation: "pulse 1s ease-in-out infinite",
+              }} />
+              Buscando nuevos…
+            </>
+          ) : (
+            lastSync ? `Última: ${fmtTimeSince(lastSync)}` : "Auto-refresh cada 60s"
+          )}
         </div>
         <button
           style={{ ...ghostBtn, color: "#f59e0b", borderColor: "rgba(245,158,11,0.35)", fontSize: 11.5 }}

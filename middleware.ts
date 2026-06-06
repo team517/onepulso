@@ -11,6 +11,7 @@ export function middleware(req: NextRequest) {
     pathname.startsWith("/landing/") ||
     pathname.startsWith("/login") ||
     pathname.startsWith("/api/auth") ||
+    pathname === "/api/db-check" ||
     pathname.startsWith("/api/stripe/webhook") ||
     pathname.startsWith("/api/cron/") ||
     pathname.startsWith("/_next") ||

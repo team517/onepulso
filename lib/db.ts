@@ -15,17 +15,36 @@ export function getPool(): Pool | null {
   globalThis.__pgPool = new Pool({
     connectionString: url,
     ssl: url.includes("railway.internal") ? false : { rejectUnauthorized: false },
-    max: 10,
-    min: 1,
-    idleTimeoutMillis: 30_000,
-    connectionTimeoutMillis: 15_000,
+    max: 20,
+    min: 2,
+    idleTimeoutMillis: 600_000, // 10 minutos — mantener conexiones vivas más tiempo
+    connectionTimeoutMillis: 10_000,
+    statement_timeout: 30_000, // 30 segundos por query
+    query_timeout: 30_000,
   });
+  
   // Manejador de errores del pool: evita que un error de conexión
-  // cualquiera mate el proceso entero (lo veíamos como
-  // "uncaughtException: Connection terminated unexpectedly").
+  // cualquiera mate el proceso entero
   globalThis.__pgPool.on("error", (err) => {
     console.warn("[db pool] error idle client (ignorado):", err.message);
   });
+
+  // Mantener el pool vivo con un ping periódico
+  const keepAliveInterval = setInterval(async () => {
+    try {
+      const client = await globalThis.__pgPool!.connect();
+      await client.query("SELECT 1");
+      client.release();
+    } catch (err: any) {
+      console.warn("[db pool] keep-alive ping failed:", err.message);
+    }
+  }, 60_000); // Ping cada 60 segundos
+
+  // Limpiar el intervalo si el pool se destruye
+  globalThis.__pgPool.on("end", () => {
+    clearInterval(keepAliveInterval);
+  });
+
   return globalThis.__pgPool;
 }
 
@@ -72,3 +91,4 @@ export async function withClient<T>(fn: (c: PoolClient) => Promise<T>): Promise<
 export function isDbEnabled(): boolean {
   return !!process.env.DATABASE_URL;
 }
+

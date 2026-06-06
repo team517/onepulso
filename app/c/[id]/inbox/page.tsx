@@ -349,7 +349,9 @@ export default function ClienteInboxPage() {
         (m.preview || "").toLowerCase().includes(q)
       );
     }
-    return list.slice(0, 300);
+    // Cap a 2000 visibles para no saturar el DOM. Si el usuario tiene más,
+    // que use el buscador. Antes era 300 — demasiado restrictivo.
+    return list.slice(0, 2000);
   }, [dedupedMessages, filter, search, accounts]);
 
   // Contadores para sidebar

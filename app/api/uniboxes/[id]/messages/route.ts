@@ -68,11 +68,10 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
   out.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
   const totalAvailable = out.length;
-  // PERFORMANCE: aunque el cliente pida ?all=1, capamos a 1500 mensajes
-  // ordenados por fecha. Es lo que cabe razonablemente en el listado.
-  // El usuario raramente baja de 1500 al scrollear. Si necesita más,
-  // puede paginar con offset.
-  const HARD_CAP = 1500;
+  // HARD_CAP subido a 10000 para que el cliente pueda ver TODOS los
+  // mensajes del histórico. El frontend solo renderiza 300 a la vez
+  // por virtualización, pero quiere recibirlos todos para filtrar/buscar.
+  const HARD_CAP = 10000;
   const sliced = all
     ? out.slice(0, HARD_CAP)
     : out.slice(offset, offset + Math.min(limitParam, HARD_CAP));

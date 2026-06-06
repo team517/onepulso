@@ -26,23 +26,38 @@ export function getPool(): Pool | null {
     console.warn("[db pool] error idle client (ignorado):", err.message);
   });
 
-  // PRE-CALENTAMIENTO: ejecuta SELECT 1 ya, abriendo 1 conexión que
-  // queda en el pool. La primera query del usuario reusa esta conexión.
-  globalThis.__pgPool.query("SELECT 1").then(() => {
-    console.log("[db pool] pre-calentado OK — primera query será instantánea");
+  // PRE-CALENTAMIENTO: 5 SELECT 1 en paralelo → abre 5 conexiones que
+  // quedan en el pool. Cuando el dashboard hace 5 fetches paralelos,
+  // los 5 reusan estas conexiones — todos instantáneos.
+  Promise.all([
+    globalThis.__pgPool.query("SELECT 1"),
+    globalThis.__pgPool.query("SELECT 1"),
+    globalThis.__pgPool.query("SELECT 1"),
+    globalThis.__pgPool.query("SELECT 1"),
+    globalThis.__pgPool.query("SELECT 1"),
+  ]).then(() => {
+    console.log("[db pool] 5 conexiones pre-calentadas — peticiones paralelas instantáneas");
   }).catch((e) => {
     console.warn("[db pool] pre-calentamiento falló:", e?.message);
   });
 
-  // KEEPALIVE: cada 25s (antes del idleTimeout de 30s) hace SELECT 1
-  // para que la conexión no se cierre por inactividad. Mantiene la
-  // conexión viva sin que Postgres la mate por idle.
+  // KEEPALIVE: cada 20s (antes del idleTimeout de 30s) lanza 5 SELECT 1
+  // en paralelo → mantiene las 5 conexiones vivas (no se cierran por idle).
+  // Si alguna conexión muere del lado Postgres, withClient + el handler
+  // de error del pool la reciclan automáticamente.
   if (!(globalThis as any).__pgKeepalive) {
     (globalThis as any).__pgKeepalive = setInterval(() => {
-      globalThis.__pgPool?.query("SELECT 1").catch(() => {
-        // silencio — si falla, withClient se encargará de reconectar
-      });
-    }, 25_000);
+      const pool = globalThis.__pgPool;
+      if (!pool) return;
+      // 5 queries en paralelo mantienen 5 slots warm
+      Promise.all([
+        pool.query("SELECT 1").catch(() => {}),
+        pool.query("SELECT 1").catch(() => {}),
+        pool.query("SELECT 1").catch(() => {}),
+        pool.query("SELECT 1").catch(() => {}),
+        pool.query("SELECT 1").catch(() => {}),
+      ]).catch(() => {});
+    }, 20_000);
   }
 
   return globalThis.__pgPool;

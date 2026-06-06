@@ -34,6 +34,17 @@ export default function ClienteInboxPage() {
   const [showWarmup, setShowWarmup] = useState(false);
   const [warmupCount, setWarmupCount] = useState(0);
   const [totalAvailable, setTotalAvailable] = useState(0);
+  // Modal de progreso de sincronización en vivo
+  const [syncProgressOpen, setSyncProgressOpen] = useState(false);
+  const [syncProgress, setSyncProgress] = useState<{
+    total: number;
+    done: number;
+    ok: number;
+    fail: number;
+    items: Array<{ email: string; phase: string; message: string }>;
+    finished?: boolean;
+    elapsedMs?: number;
+  } | null>(null);
 
   // 1) Auth check
   useEffect(() => {
@@ -130,10 +141,57 @@ export default function ClienteInboxPage() {
 
   async function syncAll() {
     setLoading(true);
+    setSyncProgressOpen(true);
+    setSyncProgress({ total: 0, done: 0, ok: 0, fail: 0, items: [] });
+
     try {
-      const r = await fetch(`/api/uniboxes/${id}/sync-all`, { method: "POST" });
-      const data = await r.json().catch(() => ({}));
-      // Refrescar cuentas para actualizar puntos verdes
+      const evt = new EventSource(`/api/uniboxes/${id}/sync-stream`);
+      await new Promise<void>((resolve) => {
+        evt.addEventListener("start", (e: any) => {
+          try {
+            const d = JSON.parse(e.data);
+            setSyncProgress({ total: d.total || 0, done: 0, ok: 0, fail: 0, items: [] });
+          } catch {}
+        });
+        evt.addEventListener("progress", (e: any) => {
+          try {
+            const d = JSON.parse(e.data);
+            setSyncProgress((prev) => {
+              if (!prev) return prev;
+              // si es phase=connecting, lo añadimos como item nuevo
+              // si es phase=ok/error, actualizamos el último item del email
+              const items = [...prev.items];
+              const last = items[items.length - 1];
+              if (last && last.email === d.email) {
+                items[items.length - 1] = { email: d.email, phase: d.phase, message: d.message };
+              } else {
+                items.push({ email: d.email, phase: d.phase, message: d.message });
+              }
+              return {
+                ...prev,
+                done: d.phase !== "connecting" ? prev.done + 1 : prev.done,
+                ok: d.phase === "ok" ? prev.ok + 1 : prev.ok,
+                fail: d.phase === "error" ? prev.fail + 1 : prev.fail,
+                items,
+              };
+            });
+          } catch {}
+        });
+        evt.addEventListener("done", (e: any) => {
+          try {
+            const d = JSON.parse(e.data);
+            setSyncProgress((prev) => prev ? { ...prev, finished: true, elapsedMs: d.elapsed_ms } : prev);
+          } catch {}
+          evt.close();
+          resolve();
+        });
+        evt.onerror = () => {
+          evt.close();
+          resolve();
+        };
+      });
+
+      // Refrescar cuentas y mensajes tras completar
       const accR = await fetch(`/api/uniboxes/${id}/accounts`);
       if (accR.ok) {
         const accD = await accR.json();
@@ -141,9 +199,6 @@ export default function ClienteInboxPage() {
       }
       await loadMessages();
       setLastSync(Date.now());
-      if (data?.new === 0 && messages.length === 0 && data?.ok > 0) {
-        console.log(`[unibox] sync OK: ${data.ok} cuentas, 0 mensajes nuevos`);
-      }
     } catch (e) {
       console.error("[unibox] sync error:", e);
     }
@@ -599,6 +654,13 @@ export default function ClienteInboxPage() {
           }}
         />
       )}
+
+      {syncProgressOpen && syncProgress && (
+        <SyncProgressModal
+          progress={syncProgress}
+          onClose={() => setSyncProgressOpen(false)}
+        />
+      )}
     </div>
   );
 }
@@ -964,6 +1026,112 @@ function SignatureModal({ uniboxId, accounts, onClose, onSaved }: any) {
           </button>
         </div>
       </div>
+    </div>
+  );
+}
+
+// ─── Modal con progreso de sync en vivo ──────────────────────────────
+function SyncProgressModal({ progress, onClose }: any) {
+  const { total, ok, fail, items, finished, elapsedMs } = progress;
+  const pct = total > 0 ? Math.round((ok + fail) / total * 100) : 0;
+  const itemsRef = useRef<HTMLDivElement>(null);
+
+  // Auto-scroll al final cuando llegan items nuevos
+  useEffect(() => {
+    if (itemsRef.current) {
+      itemsRef.current.scrollTop = itemsRef.current.scrollHeight;
+    }
+  }, [items.length]);
+
+  return (
+    <div style={modalBg} onClick={finished ? onClose : undefined}>
+      <div style={{ ...modalCard, maxWidth: 580 }} onClick={(e) => e.stopPropagation()}>
+        <div style={modalHeader}>
+          <div style={{ fontWeight: 700, fontSize: 15 }}>
+            {finished ? "✅ Sincronización completada" : "↻ Sincronizando cuentas…"}
+          </div>
+          {finished && <button onClick={onClose} style={closeBtn}>✕</button>}
+        </div>
+        <div style={{ padding: "18px 22px 12px" }}>
+          {/* Barra de progreso */}
+          <div style={{
+            background: "#f1f5f9", borderRadius: 99, height: 10,
+            overflow: "hidden", marginBottom: 10,
+          }}>
+            <div style={{
+              width: `${pct}%`,
+              height: "100%",
+              background: finished
+                ? (fail === 0 ? "#10b981" : "linear-gradient(90deg, #10b981, #f59e0b)")
+                : "linear-gradient(90deg, #0071e3, #6366f1)",
+              transition: "width 0.3s ease-out",
+            }} />
+          </div>
+          {/* Stats */}
+          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12.5, color: "#64748b", marginBottom: 14 }}>
+            <span><strong style={{ color: "#10b981" }}>✓ {ok}</strong> OK</span>
+            {fail > 0 && <span><strong style={{ color: "#ef4444" }}>✗ {fail}</strong> errores</span>}
+            <span>{ok + fail} / {total} ({pct}%)</span>
+            {finished && elapsedMs && <span>{(elapsedMs / 1000).toFixed(1)}s</span>}
+          </div>
+        </div>
+
+        {/* Lista de cuentas con su estado */}
+        <div ref={itemsRef} style={{
+          maxHeight: 380, overflowY: "auto",
+          padding: "0 22px 12px",
+        }}>
+          {items.map((it: any, idx: number) => (
+            <div
+              key={idx}
+              style={{
+                display: "flex", alignItems: "center", gap: 10,
+                padding: "8px 12px", marginBottom: 6,
+                background: it.phase === "ok" ? "rgba(16,185,129,0.06)" :
+                  it.phase === "error" ? "rgba(239,68,68,0.06)" :
+                    "rgba(99,102,241,0.06)",
+                border: it.phase === "ok" ? "1px solid rgba(16,185,129,0.18)" :
+                  it.phase === "error" ? "1px solid rgba(239,68,68,0.2)" :
+                    "1px solid rgba(99,102,241,0.18)",
+                borderRadius: 8,
+                fontSize: 12.5,
+              }}
+            >
+              <span style={{ fontSize: 14, flexShrink: 0 }}>
+                {it.phase === "ok" ? "✅" :
+                  it.phase === "error" ? "❌" :
+                    <span style={{
+                      display: "inline-block", width: 12, height: 12,
+                      border: "2px solid rgba(99,102,241,0.25)",
+                      borderTopColor: "#6366f1", borderRadius: "50%",
+                      animation: "spin 0.7s linear infinite",
+                    }} />}
+              </span>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontWeight: 600, color: "#0f172a", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  {it.email}
+                </div>
+                <div style={{ color: "#64748b", fontSize: 11.5, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  {it.phase === "connecting" && `🔌 IMAP+SMTP conectando a ${it.message.match(/(\S+)\.\.\./)?.[1] || "servidor"}…`}
+                  {it.phase === "ok" && it.message}
+                  {it.phase === "error" && it.message}
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <div style={modalFooter}>
+          {finished ? (
+            <button onClick={onClose} style={sendBtn}>Cerrar y ver mensajes</button>
+          ) : (
+            <span style={{ fontSize: 12, color: "#64748b" }}>
+              Procesando en lotes de 10 cuentas en paralelo…
+            </span>
+          )}
+        </div>
+      </div>
+      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
     </div>
   );
 }

@@ -11,36 +11,82 @@ import path from "path";
 import { getPool, ensureSchema, isDbEnabled, withClient } from "./db";
 import { dataPath } from "./data-dir";
 
+// ─────────────────────────────────────────────────────────────────────────────
+// CACHE EN MEMORIA — hace todo instantáneo. Lecturas que ya están en
+// memoria devuelven sin tocar Postgres. Se invalida automáticamente al
+// escribir o tras TTL.
+// ─────────────────────────────────────────────────────────────────────────────
+type CacheEntry = { value: any; expires: number };
+const _cache = new Map<string, CacheEntry>();
+const CACHE_TTL_MS = 5_000; // 5s — corto, suficiente para fluidez sin staleness
+const CACHE_MAX_SIZE = 1000;
+
+function cacheGet(key: string): any | undefined {
+  const e = _cache.get(key);
+  if (!e) return undefined;
+  if (Date.now() > e.expires) {
+    _cache.delete(key);
+    return undefined;
+  }
+  return e.value;
+}
+function cacheSet(key: string, value: any): void {
+  if (_cache.size >= CACHE_MAX_SIZE) {
+    const firstKey = _cache.keys().next().value;
+    if (firstKey) _cache.delete(firstKey);
+  }
+  _cache.set(key, { value, expires: Date.now() + CACHE_TTL_MS });
+}
+function cacheInvalidate(key: string): void {
+  _cache.delete(key);
+}
+
 /** Lee un valor JSON por clave. Devuelve null si no existe. */
 export async function readJson<T = any>(key: string): Promise<T | null> {
+  // Fast path: cache hit
+  const cached = cacheGet(key);
+  if (cached !== undefined) return cached;
+
   if (isDbEnabled()) {
     await ensureSchema();
     const r = await withClient((c) => c.query<{ value: T }>("SELECT value FROM kv_store WHERE key = $1", [key]));
-    return r.rows[0]?.value ?? null;
+    const value = r.rows[0]?.value ?? null;
+    cacheSet(key, value);
+    return value;
   }
   // Fallback fs
   try {
     const filePath = keyToPath(key);
     const raw = await fs.readFile(filePath, "utf-8");
-    return JSON.parse(raw) as T;
+    const value = JSON.parse(raw) as T;
+    cacheSet(key, value);
+    return value;
   } catch {
+    cacheSet(key, null);
     return null;
   }
 }
 
 /** Guarda un valor JSON por clave. Sobrescribe si existe. */
 export async function writeJson(key: string, value: any): Promise<void> {
+  // Update cache inmediato (write-through) — próxima lectura ya ve el valor
+  cacheSet(key, value);
   if (isDbEnabled()) {
-    await ensureSchema();
-    await withClient((c) =>
-      c.query(
-        `INSERT INTO kv_store (key, value, updated_at)
-         VALUES ($1, $2::jsonb, NOW())
-         ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()`,
-        [key, JSON.stringify(value)]
-      )
-    );
-    return;
+    try {
+      await ensureSchema();
+      await withClient((c) =>
+        c.query(
+          `INSERT INTO kv_store (key, value, updated_at)
+           VALUES ($1, $2::jsonb, NOW())
+           ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()`,
+          [key, JSON.stringify(value)]
+        )
+      );
+      return;
+    } catch (e) {
+      cacheInvalidate(key); // si falla, invalidar para no servir valor no persistido
+      throw e;
+    }
   }
   // Fallback fs
   const filePath = keyToPath(key);
@@ -50,6 +96,7 @@ export async function writeJson(key: string, value: any): Promise<void> {
 
 /** Borra una entrada por clave. */
 export async function deleteJson(key: string): Promise<void> {
+  cacheInvalidate(key);
   if (isDbEnabled()) {
     await ensureSchema();
     await withClient((c) => c.query("DELETE FROM kv_store WHERE key = $1", [key]));

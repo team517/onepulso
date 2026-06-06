@@ -17,7 +17,9 @@ export function getPool(): Pool | null {
   globalThis.__pgPool = new Pool({
     connectionString: url,
     ssl: url.includes("railway.internal") ? false : { rejectUnauthorized: false },
-    max: 10,
+    // CAPACIDAD MÁXIMA: 25 conexiones simultáneas (antes 10) — cubre
+    // sync masivo + dashboard + múltiples usuarios sin esperar.
+    max: 25,
     idleTimeoutMillis: 30_000,
     connectionTimeoutMillis: 15_000,
   });
@@ -26,37 +28,27 @@ export function getPool(): Pool | null {
     console.warn("[db pool] error idle client (ignorado):", err.message);
   });
 
-  // PRE-CALENTAMIENTO: 5 SELECT 1 en paralelo → abre 5 conexiones que
-  // quedan en el pool. Cuando el dashboard hace 5 fetches paralelos,
-  // los 5 reusan estas conexiones — todos instantáneos.
-  Promise.all([
-    globalThis.__pgPool.query("SELECT 1"),
-    globalThis.__pgPool.query("SELECT 1"),
-    globalThis.__pgPool.query("SELECT 1"),
-    globalThis.__pgPool.query("SELECT 1"),
-    globalThis.__pgPool.query("SELECT 1"),
-  ]).then(() => {
-    console.log("[db pool] 5 conexiones pre-calentadas — peticiones paralelas instantáneas");
+  // PRE-CALENTAMIENTO: 8 SELECT 1 en paralelo → 8 conexiones warm.
+  // El dashboard hace ~5 fetches paralelos + el inbox otros 3-4.
+  // Con 8 warm, todo es instantáneo desde la primera petición.
+  const WARM_COUNT = 8;
+  Promise.all(
+    Array(WARM_COUNT).fill(0).map(() => globalThis.__pgPool!.query("SELECT 1"))
+  ).then(() => {
+    console.log(`[db pool] ${WARM_COUNT} conexiones pre-calentadas — todo instantáneo`);
   }).catch((e) => {
     console.warn("[db pool] pre-calentamiento falló:", e?.message);
   });
 
-  // KEEPALIVE: cada 20s (antes del idleTimeout de 30s) lanza 5 SELECT 1
-  // en paralelo → mantiene las 5 conexiones vivas (no se cierran por idle).
-  // Si alguna conexión muere del lado Postgres, withClient + el handler
-  // de error del pool la reciclan automáticamente.
+  // KEEPALIVE: cada 20s mantiene 8 conexiones warm. Si alguna muere,
+  // el handler de error la recicla y la próxima keepalive abre una nueva.
   if (!(globalThis as any).__pgKeepalive) {
     (globalThis as any).__pgKeepalive = setInterval(() => {
       const pool = globalThis.__pgPool;
       if (!pool) return;
-      // 5 queries en paralelo mantienen 5 slots warm
-      Promise.all([
-        pool.query("SELECT 1").catch(() => {}),
-        pool.query("SELECT 1").catch(() => {}),
-        pool.query("SELECT 1").catch(() => {}),
-        pool.query("SELECT 1").catch(() => {}),
-        pool.query("SELECT 1").catch(() => {}),
-      ]).catch(() => {});
+      Promise.all(
+        Array(WARM_COUNT).fill(0).map(() => pool.query("SELECT 1").catch(() => {}))
+      ).catch(() => {});
     }, 20_000);
   }
 

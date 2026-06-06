@@ -53,8 +53,9 @@ export async function syncAccount(uniboxId: string, accountId: string): Promise<
       }
 
       // SYNC INCREMENTAL: si ya tenemos last_uid_inbox, pedimos sólo UIDs
-      // mayores → near-instant, similar al patrón de Instantly.
-      // Primera sync (sin last_uid_inbox): pedimos TODOS los mensajes.
+      // mayores → near-instant. En primera sync traemos TODO el histórico
+      // completo del INBOX (sin cap). El usuario quiere ver absolutamente
+      // todos los mensajes que tiene la cuenta.
       const lastUid = account.last_uid_inbox || 0;
       let range: string;
       let isIncremental = false;
@@ -63,12 +64,8 @@ export async function syncAccount(uniboxId: string, accountId: string): Promise<
         range = `${lastUid + 1}:*`;
         isIncremental = true;
       } else {
-        // PRIMER SYNC: traemos TODOS los mensajes del INBOX (no solo
-        // los últimos 1500). Para uniboxes con histórico largo el usuario
-        // quiere ver TODO. Cap a 5000 para no agotar memoria con cuentas
-        // de 50k+ mensajes (edge case extremo).
-        const start = Math.max(1, total - 4999);
-        range = `${start}:*`;
+        // PRIMER SYNC: TODOS los mensajes del INBOX. range = 1:*
+        range = `1:*`;
       }
 
       console.log(`[unibox-sync] ${account.email}: ${isIncremental ? `incremental UID > ${lastUid}` : `inicial seq ${range}`} (UIDNEXT=${status.uidNext}, total=${total})`);
@@ -186,7 +183,7 @@ export async function syncAccount(uniboxId: string, accountId: string): Promise<
 
       // Mantener cache de 5000 mensajes (antes 2000). Histórico amplio
       // para uniboxes con campañas grandes y respuestas multi-idioma.
-      msgsMap[accountId] = [...fresh, ...existing].slice(0, 10000);
+      msgsMap[accountId] = [...fresh, ...existing].slice(0, 50000);
       await saveMessagesMap(uniboxId, msgsMap);
       if (newCount > 0) {
         console.log(`[unibox-sync] ${account.email}: ${newCount} mensajes nuevos en INBOX`);
@@ -282,9 +279,8 @@ export async function syncAccountSent(uniboxId: string, accountId: string): Prom
         range = `${lastSentUid + 1}:*`;
         isIncrementalSent = true;
       } else {
-        // Primer sync de Sent: traemos los últimos 5000 mensajes enviados.
-        const start = Math.max(1, total - 4999);
-        range = `${start}:*`;
+        // Primer sync de Sent: TODOS los enviados.
+        range = `1:*`;
       }
 
       const fresh: UniboxMessage[] = [];
@@ -366,7 +362,7 @@ export async function syncAccountSent(uniboxId: string, accountId: string): Prom
       }
       // Cap total subido a 5000 (antes 2000). Alineado con INBOX cap para
       // conservar histórico completo de respuestas en campañas grandes.
-      msgsMap[accountId] = [...fresh, ...existing].slice(0, 10000);
+      msgsMap[accountId] = [...fresh, ...existing].slice(0, 50000);
       await saveMessagesMap(uniboxId, msgsMap);
       if (newCount > 0) {
         console.log(`[unibox-sync] ${account.email}: ${newCount} mensajes nuevos en SENT`);

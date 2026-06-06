@@ -68,10 +68,10 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
   out.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
   const totalAvailable = out.length;
-  // HARD_CAP subido a 10000 para que el cliente pueda ver TODOS los
-  // mensajes del histórico. El frontend solo renderiza 300 a la vez
-  // por virtualización, pero quiere recibirlos todos para filtrar/buscar.
-  const HARD_CAP = 10000;
+  // SIN cap real — devolvemos TODO el histórico. El frontend filtra/scrollea.
+  // Solo capamos a 50k como red de seguridad para no pasar de límite de
+  // tamaño JSON del Response (Next.js puede hacer chunking pero por si acaso).
+  const HARD_CAP = 50000;
   const sliced = all
     ? out.slice(0, HARD_CAP)
     : out.slice(offset, offset + Math.min(limitParam, HARD_CAP));

@@ -15,32 +15,18 @@ export function getPool(): Pool | null {
   globalThis.__pgPool = new Pool({
     connectionString: url,
     ssl: url.includes("railway.internal") ? false : { rejectUnauthorized: false },
-    max: 3,
-    idleTimeoutMillis: 10_000,
+    max: 10,
+    min: 1,
+    idleTimeoutMillis: 30_000,
     connectionTimeoutMillis: 15_000,
   });
-  // Limpiar conexiones zombi de procesos antiguos al arrancar.
-  // Esto resuelve "too many clients already" tras múltiples deploys.
-  const pool = globalThis.__pgPool;
-  pool.connect().then(async (c) => {
-    try {
-      await c.query(
-        `SELECT pg_terminate_backend(pid) FROM pg_stat_activity
-         WHERE state IN ('idle', 'idle in transaction')
-           AND pid <> pg_backend_pid()
-           AND backend_type = 'client backend'
-           AND state_change < NOW() - INTERVAL '30 seconds'`
-      );
-      console.log("[db] conexiones zombi limpiadas en arranque");
-    } catch (e: any) {
-      console.warn("[db] no se pudieron limpiar zombi:", e?.message);
-    } finally {
-      c.release();
-    }
-  }).catch((e) => {
-    console.warn("[db] cleanup zombi falló:", e?.message);
+  // Manejador de errores del pool: evita que un error de conexión
+  // cualquiera mate el proceso entero (lo veíamos como
+  // "uncaughtException: Connection terminated unexpectedly").
+  globalThis.__pgPool.on("error", (err) => {
+    console.warn("[db pool] error idle client (ignorado):", err.message);
   });
-  return pool;
+  return globalThis.__pgPool;
 }
 
 /** Inicializa el schema (tablas KV y blobs) si no existe. Idempotente. */

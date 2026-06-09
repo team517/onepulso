@@ -415,10 +415,11 @@ export async function syncUnibox(uniboxId: string): Promise<{ ok: number; fail: 
   const accs = await listAccounts(uniboxId);
   let ok = 0, fail = 0, total = 0;
 
-  // 30 cuentas en paralelo (antes 10). IONOS, Gmail, Outlook soportan
-  // bien múltiples conexiones IMAP desde la misma IP. Para uniboxes de
-  // 40+ cuentas reduce drásticamente el tiempo total de sync.
-  const CONCURRENCY = 30;
+  // Máximo 10 cuentas IMAP en paralelo — evita agotar el pool de Postgres
+  // cuando el sync IMAP dispara escrituras concurrentes en la DB.
+  // Con 3 uniboxes en paralelo (syncAllUniboxes) el pico máximo es 30
+  // conexiones IMAP simultáneas, dejando margen para peticiones de usuario.
+  const CONCURRENCY = 10;
   for (let i = 0; i < accs.length; i += CONCURRENCY) {
     const batch = accs.slice(i, i + CONCURRENCY);
     const results = await Promise.allSettled(

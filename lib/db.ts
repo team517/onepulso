@@ -83,16 +83,64 @@ export async function ensureSchema(): Promise<void> {
   }
 }
 
-/** Helper para ejecutar query con conexión auto-gestionada */
+/** Detecta si un error de query es de conexión muerta (no de lógica/SQL). */
+function isTransientConnError(e: any): boolean {
+  if (!e) return false;
+  const code = e.code || "";
+  const msg = String(e.message || "").toLowerCase();
+  return (
+    code === "ECONNREFUSED" ||
+    code === "ECONNRESET" ||
+    code === "ETIMEDOUT" ||
+    code === "EPIPE" ||
+    code === "ENOTFOUND" ||
+    code === "57P01" || // admin_shutdown
+    code === "57P02" || // crash_shutdown
+    code === "57P03" || // cannot_connect_now
+    code === "08000" || // connection_exception
+    code === "08003" || // connection_does_not_exist
+    code === "08006" || // connection_failure
+    msg.includes("connection terminated") ||
+    msg.includes("server closed the connection") ||
+    msg.includes("client has been closed") ||
+    msg.includes("connection ended") ||
+    msg.includes("connection reset") ||
+    msg.includes("read econnreset")
+  );
+}
+
+/** Helper para ejecutar query con conexión auto-gestionada.
+ *  RESILIENCIA: si la conexión está muerta (idle close por parte de Postgres,
+ *  reset de red, etc.), descarta el cliente del pool y reintenta con uno nuevo.
+ *  El usuario nunca ve "Connection terminated" — la query siempre se ejecuta. */
 export async function withClient<T>(fn: (c: PoolClient) => Promise<T>): Promise<T> {
   const pool = getPool();
   if (!pool) throw new Error("DATABASE_URL no configurado");
-  const client = await pool.connect();
-  try {
-    return await fn(client);
-  } finally {
-    client.release();
+
+  let lastError: any;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    let client: PoolClient | null = null;
+    try {
+      client = await pool.connect();
+      const result = await fn(client);
+      client.release();
+      return result;
+    } catch (e: any) {
+      lastError = e;
+      // Si la conexión murió, descartarla del pool (release con error)
+      // y reintentar con una nueva. Si es error de lógica/SQL, propagar.
+      if (client) {
+        try {
+          client.release(isTransientConnError(e) ? e : undefined);
+        } catch {}
+      }
+      if (!isTransientConnError(e)) throw e; // error real, no reintentar
+      // Backoff corto: 100ms, 300ms
+      if (attempt < 2) await new Promise((r) => setTimeout(r, 100 * (attempt + 1) * 3));
+      console.warn(`[db] reintento ${attempt + 1}/2 tras conexión muerta: ${e?.message?.slice(0, 100)}`);
+    }
   }
+  throw lastError;
 }
 
 export function isDbEnabled(): boolean {

@@ -5,10 +5,14 @@ declare global {
   var __pgPool: Pool | undefined;
   // eslint-disable-next-line no-var
   var __pgInitDone: boolean | undefined;
+  // eslint-disable-next-line no-var
+  var __pgKeepalive: ReturnType<typeof setInterval> | undefined;
+  // eslint-disable-next-line no-var
+  var __pgMonitor: ReturnType<typeof setInterval> | undefined;
 }
 
 /** Devuelve el pool de Postgres si DATABASE_URL está definido, si no null.
- *  Pre-calienta una conexión al crearlo + keepalive cada 25s para que
+ *  Pre-calienta una conexión al crearlo + keepalive cada 20s para que
  *  la primera query del usuario sea INSTANTÁNEA (no espera TCP+TLS+auth). */
 export function getPool(): Pool | null {
   const url = process.env.DATABASE_URL;
@@ -23,33 +27,87 @@ export function getPool(): Pool | null {
     idleTimeoutMillis: 30_000,
     connectionTimeoutMillis: 15_000,
   });
-  // Handler de errores idle — evita matar el proceso por desconexiones.
+
+  // Handler de errores idle — limpia los intervalos para evitar que sigan
+  // disparando contra un pool muerto y acumulando promesas en memoria.
   globalThis.__pgPool.on("error", (err) => {
-    console.warn("[db pool] error idle client (ignorado):", err.message);
+    console.warn("[db pool] error idle client:", err.message);
+    if (globalThis.__pgKeepalive) {
+      clearInterval(globalThis.__pgKeepalive);
+      globalThis.__pgKeepalive = undefined;
+    }
+    if (globalThis.__pgMonitor) {
+      clearInterval(globalThis.__pgMonitor);
+      globalThis.__pgMonitor = undefined;
+    }
   });
 
   // PRE-CALENTAMIENTO: 8 SELECT 1 en paralelo → 8 conexiones warm.
   // El dashboard hace ~5 fetches paralelos + el inbox otros 3-4.
   // Con 8 warm, todo es instantáneo desde la primera petición.
   const WARM_COUNT = 8;
+  // Timeout de seguridad: si una query de warmup cuelga más de 10s, la
+  // descartamos para no bloquear el arranque ni acumular promesas.
+  const queryWithTimeout = (pool: Pool, timeoutMs: number): Promise<void> => {
+    return Promise.race([
+      pool.query("SELECT 1").then(() => {}),
+      new Promise<void>((_, reject) =>
+        setTimeout(() => reject(new Error("keepalive timeout")), timeoutMs)
+      ),
+    ]).catch(() => {});
+  };
+
   Promise.all(
-    Array(WARM_COUNT).fill(0).map(() => globalThis.__pgPool!.query("SELECT 1"))
+    Array(WARM_COUNT).fill(0).map(() => queryWithTimeout(globalThis.__pgPool!, 10_000))
   ).then(() => {
     console.log(`[db pool] ${WARM_COUNT} conexiones pre-calentadas — todo instantáneo`);
-  }).catch((e) => {
-    console.warn("[db pool] pre-calentamiento falló:", e?.message);
+  }).catch(() => {
+    console.warn("[db pool] pre-calentamiento falló");
   });
 
   // KEEPALIVE: cada 20s mantiene 8 conexiones warm. Si alguna muere,
   // el handler de error la recicla y la próxima keepalive abre una nueva.
-  if (!(globalThis as any).__pgKeepalive) {
-    (globalThis as any).__pgKeepalive = setInterval(() => {
+  //
+  // ANTI-LEAK: usamos un flag `running` para que si el ciclo anterior aún
+  // no terminó (queries lentas / pool saturado) el nuevo ciclo se salte,
+  // evitando la acumulación de promesas pendientes en memoria.
+  if (!globalThis.__pgKeepalive) {
+    let keepaliveRunning = false;
+    globalThis.__pgKeepalive = setInterval(() => {
       const pool = globalThis.__pgPool;
-      if (!pool) return;
+      if (!pool || keepaliveRunning) return;
+      keepaliveRunning = true;
       Promise.all(
-        Array(WARM_COUNT).fill(0).map(() => pool.query("SELECT 1").catch(() => {}))
-      ).catch(() => {});
+        Array(WARM_COUNT).fill(0).map(() => queryWithTimeout(pool, 8_000))
+      ).then(() => {
+        keepaliveRunning = false;
+      }).catch(() => {
+        keepaliveRunning = false;
+      });
     }, 20_000);
+    // Permite que Node.js salga aunque el intervalo esté activo (no bloquea el proceso).
+    if (globalThis.__pgKeepalive.unref) globalThis.__pgKeepalive.unref();
+  }
+
+  // MONITOREO: cada 30s registra el estado del pool para diagnóstico.
+  // También usa un flag para no acumular logs si el ciclo anterior cuelga.
+  if (!globalThis.__pgMonitor) {
+    let monitorRunning = false;
+    globalThis.__pgMonitor = setInterval(() => {
+      const pool = globalThis.__pgPool;
+      if (!pool || monitorRunning) return;
+      monitorRunning = true;
+      try {
+        const { totalCount, idleCount, waitingCount } = pool;
+        console.log(
+          `[db pool] total=${totalCount} idle=${idleCount} waiting=${waitingCount} ` +
+          `mem_heap_mb=${Math.round(process.memoryUsage().heapUsed / 1024 / 1024)}`
+        );
+      } finally {
+        monitorRunning = false;
+      }
+    }, 30_000);
+    if (globalThis.__pgMonitor.unref) globalThis.__pgMonitor.unref();
   }
 
   return globalThis.__pgPool;

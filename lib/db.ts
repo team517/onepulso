@@ -17,9 +17,10 @@ export function getPool(): Pool | null {
   globalThis.__pgPool = new Pool({
     connectionString: url,
     ssl: url.includes("railway.internal") ? false : { rejectUnauthorized: false },
-    // CAPACIDAD MÁXIMA: 25 conexiones simultáneas (antes 10) — cubre
-    // sync masivo + dashboard + múltiples usuarios sin esperar.
-    max: 25,
+    // CAPACIDAD MÁXIMA: 150 conexiones (antes 25) — cubre sync masivo IMAP
+    // + dashboard + múltiples usuarios sin agotar el pool.
+    max: 150,
+    min: 30,
     idleTimeoutMillis: 30_000,
     connectionTimeoutMillis: 15_000,
   });
@@ -105,7 +106,9 @@ function isTransientConnError(e: any): boolean {
     msg.includes("client has been closed") ||
     msg.includes("connection ended") ||
     msg.includes("connection reset") ||
-    msg.includes("read econnreset")
+    msg.includes("read econnreset") ||
+    msg.includes("timeout exceeded") ||
+    msg.includes("connection not available")
   );
 }
 
@@ -135,9 +138,10 @@ export async function withClient<T>(fn: (c: PoolClient) => Promise<T>): Promise<
         } catch {}
       }
       if (!isTransientConnError(e)) throw e; // error real, no reintentar
-      // Backoff corto: 100ms, 300ms
-      if (attempt < 2) await new Promise((r) => setTimeout(r, 100 * (attempt + 1) * 3));
-      console.warn(`[db] reintento ${attempt + 1}/2 tras conexión muerta: ${e?.message?.slice(0, 100)}`);
+      // Backoff exponencial: 100ms, 200ms, 400ms
+      const delay = 100 * Math.pow(2, attempt);
+      if (attempt < 2) await new Promise((r) => setTimeout(r, delay));
+      console.warn(`[db] reintento ${attempt + 1}/3 tras conexión transitoria (${delay}ms): ${e?.message?.slice(0, 100)}`);
     }
   }
   throw lastError;

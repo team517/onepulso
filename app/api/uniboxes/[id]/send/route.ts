@@ -49,11 +49,14 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const hasHtml = /<[a-z][\s\S]*>/i.test(body);
   let html = hasHtml ? body : body.replace(/\n/g, "<br>");
 
-  // AUTO-FIRMA: si la cuenta tiene signature_html configurada, la añadimos
-  // al final del body (a menos que el usuario ya la haya incluido).
-  // Detección simple: si el body NO contiene un fragmento de la firma, append.
-  if (acc.signature_html && acc.signature_html.trim().length > 0) {
-    // Tomar las primeras palabras significativas de la firma como huella
+  // Detectar si el body ya trae la firma (con los markers que pone el cliente).
+  const SIG_MARKER_START = '<!-- onepulso-sig-start -->';
+  const SIG_MARKER_END = '<!-- onepulso-sig-end -->';
+  const hasMarkerSig = html.includes(SIG_MARKER_START);
+
+  // AUTO-FIRMA: si la cuenta tiene signature configurada Y el body NO la trae ya
+  if (acc.signature_html && acc.signature_html.trim().length > 0 && !hasMarkerSig) {
+    // Fallback: huella por texto plano por si vino sin markers (compose viejo, plain text, etc.)
     const sigPlain = acc.signature_html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
     const sigSample = sigPlain.slice(0, 40);
     const bodyPlain = body.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
@@ -62,6 +65,9 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       html = html + `\n<br><br>\n${acc.signature_html}`;
     }
   }
+
+  // QUITAR markers HTML antes de enviar (el destinatario no debe verlos).
+  html = html.replaceAll(SIG_MARKER_START, "").replaceAll(SIG_MARKER_END, "");
 
   const displayName = [acc.first_name, acc.last_name].filter(Boolean).join(" ") || acc.email;
 

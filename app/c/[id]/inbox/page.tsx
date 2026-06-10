@@ -975,13 +975,49 @@ function ComposeModal({ uniboxId, accounts, initial, onClose, onSent }: any) {
     return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
   }
 
-  // Inicializa el editor con el body inicial UNA SOLA VEZ (al montar).
+  // Marker HTML para separar el cuerpo de la firma. Permite cambiar la
+  // firma al cambiar de cuenta sin perder lo que escribió el usuario.
+  const SIG_MARKER_START = '<!-- onepulso-sig-start -->';
+  const SIG_MARKER_END = '<!-- onepulso-sig-end -->';
+
+  function buildSignatureBlock(sigHtml: string): string {
+    if (!sigHtml || !sigHtml.trim()) return "";
+    return `<br><br>${SIG_MARKER_START}<div data-onepulso-signature="1">${sigHtml}</div>${SIG_MARKER_END}`;
+  }
+
+  function getCurrentAccountSignature(): string {
+    const acc = accounts.find((a: any) => a.id === accountId);
+    return acc?.signature_html || "";
+  }
+
+  // Inicializa el editor con el body inicial + firma al montar.
   useEffect(() => {
-    if (editorRef.current && initial.body) {
-      editorRef.current.innerHTML = initial.body;
+    if (editorRef.current) {
+      const sig = getCurrentAccountSignature();
+      const sigBlock = buildSignatureBlock(sig);
+      const bodyHtml = (initial.body || "") + sigBlock;
+      editorRef.current.innerHTML = bodyHtml;
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Al cambiar de cuenta, sustituir SOLO la parte de firma (mantener body).
+  useEffect(() => {
+    if (!editorRef.current) return;
+    const html = editorRef.current.innerHTML || "";
+    // Quitar firma anterior si existe (entre los markers)
+    let withoutSig = html;
+    const startIdx = html.indexOf(SIG_MARKER_START);
+    const endIdx = html.indexOf(SIG_MARKER_END);
+    if (startIdx >= 0 && endIdx > startIdx) {
+      withoutSig = html.slice(0, startIdx) + html.slice(endIdx + SIG_MARKER_END.length);
+      // Limpiar los <br><br> que añadimos antes del marker
+      withoutSig = withoutSig.replace(/(<br>\s*){2,}$/i, "");
+    }
+    const newSig = buildSignatureBlock(getCurrentAccountSignature());
+    editorRef.current.innerHTML = withoutSig + newSig;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [accountId]);
 
   async function send() {
     if (!to.trim()) { setError("Falta destinatario"); return; }
@@ -1353,7 +1389,7 @@ function SignatureModal({ uniboxId, accounts, onClose, onSaved }: any) {
             disabled={!bulkHtml.trim() || selected.size === 0 || saving}
             style={sendBtn}
           >
-            {saving ? `Guardando…` : `Aplicar a ${selected.size} cuenta(s)`}
+            {saving ? `Guardando…` : done ? `✓ Aplicado` : `Aplicar a ${selected.size} cuenta(s)`}
           </button>
         </div>
       </div>

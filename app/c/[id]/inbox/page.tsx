@@ -945,8 +945,35 @@ function ComposeModal({ uniboxId, accounts, initial, onClose, onSent }: any) {
   // body se lee del editor cuando se pulsa Enviar, no en cada keystroke.
   // Esto evita el bug de escribir al revés (cursor jump al final).
   const editorRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState("");
+  // Adjuntos seleccionados — máximo 25MB total (límite estándar SMTP)
+  const [attachments, setAttachments] = useState<File[]>([]);
+  const MAX_TOTAL_SIZE = 25 * 1024 * 1024;
+  const totalSize = attachments.reduce((s, f) => s + f.size, 0);
+
+  function addAttachments(files: FileList | File[]) {
+    const next = [...attachments];
+    for (const f of Array.from(files)) {
+      next.push(f);
+    }
+    const newTotal = next.reduce((s, f) => s + f.size, 0);
+    if (newTotal > MAX_TOTAL_SIZE) {
+      setError(`Tamaño total supera 25MB (${(newTotal / 1024 / 1024).toFixed(1)}MB). Quita algún archivo.`);
+      return;
+    }
+    setError("");
+    setAttachments(next);
+  }
+  function removeAttachment(idx: number) {
+    setAttachments(attachments.filter((_, i) => i !== idx));
+  }
+  function fmtSize(bytes: number): string {
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+  }
 
   // Inicializa el editor con el body inicial UNA SOLA VEZ (al montar).
   useEffect(() => {
@@ -969,6 +996,11 @@ function ComposeModal({ uniboxId, accounts, initial, onClose, onSent }: any) {
       fd.append("body", body);
       if (initial.inReplyTo) fd.append("inReplyTo", initial.inReplyTo);
       if (initial.references) fd.append("references", initial.references);
+      // Adjuntos — clave 'attachments' (multiple). El endpoint /send
+      // hace form.getAll("attachments") y los procesa con nodemailer.
+      for (const f of attachments) {
+        fd.append("attachments", f);
+      }
       const r = await fetch(`/api/uniboxes/${uniboxId}/send`, { method: "POST", body: fd });
       const d = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(d.error || "Error enviando");
@@ -1027,12 +1059,73 @@ function ComposeModal({ uniboxId, accounts, initial, onClose, onSent }: any) {
             style={{ ...composeInput, minHeight: 200, padding: 12, outline: "none" }}
           />
 
+          {/* Zona de adjuntos */}
+          {attachments.length > 0 && (
+            <div style={{ marginTop: 14 }}>
+              <label style={composeLabel}>
+                📎 Adjuntos ({attachments.length}) · {fmtSize(totalSize)} / 25 MB
+              </label>
+              <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 4 }}>
+                {attachments.map((f, idx) => (
+                  <div
+                    key={idx}
+                    style={{
+                      display: "flex", alignItems: "center", gap: 10,
+                      padding: "8px 12px",
+                      background: "#f8fafc",
+                      border: "1px solid #e2e8f0",
+                      borderRadius: 8,
+                      fontSize: 13,
+                    }}
+                  >
+                    <span style={{ fontSize: 16 }}>{getFileIcon(f.name)}</span>
+                    <div style={{ flex: 1, overflow: "hidden" }}>
+                      <div style={{ fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        {f.name}
+                      </div>
+                      <div style={{ fontSize: 11, color: "#94a3b8" }}>{fmtSize(f.size)}</div>
+                    </div>
+                    <button
+                      onClick={() => removeAttachment(idx)}
+                      style={{
+                        background: "transparent", border: 0, cursor: "pointer",
+                        color: "#ef4444", fontSize: 14, padding: 4,
+                      }}
+                      title="Quitar adjunto"
+                    >✕</button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           {error && <div style={errorBox}>{error}</div>}
         </div>
         <div style={modalFooter}>
-          <button onClick={onClose} style={cancelBtn}>Cancelar</button>
+          {/* Input file oculto + botón visible que lo dispara */}
+          <input
+            ref={fileInputRef}
+            type="file"
+            multiple
+            style={{ display: "none" }}
+            onChange={(e) => {
+              if (e.target.files) addAttachments(e.target.files);
+              e.target.value = ""; // permitir re-seleccionar el mismo archivo
+            }}
+          />
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            style={{ ...cancelBtn, color: "#0071e3", borderColor: "rgba(0,113,227,0.3)" }}
+            disabled={sending}
+            title="Adjuntar archivos (máx 25MB total)"
+          >
+            📎 Adjuntar
+          </button>
+          <div style={{ flex: 1 }} />
+          <button onClick={onClose} style={cancelBtn} disabled={sending}>Cancelar</button>
           <button onClick={send} disabled={sending} style={sendBtn}>
-            {sending ? "Enviando…" : "Enviar"}
+            {sending ? "Enviando…" : (attachments.length > 0 ? `Enviar con ${attachments.length} adjunto(s)` : "Enviar")}
           </button>
         </div>
       </div>
@@ -1382,6 +1475,21 @@ function fmtTimeSince(ts: number): string {
   if (min < 60) return `hace ${min} min`;
   const h = Math.floor(min / 60);
   return `hace ${h}h`;
+}
+
+function getFileIcon(filename: string): string {
+  const ext = (filename.split(".").pop() || "").toLowerCase();
+  if (["jpg", "jpeg", "png", "gif", "webp", "svg", "bmp"].includes(ext)) return "🖼️";
+  if (["pdf"].includes(ext)) return "📕";
+  if (["doc", "docx"].includes(ext)) return "📘";
+  if (["xls", "xlsx", "csv"].includes(ext)) return "📗";
+  if (["ppt", "pptx"].includes(ext)) return "📙";
+  if (["zip", "rar", "7z", "tar", "gz"].includes(ext)) return "🗜️";
+  if (["mp3", "wav", "ogg", "m4a"].includes(ext)) return "🎵";
+  if (["mp4", "mov", "avi", "mkv", "webm"].includes(ext)) return "🎬";
+  if (["txt", "md"].includes(ext)) return "📄";
+  if (["js", "ts", "tsx", "jsx", "py", "html", "css", "json"].includes(ext)) return "💻";
+  return "📎";
 }
 
 function escapeHtml(s: string): string {

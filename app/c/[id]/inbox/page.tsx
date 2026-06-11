@@ -180,8 +180,53 @@ export default function ClienteInboxPage() {
         setMessages(d.messages || []);
         setWarmupCount(d.warmupCount || 0);
         setTotalAvailable(d.total || (d.messages?.length || 0));
+        // Hidratar cuerpos de los recibidos recientes sin body (fast-mode)
+        // → mejora previews y la clasificación de interés sin abrir uno a uno.
+        hydrateRecentBodies(d.messages || []);
       }
     } catch {}
+  }
+
+  // HIDRATACIÓN en background: descarga el cuerpo de los N mensajes
+  // RECIBIDOS más recientes que aún no lo tienen (has_body=false).
+  // El endpoint de detalle lo baja de IMAP y lo cachea, así que esto
+  // solo cuesta una vez por mensaje. Concurrencia 3 para no saturar.
+  const hydratedRef = useRef<Set<string>>(new Set());
+  async function hydrateRecentBodies(list: any[]) {
+    const myEmailsLocal = new Set(accounts.map((a: any) => (a.email || "").toLowerCase()));
+    const isOut = (m: any) => {
+      if (typeof m.uid === "number" && m.uid < 0) return true;
+      const fa = (m.fromAddress || m.from || "").toLowerCase();
+      if (fa && myEmailsLocal.has(fa)) return true;
+      return false;
+    };
+    const candidates = list
+      .filter((m: any) => m.has_body === false && !isOut(m) && !m.is_warmup)
+      .filter((m: any) => !hydratedRef.current.has(`${m.accountId}-${m.uid}`))
+      .slice(0, 20); // solo los 20 más recientes por pasada
+    if (candidates.length === 0) return;
+
+    const CONCURRENCY = 3;
+    for (let i = 0; i < candidates.length; i += CONCURRENCY) {
+      const batch = candidates.slice(i, i + CONCURRENCY);
+      await Promise.all(batch.map(async (m: any) => {
+        const key = `${m.accountId}-${m.uid}`;
+        hydratedRef.current.add(key);
+        try {
+          const r = await fetch(`/api/uniboxes/${id}/messages/${m.accountId}/${m.uid}`);
+          if (r.ok) {
+            const full = await r.json();
+            if (full?.preview && full.preview !== m.preview) {
+              setMessages(prev => prev.map((msg: any) =>
+                msg.accountId === m.accountId && msg.uid === m.uid
+                  ? { ...msg, preview: full.preview, has_body: true }
+                  : msg
+              ));
+            }
+          }
+        } catch {}
+      }));
+    }
   }
 
   // REFRESH: solo busca nuevos mensajes en los IMAP de todas las cuentas.
@@ -454,10 +499,25 @@ export default function ClienteInboxPage() {
     return out;
   }, [messages]);
 
+  // CLASIFICACIÓN cacheada por mensaje (solo inbound) — se computa una
+  // vez por cambio de lista, no en cada render de cada item.
+  const classificationMap = useMemo(() => {
+    const map = new Map<string, "interested" | "question" | "not_interested" | null>();
+    for (const m of dedupedMessages) {
+      if (isOutbound(m)) continue; // solo se clasifican respuestas recibidas
+      map.set(`${m.accountId}-${m.uid}`, classifyInterest(m));
+    }
+    return map;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dedupedMessages, accounts]);
+
+  const getClassification = (m: any) => classificationMap.get(`${m.accountId}-${m.uid}`) ?? null;
+
   const filtered = useMemo(() => {
     let list = dedupedMessages;
     // Filtros: "all" = mensajes sin carpeta custom
     //          "received"/"sent" = recibidos/enviados sin carpeta
+    //          "interested"/"question"/"not_interested" = recibidos clasificados
     //          [folderId] = mensajes con ese folder_id
     if (filter === "all") {
       list = list.filter(m => !m.folder_id);
@@ -465,6 +525,8 @@ export default function ClienteInboxPage() {
       list = list.filter(m => !m.folder_id && !isOutbound(m));
     } else if (filter === "sent") {
       list = list.filter(m => !m.folder_id && isOutbound(m));
+    } else if (filter === "interested" || filter === "question" || filter === "not_interested") {
+      list = list.filter(m => !m.folder_id && getClassification(m) === filter);
     } else {
       // Carpeta custom
       list = list.filter(m => m.folder_id === filter);
@@ -481,21 +543,33 @@ export default function ClienteInboxPage() {
     // Cap a 2000 visibles para no saturar el DOM. Si el usuario tiene más,
     // que use el buscador. Antes era 300 — demasiado restrictivo.
     return list.slice(0, 2000);
-  }, [dedupedMessages, filter, search, accounts]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dedupedMessages, filter, search, accounts, classificationMap]);
 
   // Contadores para sidebar
   const counts = useMemo(() => {
     const noFolder = dedupedMessages.filter(m => !m.folder_id);
+    let interested = 0, question = 0, notInterested = 0;
+    for (const m of noFolder) {
+      const c = getClassification(m);
+      if (c === "interested") interested++;
+      else if (c === "question") question++;
+      else if (c === "not_interested") notInterested++;
+    }
     return {
       all: noFolder.length,
       received: noFolder.filter(m => !isOutbound(m)).length,
       sent: noFolder.filter(isOutbound).length,
+      interested,
+      question,
+      notInterested,
       byFolder: folders.reduce((acc: any, f: any) => {
         acc[f.id] = dedupedMessages.filter(m => m.folder_id === f.id).length;
         return acc;
       }, {} as Record<string, number>),
     };
-  }, [dedupedMessages, folders, accounts]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dedupedMessages, folders, accounts, classificationMap]);
 
   if (authChecking) {
     return (
@@ -535,6 +609,32 @@ export default function ClienteInboxPage() {
           style={{ ...folderBtn, ...(filter === "sent" ? folderActive : {}) }}
           onClick={() => setFilter("sent")}
         >📤 Enviados · {counts.sent}</button>
+
+        <div style={sectionTitle}>CLASIFICACIÓN</div>
+        <button
+          style={{
+            ...folderBtn,
+            ...(filter === "interested" ? { background: "rgba(16,185,129,0.12)", color: "#047857", fontWeight: 700 } : {}),
+          }}
+          onClick={() => setFilter("interested")}
+          title="Respuestas que muestran interés (quieren info, reunión, presupuesto)"
+        >🟢 Interesados · {counts.interested}</button>
+        <button
+          style={{
+            ...folderBtn,
+            ...(filter === "question" ? { background: "rgba(59,130,246,0.12)", color: "#1d4ed8", fontWeight: 700 } : {}),
+          }}
+          onClick={() => setFilter("question")}
+          title="Respuestas con preguntas o dudas"
+        >🔵 Preguntas · {counts.question}</button>
+        <button
+          style={{
+            ...folderBtn,
+            ...(filter === "not_interested" ? { background: "rgba(239,68,68,0.12)", color: "#b91c1c", fontWeight: 700 } : {}),
+          }}
+          onClick={() => setFilter("not_interested")}
+          title="Respuestas que rechazan o piden baja"
+        >🔴 No interesados · {counts.notInterested}</button>
 
         <div style={sectionTitle}>CARPETAS</div>
         {folders.map((f) => (
@@ -749,14 +849,21 @@ export default function ClienteInboxPage() {
             filtered.map((m) => {
               const isSelected = selectedMsg && selectedMsg.uid === m.uid && selectedMsg.accountId === m.accountId;
               const outbound = isOutbound(m);
+              const cls = outbound ? null : getClassification(m);
+              const clsMeta = cls ? INTEREST_META[cls] : null;
               return (
                 <div
                   key={`${m.accountId}-${m.uid}`}
                   onClick={() => setSelectedMsg(m)}
-                  style={{ ...msgItem, ...(isSelected ? msgItemActive : {}) }}
+                  style={{
+                    ...msgItem,
+                    ...(isSelected ? msgItemActive : {}),
+                    // Borde de color a la izquierda según clasificación
+                    ...(clsMeta ? { borderLeft: `3px solid ${clsMeta.border.replace("0.35", "0.9")}` } : {}),
+                  }}
                 >
                   <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
-                    <div style={{ fontWeight: 700, fontSize: 13, color: "#0f172a", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 220 }}>
+                    <div style={{ fontWeight: 700, fontSize: 13, color: "#0f172a", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 220, display: "flex", alignItems: "center", gap: 6 }}>
                       {outbound ? `→ ${m.to || ""}` : (m.fromName || m.from || "")}
                     </div>
                     <div style={{ fontSize: 11, color: "#94a3b8", flexShrink: 0, marginLeft: 8 }}>
@@ -766,8 +873,22 @@ export default function ClienteInboxPage() {
                   <div style={{ fontSize: 13, color: "#334155", marginBottom: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                     {m.subject || "(sin asunto)"}
                   </div>
-                  <div style={{ fontSize: 11.5, color: "#94a3b8", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                    {(m.preview || "").substring(0, 120)}
+                  <div style={{ fontSize: 11.5, color: "#94a3b8", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", display: "flex", alignItems: "center", gap: 6 }}>
+                    {clsMeta && (
+                      <span style={{
+                        flexShrink: 0,
+                        fontSize: 10, fontWeight: 700,
+                        color: clsMeta.color,
+                        background: clsMeta.bg,
+                        border: `1px solid ${clsMeta.border}`,
+                        borderRadius: 99,
+                        padding: "1px 8px",
+                        letterSpacing: "0.01em",
+                      }}>{clsMeta.label}</span>
+                    )}
+                    <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {(m.preview || "").substring(0, 120)}
+                    </span>
                   </div>
                 </div>
               );
@@ -787,10 +908,18 @@ export default function ClienteInboxPage() {
             m={selectedMsg}
             uniboxId={id}
             folders={folders}
+            classification={isOutbound(selectedMsg) ? null : getClassification(selectedMsg)}
             onReply={() => replyTo(selectedMsg)}
             onForward={() => forwardMsg(selectedMsg)}
             onDelete={() => deleteMessage(selectedMsg.accountId, selectedMsg.uid)}
             onMoveFolder={(fid: string | null) => moveToFolder(selectedMsg.accountId, selectedMsg.uid, fid)}
+            onBodyLoaded={(accountId: string, uid: number, patch: any) => {
+              // Actualizar el mensaje en la lista con el preview real →
+              // el classificationMap se recalcula y el badge aparece solo.
+              setMessages(prev => prev.map((msg: any) =>
+                msg.accountId === accountId && msg.uid === uid ? { ...msg, ...patch } : msg
+              ));
+            }}
           />
         )}
       </section>
@@ -879,22 +1008,43 @@ export default function ClienteInboxPage() {
   );
 }
 
-function MessageDetail({ m, uniboxId, folders, onReply, onForward, onDelete, onMoveFolder }: any) {
+function MessageDetail({ m, uniboxId, folders, classification, onReply, onForward, onDelete, onMoveFolder, onBodyLoaded }: any) {
   const [full, setFull] = useState<any>(null);
 
   useEffect(() => {
     setFull(null);
     fetch(`/api/uniboxes/${uniboxId}/messages/${m.accountId}/${m.uid}`)
       .then(r => r.ok ? r.json() : null)
-      .then(d => setFull(d))
+      .then(d => {
+        setFull(d);
+        // Propagar el preview real al parent — mejora la clasificación
+        // de interés al instante (fast-mode trae solo subject hasta abrir).
+        if (d && d.preview && d.preview !== m.preview && onBodyLoaded) {
+          onBodyLoaded(m.accountId, m.uid, { preview: d.preview, text: d.text, html: d.html });
+        }
+      })
       .catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [m.accountId, m.uid, uniboxId]);
 
   return (
     <div style={detailContent}>
       <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 18, gap: 10, flexWrap: "wrap" }}>
-        <h2 style={{ margin: 0, fontSize: 20, fontWeight: 700, color: "#0f172a", flex: 1, minWidth: 200 }}>
+        <h2 style={{ margin: 0, fontSize: 20, fontWeight: 700, color: "#0f172a", flex: 1, minWidth: 200, display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
           {m.subject || "(sin asunto)"}
+          {classification && INTEREST_META[classification] && (
+            <span style={{
+              fontSize: 11.5, fontWeight: 700,
+              color: INTEREST_META[classification].color,
+              background: INTEREST_META[classification].bg,
+              border: `1px solid ${INTEREST_META[classification].border}`,
+              borderRadius: 99,
+              padding: "3px 12px",
+              whiteSpace: "nowrap",
+            }}>
+              {INTEREST_META[classification].icon} {INTEREST_META[classification].label}
+            </span>
+          )}
         </h2>
         <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
           <button onClick={onReply} style={actionBtn}>↩ Responder</button>
@@ -1512,6 +1662,92 @@ function fmtTimeSince(ts: number): string {
   const h = Math.floor(min / 60);
   return `hace ${h}h`;
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CLASIFICADOR DE INTERÉS — como Instantly. Analiza subject + preview del
+// mensaje RECIBIDO y lo clasifica en:
+//   "interested"     → 🟢 verde  (quiere más info / reunión / le encaja)
+//   "question"       → 🔵 azul   (hace preguntas, pide detalles)
+//   "not_interested" → 🔴 rojo   (rechaza, dar de baja, ya tiene proveedor)
+//   null             → sin clasificar (neutro)
+// Orden de evaluación: not_interested gana (señal más fuerte), luego
+// interested, luego question.
+// ─────────────────────────────────────────────────────────────────────────────
+const NOT_INTERESTED_PATTERNS = [
+  // Español
+  "no estamos interesados", "no estoy interesado", "no estoy interesada",
+  "no me interesa", "no nos interesa", "no interesa", "no es de interés",
+  "no gracias", "no, gracias", "dar de baja", "darme de baja", "darnos de baja",
+  "bórrame", "borrame", "borradme", "elimíname", "eliminame", "quitame", "quítame",
+  "no utilice mi correo", "no usen mi correo", "deje de enviarme", "dejen de enviarme",
+  "deja de enviarme", "no envíe más", "no envie mas", "no me envíes", "no me envies",
+  "ya tenemos proveedor", "ya trabajamos con", "ya disponemos de", "ya contamos con",
+  "no necesitamos", "no lo necesitamos", "no es para nosotros", "no encaja",
+  "no es el momento", "no por ahora", "quizás más adelante", "quizas mas adelante",
+  // Inglés
+  "not interested", "no interest", "we're not interested", "we are not interested",
+  "unsubscribe", "remove me", "take me off", "stop emailing", "stop contacting",
+  "do not contact", "don't contact", "not a fit", "not a good fit", "no thanks",
+  "we already have", "already working with", "not at this time", "not right now",
+  // Otros idiomas comunes en campañas EU
+  "pas intéressé", "pas interesse", "kein interesse", "non siamo interessati",
+  "não estamos interessados", "nao estamos interessados", "niet geïnteresseerd",
+];
+
+const INTERESTED_PATTERNS = [
+  // Español
+  "me interesa", "nos interesa", "sí me interesa", "si me interesa",
+  "estoy interesado", "estoy interesada", "estamos interesados", "interesado en",
+  "suena bien", "suena interesante", "me parece interesante", "nos parece interesante",
+  "más información", "mas informacion", "más info", "mas info", "amplía", "amplia información",
+  "envíame", "enviame", "envíanos", "envianos", "mándame", "mandame", "mándanos", "mandanos",
+  "agendar", "agendemos", "agenda una", "coordinar una", "concertar una",
+  "reunión", "reunion", "una llamada", "llámame", "llamame", "llamarme", "llamadme",
+  "hablemos", "podemos hablar", "podríamos hablar", "podriamos hablar",
+  "presupuesto", "cotización", "cotizacion", "tarifas", "propuesta",
+  "me encaja", "nos encaja", "encajaría", "encajaria", "adelante",
+  "quiero saber más", "quiero saber mas", "cuéntame más", "cuentame mas",
+  // Inglés
+  "interested in", "i'm interested", "i am interested", "we're interested",
+  "we are interested", "sounds good", "sounds interesting", "sounds great",
+  "more information", "more info", "send me", "send us", "send over",
+  "schedule a call", "book a call", "book a meeting", "set up a call",
+  "let's talk", "lets talk", "let's chat", "happy to chat", "open to",
+  "calendly", "quote", "pricing", "proposal", "demo", "tell me more",
+];
+
+const QUESTION_PATTERNS = [
+  "cuánto cuesta", "cuanto cuesta", "qué precio", "que precio", "cuál es el precio",
+  "cómo funciona", "como funciona", "qué incluye", "que incluye", "qué ofrecen",
+  "podría explicar", "podrías explicar", "puede explicar", "me puede", "me podría",
+  "tengo una duda", "tengo una pregunta", "una consulta",
+  "how much", "what's the price", "what is the price", "how does it work",
+  "what do you offer", "could you explain", "can you explain", "i have a question",
+  "what's included", "what is included", "do you have", "tienen", "disponen de",
+];
+
+function classifyInterest(m: any): "interested" | "question" | "not_interested" | null {
+  const text = `${m.subject || ""} ${m.preview || ""}`.toLowerCase();
+  if (!text.trim()) return null;
+  for (const p of NOT_INTERESTED_PATTERNS) {
+    if (text.includes(p)) return "not_interested";
+  }
+  for (const p of INTERESTED_PATTERNS) {
+    if (text.includes(p)) return "interested";
+  }
+  for (const p of QUESTION_PATTERNS) {
+    if (text.includes(p)) return "question";
+  }
+  // Pregunta genérica: el preview contiene "?" (y no es solo el subject Re:...?)
+  if ((m.preview || "").includes("?")) return "question";
+  return null;
+}
+
+const INTEREST_META: Record<string, { label: string; color: string; bg: string; border: string; icon: string }> = {
+  interested: { label: "Interesado", color: "#047857", bg: "rgba(16,185,129,0.10)", border: "rgba(16,185,129,0.35)", icon: "🟢" },
+  question: { label: "Pregunta", color: "#1d4ed8", bg: "rgba(59,130,246,0.10)", border: "rgba(59,130,246,0.35)", icon: "🔵" },
+  not_interested: { label: "No interesado", color: "#b91c1c", bg: "rgba(239,68,68,0.10)", border: "rgba(239,68,68,0.35)", icon: "🔴" },
+};
 
 function getFileIcon(filename: string): string {
   const ext = (filename.split(".").pop() || "").toLowerCase();

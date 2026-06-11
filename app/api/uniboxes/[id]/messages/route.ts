@@ -62,6 +62,10 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
         is_warmup: m.is_warmup,
         folder_id: (m as any).folder_id || null,
         has_attachments: (m.attachments?.length || 0) > 0,
+        // has_body: el fast-mode sync solo trae metadata; el cuerpo se
+        // descarga al abrir. El cliente usa este flag para hidratar en
+        // background los mensajes recientes (mejora previews + clasificación).
+        has_body: !!(m.text || m.html),
       });
     }
   }

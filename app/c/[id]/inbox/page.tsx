@@ -1125,61 +1125,38 @@ function ComposeModal({ uniboxId, accounts, initial, onClose, onSent }: any) {
     return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
   }
 
-  // Marker HTML para separar el cuerpo de la firma. Permite cambiar la
-  // firma al cambiar de cuenta sin perder lo que escribió el usuario.
-  const SIG_MARKER_START = '<!-- onepulso-sig-start -->';
-  const SIG_MARKER_END = '<!-- onepulso-sig-end -->';
+  // FIRMA: la cuenta seleccionada tiene una signature_html. La mostramos
+  // en una zona de PREVIEW separada debajo del editor (estilo Gmail), no
+  // dentro del editable. El usuario puede incluirla o no con el toggle.
+  const currentSignature = (accounts.find((a: any) => a.id === accountId)?.signature_html || "").trim();
+  const [includeSignature, setIncludeSignature] = useState(true);
 
-  function buildSignatureBlock(sigHtml: string): string {
-    if (!sigHtml || !sigHtml.trim()) return "";
-    return `<br><br>${SIG_MARKER_START}<div data-onepulso-signature="1">${sigHtml}</div>${SIG_MARKER_END}`;
-  }
-
-  function getCurrentAccountSignature(): string {
-    const acc = accounts.find((a: any) => a.id === accountId);
-    return acc?.signature_html || "";
-  }
-
-  // Inicializa el editor con el body inicial + firma al montar.
+  // Inicializa el editor SOLO con el cuerpo (la firma va aparte).
   useEffect(() => {
     if (editorRef.current) {
-      const sig = getCurrentAccountSignature();
-      const sigBlock = buildSignatureBlock(sig);
-      const bodyHtml = (initial.body || "") + sigBlock;
-      editorRef.current.innerHTML = bodyHtml;
+      editorRef.current.innerHTML = initial.body || "";
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-  // Al cambiar de cuenta, sustituir SOLO la parte de firma (mantener body).
-  useEffect(() => {
-    if (!editorRef.current) return;
-    const html = editorRef.current.innerHTML || "";
-    // Quitar firma anterior si existe (entre los markers)
-    let withoutSig = html;
-    const startIdx = html.indexOf(SIG_MARKER_START);
-    const endIdx = html.indexOf(SIG_MARKER_END);
-    if (startIdx >= 0 && endIdx > startIdx) {
-      withoutSig = html.slice(0, startIdx) + html.slice(endIdx + SIG_MARKER_END.length);
-      // Limpiar los <br><br> que añadimos antes del marker
-      withoutSig = withoutSig.replace(/(<br>\s*){2,}$/i, "");
-    }
-    const newSig = buildSignatureBlock(getCurrentAccountSignature());
-    editorRef.current.innerHTML = withoutSig + newSig;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [accountId]);
 
   async function send() {
     if (!to.trim()) { setError("Falta destinatario"); return; }
     setSending(true);
     setError("");
     try {
-      const body = editorRef.current?.innerHTML || "";
+      let body = editorRef.current?.innerHTML || "";
+      // Añadir la firma al final si está activada y la cuenta tiene una.
+      if (includeSignature && currentSignature) {
+        body = body + `<br><br>${currentSignature}`;
+      }
       const fd = new FormData();
       fd.append("accountId", accountId);
       fd.append("to", to);
       fd.append("subject", subject);
       fd.append("body", body);
+      // El cliente YA gestionó la firma (incluida o no) — el servidor
+      // no debe volver a añadirla.
+      fd.append("signature_handled", "1");
       if (initial.inReplyTo) fd.append("inReplyTo", initial.inReplyTo);
       if (initial.references) fd.append("references", initial.references);
       // Adjuntos — clave 'attachments' (multiple). El endpoint /send
@@ -1242,8 +1219,45 @@ function ComposeModal({ uniboxId, accounts, initial, onClose, onSent }: any) {
             ref={editorRef}
             contentEditable
             suppressContentEditableWarning
-            style={{ ...composeInput, minHeight: 200, padding: 12, outline: "none" }}
+            style={{ ...composeInput, minHeight: 180, padding: 12, outline: "none" }}
           />
+
+          {/* PREVIEW DE LA FIRMA — solo si la cuenta tiene firma configurada */}
+          {currentSignature && (
+            <div style={{ marginTop: 12 }}>
+              <div style={{
+                display: "flex", alignItems: "center", justifyContent: "space-between",
+                marginBottom: 6,
+              }}>
+                <label style={{ ...composeLabel, marginTop: 0, marginBottom: 0 }}>
+                  ✍ Firma {includeSignature ? "(se incluirá)" : "(desactivada)"}
+                </label>
+                <label style={{
+                  display: "inline-flex", alignItems: "center", gap: 6,
+                  fontSize: 12, color: "#475569", cursor: "pointer", fontWeight: 600,
+                }}>
+                  <input
+                    type="checkbox"
+                    checked={includeSignature}
+                    onChange={(e) => setIncludeSignature(e.target.checked)}
+                    style={{ cursor: "pointer", width: 15, height: 15 }}
+                  />
+                  Incluir firma
+                </label>
+              </div>
+              {includeSignature && (
+                <div style={{
+                  border: "1px solid #e2e8f0",
+                  borderRadius: 8,
+                  padding: 14,
+                  background: "#f8fafc",
+                  opacity: 0.92,
+                }}>
+                  <div dangerouslySetInnerHTML={{ __html: currentSignature }} />
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Zona de adjuntos */}
           {attachments.length > 0 && (

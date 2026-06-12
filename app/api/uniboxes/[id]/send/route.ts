@@ -21,6 +21,9 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const body = String(form.get("body") || "");
   const inReplyTo = String(form.get("inReplyTo") || "");
   const references = String(form.get("references") || "");
+  // Si el cliente ya gestionó la firma (la incluyó o el usuario la
+  // desactivó), el servidor NO debe tocarla.
+  const signatureHandled = String(form.get("signature_handled") || "") === "1";
 
   const accs = await listAccounts(id);
   const acc = accs.find((a) => a.id === accountId);
@@ -49,14 +52,10 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const hasHtml = /<[a-z][\s\S]*>/i.test(body);
   let html = hasHtml ? body : body.replace(/\n/g, "<br>");
 
-  // Detectar si el body ya trae la firma (con los markers que pone el cliente).
-  const SIG_MARKER_START = '<!-- onepulso-sig-start -->';
-  const SIG_MARKER_END = '<!-- onepulso-sig-end -->';
-  const hasMarkerSig = html.includes(SIG_MARKER_START);
-
-  // AUTO-FIRMA: si la cuenta tiene signature configurada Y el body NO la trae ya
-  if (acc.signature_html && acc.signature_html.trim().length > 0 && !hasMarkerSig) {
-    // Fallback: huella por texto plano por si vino sin markers (compose viejo, plain text, etc.)
+  // AUTO-FIRMA: solo si el cliente NO la gestionó ya. Para envíos
+  // automáticos (reminders, follow-ups) o clientes viejos que no mandan
+  // el flag signature_handled, aplicamos la firma con detección por huella.
+  if (!signatureHandled && acc.signature_html && acc.signature_html.trim().length > 0) {
     const sigPlain = acc.signature_html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
     const sigSample = sigPlain.slice(0, 40);
     const bodyPlain = body.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
@@ -65,9 +64,6 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       html = html + `\n<br><br>\n${acc.signature_html}`;
     }
   }
-
-  // QUITAR markers HTML antes de enviar (el destinatario no debe verlos).
-  html = html.replaceAll(SIG_MARKER_START, "").replaceAll(SIG_MARKER_END, "");
 
   const displayName = [acc.first_name, acc.last_name].filter(Boolean).join(" ") || acc.email;
 

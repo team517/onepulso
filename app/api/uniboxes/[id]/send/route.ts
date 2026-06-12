@@ -30,16 +30,25 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   if (!acc) return NextResponse.json({ error: "Cuenta no encontrada" }, { status: 400 });
   if (!to) return NextResponse.json({ error: "Falta destinatario" }, { status: 400 });
 
-  const port = acc.smtp_port || 587;
-  const secure = port === 465;
-  const transporter = nodemailer.createTransport({
-    host: acc.smtp_host,
-    port,
-    secure,
-    auth: { user: acc.smtp_user || acc.email, pass: acc.smtp_pass },
-    tls: { rejectUnauthorized: false },
-    requireTLS: !secure && port === 587,
-  });
+  // Construye un transporter para un puerto concreto con timeouts
+  // generosos (IONOS a veces tarda en el handshake).
+  function makeTransporter(p: number) {
+    const sec = p === 465;
+    return nodemailer.createTransport({
+      host: acc!.smtp_host,
+      port: p,
+      secure: sec,
+      auth: { user: acc!.smtp_user || acc!.email, pass: acc!.smtp_pass },
+      tls: { rejectUnauthorized: false },
+      requireTLS: !sec && p === 587,
+      connectionTimeout: 20_000,
+      greetingTimeout: 20_000,
+      socketTimeout: 30_000,
+    } as any);
+  }
+
+  const primaryPort = acc.smtp_port || 587;
+  const port = primaryPort;
 
   const files = form.getAll("attachments") as File[];
   const attachments = await Promise.all(
@@ -108,15 +117,59 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     };
   }
 
-  let info: any;
-  try {
-    info = await transporter.sendMail(mail);
-  } catch (e: any) {
-    console.error(`[unibox-send] SMTP error ${acc.email}: ${e?.message || e}`);
+  // ENVÍO con reintentos: intentamos el puerto configurado y, si falla
+  // por timeout/conexión, probamos el puerto alternativo (587↔465).
+  // Muchas cuentas IONOS funcionan en ambos pero uno puede estar bloqueado
+  // o lento en un momento dado.
+  const portsToTry: number[] = [primaryPort];
+  const alt = primaryPort === 587 ? 465 : 587;
+  portsToTry.push(alt);
+
+  let info: any = null;
+  let lastError: any = null;
+  for (let i = 0; i < portsToTry.length; i++) {
+    const p = portsToTry[i];
+    const transporter = makeTransporter(p);
+    try {
+      info = await transporter.sendMail(mail);
+      if (i > 0) {
+        console.log(`[unibox-send] ${acc.email}: enviado por puerto alternativo ${p}`);
+      }
+      try { transporter.close?.(); } catch {}
+      break;
+    } catch (e: any) {
+      lastError = e;
+      try { transporter.close?.(); } catch {}
+      const msg = String(e?.message || e).toLowerCase();
+      const isConnIssue =
+        msg.includes("timeout") || msg.includes("econnrefused") ||
+        msg.includes("etimedout") || msg.includes("greeting") ||
+        msg.includes("econnreset") || msg.includes("socket") ||
+        msg.includes("connection");
+      console.warn(`[unibox-send] ${acc.email} puerto ${p} falló: ${e?.message}`);
+      // Solo probamos el alternativo si fue problema de conexión, no de auth.
+      if (!isConnIssue) break;
+    }
+  }
+
+  if (!info) {
+    const errMsg = String(lastError?.message || lastError || "error desconocido");
+    console.error(`[unibox-send] SMTP FALLÓ ${acc.email}: ${errMsg}`);
+    // Mensaje de error amigable según el tipo
+    let friendly = errMsg;
+    const low = errMsg.toLowerCase();
+    if (low.includes("invalid login") || low.includes("authentication") || low.includes("535")) {
+      friendly = "Credenciales SMTP incorrectas. Revisa usuario/contraseña de la cuenta.";
+    } else if (low.includes("timeout") || low.includes("etimedout") || low.includes("greeting")) {
+      friendly = "El servidor SMTP no respondió a tiempo. Inténtalo de nuevo en unos segundos.";
+    } else if (low.includes("econnrefused")) {
+      friendly = "No se pudo conectar al servidor SMTP. Verifica el host y puerto.";
+    }
     return NextResponse.json({
-      error: `Error enviando: ${e?.message || String(e)}`,
+      error: friendly,
+      detail: errMsg,
       smtp_host: acc.smtp_host,
-      smtp_port: port,
+      smtp_port: primaryPort,
     }, { status: 500 });
   }
 

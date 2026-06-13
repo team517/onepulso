@@ -69,7 +69,12 @@ let lastUniboxSync = 0;
 // volver a bajar a 30s.
 const INBOX_SYNC_MS = 60_000;        // sync incremental cada 60s (antes 30s)
 const DEEP_REFRESH_MS = 5 * 60_000;  // deep refresh cada 5 min (antes 2 min)
-const UNIBOX_SYNC_MS = 60_000;        // sync de uniboxes cada 60s (antes 30s)
+// Sync de uniboxes desde el backend cada 5 min. El cliente ya sincroniza
+// cada 60s cuando tiene el unibox abierto, así que el backend solo cubre
+// el caso de que NADIE esté mirando. 5 min reduce el trabajo de sync (y RAM)
+// drásticamente vs cada 60s — antes había sync del cliente + del backend
+// duplicando el consumo.
+const UNIBOX_SYNC_MS = 5 * 60_000;
 
 /**
  * Rescata follow-ups atascadas en "sending" durante más de N minutos.

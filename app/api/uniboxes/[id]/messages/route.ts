@@ -72,10 +72,10 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
   out.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
   const totalAvailable = out.length;
-  // SIN cap real — devolvemos TODO el histórico. El frontend filtra/scrollea.
-  // Solo capamos a 50k como red de seguridad para no pasar de límite de
-  // tamaño JSON del Response (Next.js puede hacer chunking pero por si acaso).
-  const HARD_CAP = 50000;
+  // Cap a 2000 mensajes devueltos al cliente. El frontend solo renderiza
+  // ~300-2000 a la vez (virtualización). Devolver 50k construía un JSON
+  // gigante en RAM por cada request. 2000 cubre de sobra para ver/filtrar.
+  const HARD_CAP = 2000;
   const sliced = all
     ? out.slice(0, HARD_CAP)
     : out.slice(offset, offset + Math.min(limitParam, HARD_CAP));

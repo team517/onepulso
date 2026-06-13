@@ -7,9 +7,9 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 600; // 10 min — para descargar todo el histórico de 50+ cuentas
 
-// 15 cuentas en paralelo — más conservador que 30 para evitar que IONOS
-// rate-limite o rechace conexiones por exceso simultáneo. Más fiable.
-const CONCURRENCY = 15;
+// 6 cuentas en paralelo — equilibrio entre velocidad y RAM. Cada cuenta
+// recarga el mapa de mensajes; menos concurrencia = menos picos de RAM.
+const CONCURRENCY = 6;
 // Timeout 8 min por cuenta — para descargas completas de histórico
 // con cuentas que pueden tener miles de mensajes.
 const PER_ACCOUNT_TIMEOUT_MS = 8 * 60_000;

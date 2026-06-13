@@ -30,8 +30,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const msgsMap = await loadMessagesMap(id);
   const report: Array<{ email: string; recovered: number; error?: string }> = [];
 
-  // Paralelo, lotes de 8
-  const CONCURRENCY = 8;
+  // Paralelo, lotes de 4 (bajado de 8 — parsea emails completos = RAM alta)
+  const CONCURRENCY = 4;
   for (let i = 0; i < accs.length; i += CONCURRENCY) {
     const batch = accs.slice(i, i + CONCURRENCY);
     await Promise.allSettled(

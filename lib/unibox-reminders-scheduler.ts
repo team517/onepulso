@@ -9,7 +9,7 @@ declare global {
   var __uniboxRemindersRunning: boolean | undefined;
 }
 
-const TICK_MS = 60_000; // cada minuto
+const TICK_MS = 2 * 60_000; // cada 2 min (los reminders no son urgentes al segundo)
 
 export function startUniboxRemindersScheduler() {
   if (globalThis.__uniboxRemindersScheduler) return;
@@ -43,7 +43,10 @@ export async function tick() {
 
 async function processReminders(uniboxId: string) {
   const reminders = await listReminders(uniboxId);
-  if (reminders.length === 0) return;
+  // Solo seguimos si hay reminders PENDIENTES — si no, ni cargamos el
+  // blob de mensajes (que es lo pesado en RAM).
+  const pending = reminders.filter((r) => r.status === "pending");
+  if (pending.length === 0) return;
 
   // Cargamos mensajes en memoria para chequear si recibimos respuesta del recipient
   const msgsMap = await loadMessagesMap(uniboxId);

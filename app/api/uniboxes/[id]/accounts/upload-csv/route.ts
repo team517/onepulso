@@ -129,7 +129,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
           return;
         }
         console.log(`[unibox upload-csv] background: sincronizando ${pending.length} cuentas pendientes`);
-        const CONCURRENCY = 8;
+        const CONCURRENCY = 4;
         for (let i = 0; i < pending.length; i += CONCURRENCY) {
           const batch = pending.slice(i, i + CONCURRENCY);
           await Promise.allSettled(

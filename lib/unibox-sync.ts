@@ -12,6 +12,12 @@ import {
 } from "./unibox-store";
 import { isWarmupMessage } from "./unibox-warmup";
 
+// Máximo de mensajes guardados por cuenta en el cache. 1500 recientes
+// cubre de sobra para ver respuestas (los warmup viejos son ruido).
+// Antes 50000 → con 40 cuentas eran 2M mensajes potenciales en RAM.
+// Con 1500 → 40 cuentas = 60k mensajes = blob manejable (~50MB en RAM).
+const MAX_MSGS_PER_ACCOUNT = 1500;
+
 // ─────────────────────────────────────────────────────────────────────────────
 // LOCK PER-UNIBOX para escrituras del mapa de mensajes.
 //
@@ -95,7 +101,11 @@ export async function syncAccount(uniboxId: string, accountId: string): Promise<
       // ve TODO el histórico tras una sync.
       const lastUid = account.last_uid_inbox || 0;
       const cachedCount = existing.length;
-      const cacheCompleteEnough = cachedCount >= total * 0.8;
+      // El objetivo de cache es min(total, MAX_MSGS_PER_ACCOUNT). El cache
+      // está "completo" si tiene el 80% de ese objetivo. Así una cuenta con
+      // 5000 mensajes pero cap 1500 NO re-sincroniza eternamente.
+      const targetCount = Math.min(total, MAX_MSGS_PER_ACCOUNT);
+      const cacheCompleteEnough = cachedCount >= targetCount * 0.8;
       let range: string;
       let isIncremental = false;
       if (lastUid > 0 && cacheCompleteEnough) {
@@ -103,11 +113,13 @@ export async function syncAccount(uniboxId: string, accountId: string): Promise<
         range = `${lastUid + 1}:*`;
         isIncremental = true;
       } else {
-        // Cache vacío o incompleto → descarga TODOS los mensajes del INBOX
+        // Cache vacío/incompleto → descarga los últimos MAX_MSGS_PER_ACCOUNT
+        // (no TODO el histórico — ahorra RAM y ancho de banda).
         if (lastUid > 0 && !cacheCompleteEnough) {
-          console.log(`[unibox-sync] ${account.email}: cache=${cachedCount} pero IMAP=${total} → auto full sync`);
+          console.log(`[unibox-sync] ${account.email}: cache=${cachedCount}/${targetCount} → full sync (últimos ${MAX_MSGS_PER_ACCOUNT})`);
         }
-        range = `1:*`;
+        const start = Math.max(1, total - (MAX_MSGS_PER_ACCOUNT - 1));
+        range = `${start}:*`;
       }
 
       console.log(`[unibox-sync] ${account.email}: ${isIncremental ? `incremental UID > ${lastUid}` : `inicial seq ${range}`} (UIDNEXT=${status.uidNext}, total=${total})`);
@@ -207,7 +219,7 @@ export async function syncAccount(uniboxId: string, accountId: string): Promise<
           seenUids.add(k);
           return true;
         });
-        currentMap[accountId] = deduped.slice(0, 50000);
+        currentMap[accountId] = deduped.slice(0, MAX_MSGS_PER_ACCOUNT);
         await saveMessagesMap(uniboxId, currentMap);
       });
       if (newCount > 0) {
@@ -300,7 +312,8 @@ export async function syncAccountSent(uniboxId: string, accountId: string): Prom
       const lastSentUid = account.last_uid_sent || 0;
       // Contamos solo los Sent del cache (UID negativos)
       const cachedSentCount = existing.filter((m) => m.uid < 0).length;
-      const sentCacheCompleteEnough = cachedSentCount >= total * 0.8;
+      const targetSentCount = Math.min(total, MAX_MSGS_PER_ACCOUNT);
+      const sentCacheCompleteEnough = cachedSentCount >= targetSentCount * 0.8;
       let range: string;
       let isIncrementalSent = false;
       if (lastSentUid > 0 && sentCacheCompleteEnough) {
@@ -308,9 +321,10 @@ export async function syncAccountSent(uniboxId: string, accountId: string): Prom
         isIncrementalSent = true;
       } else {
         if (lastSentUid > 0 && !sentCacheCompleteEnough) {
-          console.log(`[unibox-sync sent] ${account.email}: cache=${cachedSentCount} pero IMAP=${total} → auto full sync`);
+          console.log(`[unibox-sync sent] ${account.email}: cache=${cachedSentCount}/${targetSentCount} → full sync`);
         }
-        range = `1:*`;
+        const start = Math.max(1, total - (MAX_MSGS_PER_ACCOUNT - 1));
+        range = `${start}:*`;
       }
 
       const fresh: UniboxMessage[] = [];
@@ -389,7 +403,7 @@ export async function syncAccountSent(uniboxId: string, accountId: string): Prom
           seenUids.add(k);
           return true;
         });
-        currentMap[accountId] = deduped.slice(0, 50000);
+        currentMap[accountId] = deduped.slice(0, MAX_MSGS_PER_ACCOUNT);
         await saveMessagesMap(uniboxId, currentMap);
       });
       if (newCount > 0) {
@@ -415,10 +429,11 @@ export async function syncUnibox(uniboxId: string): Promise<{ ok: number; fail: 
   const accs = await listAccounts(uniboxId);
   let ok = 0, fail = 0, total = 0;
 
-  // 30 cuentas en paralelo (antes 10). IONOS, Gmail, Outlook soportan
-  // bien múltiples conexiones IMAP desde la misma IP. Para uniboxes de
-  // 40+ cuentas reduce drásticamente el tiempo total de sync.
-  const CONCURRENCY = 30;
+  // 6 cuentas en paralelo (antes 30). CADA cuenta concurrente recarga el
+  // mapa de mensajes en RAM dentro del lock → 30 simultáneas = 30 copias
+  // del blob = pico de RAM enorme. Con 6 el sync sigue rápido pero la RAM
+  // se mantiene baja. Es el cambio más importante para no crashear.
+  const CONCURRENCY = 6;
   for (let i = 0; i < accs.length; i += CONCURRENCY) {
     const batch = accs.slice(i, i + CONCURRENCY);
     const results = await Promise.allSettled(
@@ -444,17 +459,11 @@ export async function syncUnibox(uniboxId: string): Promise<{ ok: number; fail: 
 
   await updateUnibox(uniboxId, { last_sync: new Date().toISOString() });
 
-  // Re-clasificar SIEMPRE tras sync: la detección de warmup evoluciona y los
-  // mensajes guardados con algoritmo antiguo se quedaban con is_warmup=false.
-  // Re-aplicarlo a la caché entera mantiene la bandeja limpia siempre.
-  try {
-    const r = await reclassifyMessages(uniboxId);
-    if (r.warmup > 0) {
-      console.log(`[unibox-sync] ${uniboxId}: reclasificación → ${r.warmup}/${r.total} marcados como warmup`);
-    }
-  } catch (e: any) {
-    console.warn(`[unibox-sync] ${uniboxId}: reclassify failed:`, e.message);
-  }
+  // NOTA: ya NO reclasificamos toda la caché tras cada sync. Cada mensaje
+  // nuevo se clasifica (is_warmup/bounce) al insertarlo en el bucle de
+  // syncAccount, así que recargar el blob entero para re-clasificar era
+  // trabajo redundante que disparaba la RAM. La reclasificación completa
+  // sigue disponible bajo demanda en el botón "Reclasificar" del admin.
 
   if (total > 0) console.log(`[unibox-sync] ${uniboxId}: ${total} mensajes nuevos · ${ok} cuentas OK · ${fail} con error`);
   return { ok, fail, new: total };

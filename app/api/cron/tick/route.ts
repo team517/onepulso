@@ -19,16 +19,17 @@ export async function GET() {
   // Asegurar que el scheduler está corriendo (idempotente)
   startEmailScheduler();
 
-  // Forzar tick AHORA
-  try {
-    const r = await tick();
-    return NextResponse.json({
-      ok: true,
-      ticked_at: new Date().toISOString(),
-      sent: r?.sent ?? 0,
-      failed: r?.failed ?? 0,
-    });
-  } catch (e: any) {
-    return NextResponse.json({ ok: false, error: e.message }, { status: 500 });
-  }
+  // Disparar el tick en BACKGROUND — NO bloquear la respuesta. El tick
+  // puede hacer trabajo pesado (sync de uniboxes cada 5 min) que tardaba
+  // 30s+ y colgaba este endpoint (que el frontend pinguea como keepalive).
+  // Respondemos al instante; el tick corre por detrás.
+  setImmediate(() => {
+    tick().catch((e) => console.warn("[cron/tick] background tick error:", e?.message || e));
+  });
+
+  return NextResponse.json({
+    ok: true,
+    ticked_at: new Date().toISOString(),
+    scheduled: true,
+  });
 }

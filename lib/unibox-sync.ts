@@ -478,16 +478,15 @@ export async function syncAllUniboxes(): Promise<{ uniboxes: number; total_new: 
   let totalNew = 0;
   let errors = 0;
 
-  const PARALLEL_UNIBOXES = 3;
-  for (let i = 0; i < all.length; i += PARALLEL_UNIBOXES) {
-    const batch = all.slice(i, i + PARALLEL_UNIBOXES);
-    const results = await Promise.allSettled(batch.map((u) => syncUnibox(u.id)));
-    for (const r of results) {
-      if (r.status === "fulfilled") {
-        totalNew += r.value.new;
-      } else {
-        errors++;
-      }
+  // SECUENCIAL (1 unibox a la vez). Antes 3 en paralelo × 6 cuentas = 18
+  // cargas simultáneas del blob de mensajes = pico de RAM. El sync de fondo
+  // no tiene prisa, así que procesamos uniboxes de una en una.
+  for (const u of all) {
+    try {
+      const r = await syncUnibox(u.id);
+      totalNew += r.new;
+    } catch {
+      errors++;
     }
   }
   return { uniboxes: all.length, total_new: totalNew, errors };

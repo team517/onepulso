@@ -28,10 +28,9 @@ export function getPool(): Pool | null {
     console.warn("[db pool] error idle client (ignorado):", err.message);
   });
 
-  // PRE-CALENTAMIENTO: 8 SELECT 1 en paralelo → 8 conexiones warm.
-  // El dashboard hace ~5 fetches paralelos + el inbox otros 3-4.
-  // Con 8 warm, todo es instantáneo desde la primera petición.
-  const WARM_COUNT = 8;
+  // PRE-CALENTAMIENTO: 3 conexiones warm (bajado de 8 — cada conexión
+  // idle consume RAM). 3 cubre el caso típico; las demás se abren on-demand.
+  const WARM_COUNT = 3;
   Promise.all(
     Array(WARM_COUNT).fill(0).map(() => globalThis.__pgPool!.query("SELECT 1"))
   ).then(() => {

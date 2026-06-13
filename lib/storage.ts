@@ -19,7 +19,12 @@ import { dataPath } from "./data-dir";
 type CacheEntry = { value: any; expires: number };
 const _cache = new Map<string, CacheEntry>();
 const CACHE_TTL_MS = 5_000; // 5s — corto, suficiente para fluidez sin staleness
-const CACHE_MAX_SIZE = 1000;
+const CACHE_MAX_SIZE = 150; // bajado de 1000 → menos RAM
+// NO cachear valores grandes (los mapas de mensajes del unibox pueden ser
+// MB). Cachear esos blobs en memoria disparaba el uso de RAM a 5GB+.
+// Solo cacheamos cosas pequeñas (cuentas, folders, config) que es donde
+// la fluidez importa. Los blobs grandes se leen de Postgres (rápido igual).
+const CACHE_MAX_VALUE_CHARS = 256 * 1024; // 256 KB por entrada máx
 
 function cacheGet(key: string): any | undefined {
   const e = _cache.get(key);
@@ -31,6 +36,18 @@ function cacheGet(key: string): any | undefined {
   return e.value;
 }
 function cacheSet(key: string, value: any): void {
+  // Skip blobs grandes — no queremos GB de mensajes en RAM.
+  try {
+    if (value && typeof value === "object") {
+      const approxSize = JSON.stringify(value).length;
+      if (approxSize > CACHE_MAX_VALUE_CHARS) {
+        _cache.delete(key); // por si había una versión vieja
+        return;
+      }
+    }
+  } catch {
+    return; // si no se puede serializar, no cachear
+  }
   if (_cache.size >= CACHE_MAX_SIZE) {
     const firstKey = _cache.keys().next().value;
     if (firstKey) _cache.delete(firstKey);

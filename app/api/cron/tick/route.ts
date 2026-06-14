@@ -27,9 +27,15 @@ export async function GET() {
     tick().catch((e) => console.warn("[cron/tick] background tick error:", e?.message || e));
   });
 
+  // Exponer uso de RAM del proceso para monitoreo (público, solo números).
+  const mem = process.memoryUsage();
   return NextResponse.json({
     ok: true,
     ticked_at: new Date().toISOString(),
     scheduled: true,
+    rss_mb: Math.round(mem.rss / 1024 / 1024),
+    heap_used_mb: Math.round(mem.heapUsed / 1024 / 1024),
+    heap_total_mb: Math.round(mem.heapTotal / 1024 / 1024),
+    uptime_min: Math.round(process.uptime() / 60),
   });
 }

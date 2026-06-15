@@ -76,6 +76,33 @@ export async function ensureSchema(): Promise<void> {
         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
       );
     `);
+
+    // AUTOVACUUM AGRESIVO en kv_store — evita que el disco crezca infinito.
+    // El problema: cada UPDATE de un row JSONB grande (blob de mensajes 60MB)
+    // deja una tupla muerta. Por defecto Postgres espera a que haya 20% de
+    // cambios para limpiar → con blobs enormes eso son GB de basura antes de
+    // limpiar. Bajamos el umbral para que limpie tras MUY pocos cambios y
+    // reutilice el espacio en vez de pedir más disco.
+    // scale_factor 0 + threshold 50 = autovacuum tras solo 50 filas muertas.
+    await client.query(`
+      ALTER TABLE kv_store SET (
+        autovacuum_vacuum_scale_factor = 0,
+        autovacuum_vacuum_threshold = 50,
+        autovacuum_vacuum_cost_delay = 2,
+        autovacuum_vacuum_cost_limit = 2000,
+        toast.autovacuum_vacuum_scale_factor = 0,
+        toast.autovacuum_vacuum_threshold = 50
+      )
+    `).catch((e) => console.warn("[db] no se pudo ajustar autovacuum kv_store:", e.message));
+    await client.query(`
+      ALTER TABLE blob_store SET (
+        autovacuum_vacuum_scale_factor = 0,
+        autovacuum_vacuum_threshold = 20,
+        toast.autovacuum_vacuum_scale_factor = 0,
+        toast.autovacuum_vacuum_threshold = 20
+      )
+    `).catch((e) => console.warn("[db] no se pudo ajustar autovacuum blob_store:", e.message));
+
     globalThis.__pgInitDone = true;
   } finally {
     client.release();

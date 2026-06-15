@@ -53,6 +53,9 @@ export default function AdminDbPage() {
         <button onClick={() => run("vacuum", "VACUUM FULL (tarda 5-15 min)")} disabled={busy} style={btn("#10b981")}>
           3 · VACUUM (recupera GB)
         </button>
+        <button onClick={() => run("checkpoint", "Checkpoint + limpiar WAL")} disabled={busy} style={btn("#6366f1")}>
+          4 · Limpiar WAL (vaciar volumen)
+        </button>
       </div>
 
       {busy && (

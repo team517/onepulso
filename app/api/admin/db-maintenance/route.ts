@@ -109,7 +109,29 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true, action: "purge-big", deleted: result });
     }
 
-    return NextResponse.json({ error: "Acción no reconocida. Usa ?action=vacuum o ?action=purge-big" }, { status: 400 });
+    if (action === "checkpoint") {
+      // Fuerza CHECKPOINT → Postgres escribe todo a disco y permite reciclar
+      // el WAL viejo. Reduce el espacio del directorio pg_wal.
+      const result = await withClient(async (c) => {
+        const walBefore = await c.query(`SELECT pg_size_pretty(SUM(size)) AS s, COUNT(*) AS n FROM pg_ls_waldir()`).catch(() => ({ rows: [{ s: "?", n: "?" }] }));
+        await c.query(`CHECKPOINT`);
+        // Pedir a Postgres que recicle WAL agresivamente reduciendo el target
+        await c.query(`ALTER SYSTEM SET max_wal_size = '1GB'`).catch(() => {});
+        await c.query(`ALTER SYSTEM SET min_wal_size = '128MB'`).catch(() => {});
+        await c.query(`SELECT pg_reload_conf()`).catch(() => {});
+        await c.query(`CHECKPOINT`);
+        const walAfter = await c.query(`SELECT pg_size_pretty(SUM(size)) AS s, COUNT(*) AS n FROM pg_ls_waldir()`).catch(() => ({ rows: [{ s: "?", n: "?" }] }));
+        const dbSize = await c.query(`SELECT pg_size_pretty(pg_database_size(current_database())) AS s`);
+        return {
+          wal_antes: `${walBefore.rows[0].s} (${walBefore.rows[0].n} archivos)`,
+          wal_despues: `${walAfter.rows[0].s} (${walAfter.rows[0].n} archivos)`,
+          db_size: dbSize.rows[0].s,
+        };
+      });
+      return NextResponse.json({ ok: true, action: "checkpoint", ...result });
+    }
+
+    return NextResponse.json({ error: "Acción no reconocida. Usa ?action=vacuum, purge-big o checkpoint" }, { status: 400 });
   } catch (e: any) {
     return NextResponse.json({ error: e.message }, { status: 500 });
   }

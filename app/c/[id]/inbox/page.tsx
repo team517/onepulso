@@ -805,6 +805,34 @@ export default function ClienteInboxPage() {
         >
           {showWarmup ? "🔥 Ocultar warmup" : `🔥 Mostrar warmup${warmupCount ? ` (${warmupCount})` : ""}`}
         </button>
+        <button
+          style={{ ...ghostBtn, fontSize: 11.5 }}
+          onClick={async () => {
+            if (!confirm("Vuelve a filtrar la bandeja: oculta los mensajes que no son español/catalán (warmup/inglés). En tcx no se aplica. ¿Continuar?")) return;
+            setLoading(true);
+            try {
+              const r = await fetch(`/api/uniboxes/${id}/reclassify`, {
+                method: "POST", headers: { "Content-Type": "application/json" }, body: "{}",
+              });
+              const d = await r.json().catch(() => ({}));
+              await loadMessages();
+              alert(
+                `Bandeja re-filtrada:\n` +
+                `${d?.clean ?? 0} mensajes válidos (español/catalán)\n` +
+                `${d?.warmup ?? 0} ocultados como warmup/inglés\n` +
+                `${d?.purged ?? 0} eliminados (bounce/test)`
+              );
+            } catch (e: any) {
+              alert("Error re-filtrando: " + (e?.message || e));
+            } finally {
+              setLoading(false);
+            }
+          }}
+          disabled={loading}
+          title="Re-aplica el filtro de idioma (español/catalán) a los mensajes ya descargados"
+        >
+          🌐 Re-filtrar idioma
+        </button>
         <button style={ghostBtn} onClick={() => setSignatureModalOpen(true)}>
           ✍ Firmas
         </button>

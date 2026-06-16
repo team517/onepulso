@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { loadMessagesMap, saveMessagesMap, listAccounts } from "@/lib/unibox-store";
+import { loadMessagesMap, saveMessagesMap, listAccounts, getUnibox } from "@/lib/unibox-store";
 import { requireAdmin, requireClientForUnibox } from "@/lib/unibox-auth";
+import { isNonIberianMessage } from "@/lib/unibox-warmup";
 import { ImapFlow } from "imapflow";
 import { simpleParser } from "mailparser";
 
@@ -76,6 +77,19 @@ export async function GET(
             }));
             const previewText = msg.text || (msg.html ? msg.html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim() : "");
             if (previewText) msg.preview = previewText.slice(0, 180);
+
+            // RE-EVALUAR IDIOMA con el cuerpo completo: en uniboxes != tcx,
+            // los mensajes RECIBIDOS que no son español/catalán pasan a warmup.
+            // (Los enviados — is_sent / uid negativo — se respetan siempre.)
+            if (!isSent && !msg.is_warmup) {
+              try {
+                const u = await getUnibox(id);
+                const allowAll = (u?.title || "").toLowerCase().includes("tcx");
+                if (!allowAll && isNonIberianMessage({ subject: msg.subject, text: msg.text, html: msg.html })) {
+                  msg.is_warmup = true;
+                }
+              } catch {}
+            }
 
             // Guardar en cache para futuras lecturas
             const idx = msgs.findIndex((m) => String(m.uid) === String(uid));

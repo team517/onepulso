@@ -10,7 +10,26 @@ import {
   updateUnibox,
   isBounceOrFailure,
 } from "./unibox-store";
-import { isWarmupMessage } from "./unibox-warmup";
+import { isWarmupMessage, isNonIberianMessage } from "./unibox-warmup";
+
+/** ¿Este unibox permite mensajes en cualquier idioma? Solo tcx (negocio
+ *  internacional). Los demás solo aceptan español/catalán en la bandeja.
+ *  Cacheado por uniboxId para no consultar en cada cuenta. */
+const _langCache = new Map<string, { allow: boolean; ts: number }>();
+async function uniboxAllowsAllLanguages(uniboxId: string): Promise<boolean> {
+  const cached = _langCache.get(uniboxId);
+  if (cached && Date.now() - cached.ts < 5 * 60_000) return cached.allow;
+  let allow = false;
+  try {
+    const { getUnibox } = await import("./unibox-store");
+    const u = await getUnibox(uniboxId);
+    const title = (u?.title || "").toLowerCase();
+    // tcx (cualquier variante: "tcx", "tcx micro", etc.) permite todo idioma.
+    allow = title.includes("tcx");
+  } catch {}
+  _langCache.set(uniboxId, { allow, ts: Date.now() });
+  return allow;
+}
 
 // Máximo de mensajes guardados por cuenta en el cache. 1500 recientes
 // cubre de sobra para ver respuestas (los warmup viejos son ruido).
@@ -57,6 +76,11 @@ export async function syncAccount(uniboxId: string, accountId: string): Promise<
   const idx = accs.findIndex((a) => a.id === accountId);
   if (idx === -1) return 0;
   const account = accs[idx];
+
+  // FILTRO DE IDIOMA: en todos los uniboxes EXCEPTO tcx, los mensajes que
+  // no son español/catalán (inglés, warmup de outreach, etc.) se marcan
+  // como warmup y se ocultan. tcx permite cualquier idioma (internacional).
+  const allowAllLanguages = await uniboxAllowsAllLanguages(uniboxId);
 
   const imapPort = account.imap_port || 993;
   const client = new ImapFlow({
@@ -161,7 +185,11 @@ export async function syncAccount(uniboxId: string, accountId: string): Promise<
         const fromAddr = envFromAddr;
         const fromName = envFromName;
         const fromAddress = envFromAddr;
-        const warmup = isWarmupMessage({ subject, text, html, from: fromAddr });
+        // Warmup: por código en subject O (si no es tcx) por idioma no ibérico.
+        let warmup = isWarmupMessage({ subject, text, html, from: fromAddr });
+        if (!warmup && !allowAllLanguages && isNonIberianMessage({ subject, text, html })) {
+          warmup = true;
+        }
 
         // FILTRO BOUNCE — usa solo subject+from (suficiente para detectar)
         if (isBounceOrFailure({ from: fromAddr, fromAddress, fromName, subject, text })) {
@@ -500,6 +528,7 @@ export async function syncAllUniboxes(): Promise<{ uniboxes: number; total_new: 
  */
 export async function reclassifyMessages(uniboxId: string): Promise<{ total: number; warmup: number; clean: number; purged: number }> {
   const msgsMap = await loadMessagesMap(uniboxId);
+  const allowAllLanguages = await uniboxAllowsAllLanguages(uniboxId);
   let total = 0, warmup = 0, purged = 0;
   for (const accId of Object.keys(msgsMap)) {
     const kept: any[] = [];
@@ -511,7 +540,12 @@ export async function reclassifyMessages(uniboxId: string): Promise<{ total: num
         continue;
       }
       total++;
-      const flag = isWarmupMessage({ subject: m.subject, text: m.text, html: m.html, from: m.from });
+      let flag = isWarmupMessage({ subject: m.subject, text: m.text, html: m.html, from: m.from });
+      // Filtro de idioma: en uniboxes != tcx, los mensajes recibidos que no son
+      // español/catalán se marcan warmup. Los enviados (is_sent) se respetan.
+      if (!flag && !allowAllLanguages && !(m as any).is_sent && isNonIberianMessage({ subject: m.subject, text: m.text, html: m.html })) {
+        flag = true;
+      }
       if (flag) warmup++;
       kept.push({ ...m, is_warmup: flag });
     }

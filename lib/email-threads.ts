@@ -187,6 +187,39 @@ export async function scheduleFollowup(input: {
   return f;
 }
 
+/**
+ * Programa VARIOS follow-ups de un mismo thread en UNA sola operación
+ * read-modify-write. Antes el cliente hacía un POST por paso y cada POST
+ * leía+reescribía el blob entero de threads (5-10s cada uno) → con 5 pasos
+ * se colgaba y el statement timeout cortaba todo. Esto lo hace de golpe.
+ */
+export async function scheduleFollowupsBatch(input: {
+  thread_id: string;
+  origin: Followup["origin"];
+  steps: Array<{ body_html: string; scheduled_at: string }>;
+}): Promise<{ scheduled: Followup[]; error?: string }> {
+  if (!input.steps?.length) return { scheduled: [], error: "sin pasos" };
+  const all = await readThreads();
+  const t = all.find((x) => x.id === input.thread_id);
+  if (!t) return { scheduled: [], error: "thread no encontrado" };
+  const created: Followup[] = [];
+  for (const step of input.steps) {
+    const f: Followup = {
+      id: randomUUID(),
+      thread_id: input.thread_id,
+      body_html: step.body_html,
+      scheduled_at: new Date(step.scheduled_at).toISOString(),
+      status: "scheduled",
+      origin: input.origin,
+    };
+    t.followups.push(f);
+    created.push(f);
+  }
+  t.updated_at = new Date().toISOString();
+  await writeThreads(all); // UNA sola escritura para todos los pasos
+  return { scheduled: created };
+}
+
 export async function updateFollowup(threadId: string, followupId: string, patch: Partial<Followup>): Promise<Followup | null> {
   const all = await readThreads();
   const t = all.find((x) => x.id === threadId);

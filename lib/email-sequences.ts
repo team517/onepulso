@@ -2,7 +2,7 @@ import { randomUUID } from "crypto";
 import {
   appendMessage,
   getThread,
-  scheduleFollowup,
+  scheduleFollowupsBatch,
   Thread,
 } from "./email-threads";
 import { readJson, writeJson } from "./storage";
@@ -93,20 +93,20 @@ export async function applySequence(opts: {
 
   const baseDate = opts.base_date ? new Date(opts.base_date) : new Date();
   let cumulativeMs = 0;
-  const ids: string[] = [];
+  const steps: Array<{ body_html: string; scheduled_at: string }> = [];
 
   for (const step of seq.steps) {
     cumulativeMs += step.delay_days * 24 * 60 * 60 * 1000;
-    const scheduledAt = new Date(baseDate.getTime() + cumulativeMs).toISOString();
-    const f = await scheduleFollowup({
-      thread_id: opts.thread_id,
+    steps.push({
       body_html: step.body_html + (step.send_if_no_reply ? `<!--send_if_no_reply-->` : ""),
-      scheduled_at: scheduledAt,
-      origin: "manual",
+      scheduled_at: new Date(baseDate.getTime() + cumulativeMs).toISOString(),
     });
-    if (f) ids.push(f.id);
   }
-  return { scheduled: ids.length, followup_ids: ids };
+
+  // UNA sola escritura del blob para toda la secuencia (antes era N escrituras
+  // → con secuencias de 5+ pasos se colgaba y excedía el maxDuration).
+  const r = await scheduleFollowupsBatch({ thread_id: opts.thread_id, origin: "manual", steps });
+  return { scheduled: r.scheduled.length, followup_ids: r.scheduled.map((f) => f.id) };
 }
 
 /**

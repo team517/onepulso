@@ -186,6 +186,7 @@ export default function SeguimientosPage() {
   const [fuWhen, setFuWhen] = useState("");
   const [fuSteps, setFuSteps] = useState<Array<{ when: string; body: string }>>([]);
   const [fuOrigin, setFuOrigin] = useState<"manual" | "ai_assisted" | "ai_auto">("manual");
+  const [fuSaving, setFuSaving] = useState(false);
   const [fuDateExtraction, setFuDateExtraction] = useState<any>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -1040,7 +1041,7 @@ export default function SeguimientosPage() {
   }
 
   async function saveFollowup() {
-    if (!thread) return;
+    if (!thread || fuSaving) return;
     // Combinar el paso actual (si lo hay) con los pasos ya añadidos
     const allSteps = [...fuSteps];
     if (fuBody && fuWhen) {
@@ -1048,30 +1049,40 @@ export default function SeguimientosPage() {
     }
     if (allSteps.length === 0) return;
 
-    let okCount = 0;
-    for (const step of allSteps) {
+    setFuSaving(true);
+    setFeedback(`⏳ Programando ${allSteps.length} follow-up${allSteps.length > 1 ? "s" : ""}…`);
+    try {
+      // UNA sola llamada batch: el servidor escribe el blob una vez (rápido,
+      // sin timeout). Antes era 1 POST por paso → se colgaba con varios pasos.
       const r = await fetch("/api/email/followups", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           thread_id: thread.id,
-          body_html: step.body,
-          scheduled_at: new Date(step.when).toISOString(),
           origin: fuOrigin,
+          steps: allSteps.map((s) => ({
+            body_html: s.body,
+            scheduled_at: new Date(s.when).toISOString(),
+          })),
         }),
-      }).then((r) => r.json()).catch(() => ({ error: "fallo" }));
-      if (!r.error) okCount++;
-    }
+      }).then((r) => r.json()).catch(() => ({ error: "no se pudo conectar con el servidor" }));
 
-    if (okCount === 0) {
-      setFeedback("⚠️ No se pudo programar ningún follow-up");
-    } else {
-      setFeedback(`✓ ${okCount} follow-up${okCount > 1 ? "s" : ""} programados · se cancelan si el prospect responde`);
-      setFuSteps([]);
-      setFuBody("");
-      setFuWhen("");
-      setFuOpen(false);
-      if (thread) loadThread(thread.id);
+      const okCount = r?.count ?? (Array.isArray(r?.scheduled) ? r.scheduled.length : 0);
+      if (r?.error || okCount === 0) {
+        setFeedback(`⚠️ No se pudo programar: ${r?.error || "error desconocido"}`);
+      } else {
+        setFeedback(`✓ ${okCount} follow-up${okCount > 1 ? "s" : ""} programados · se cancelan si el prospect responde`);
+        setFuSteps([]);
+        setFuBody("");
+        setFuWhen("");
+        setFuOpen(false);
+        loadThread(thread.id);
+      }
+    } catch (e: any) {
+      setFeedback(`⚠️ No se pudo programar: ${e?.message || e}`);
+    } finally {
+      setFuSaving(false);
+      setTimeout(() => setFeedback(null), 5000);
     }
   }
 
@@ -1793,7 +1804,6 @@ export default function SeguimientosPage() {
                   reloadThread={() => loadThread(thread.id)}
                   markClosed={markClosed}
                   deleteThread={deleteThreadFromList}
-                  myEmail={status?.email}
                   toggleAutopilot={toggleAutopilot}
                   sequences={sequences}
                   applySequenceToThread={async (seqId: string): Promise<{ ok: boolean; scheduled?: number; error?: string }> => {
@@ -2265,10 +2275,16 @@ export default function SeguimientosPage() {
                 <button
                   className="btn-primary"
                   onClick={saveFollowup}
-                  disabled={fuSteps.length === 0 && (!fuBody || !fuWhen)}
+                  disabled={fuSaving || (fuSteps.length === 0 && (!fuBody || !fuWhen))}
                 >
-                  🚀 Programar {fuSteps.length + (fuBody && fuWhen ? 1 : 0)} follow-up
-                  {(fuSteps.length + (fuBody && fuWhen ? 1 : 0)) !== 1 ? "s" : ""}
+                  {fuSaving ? (
+                    <>⏳ Programando…</>
+                  ) : (
+                    <>
+                      🚀 Programar {fuSteps.length + (fuBody && fuWhen ? 1 : 0)} follow-up
+                      {(fuSteps.length + (fuBody && fuWhen ? 1 : 0)) !== 1 ? "s" : ""}
+                    </>
+                  )}
                 </button>
                 <button className="btn-ghost" onClick={() => { setFuOpen(false); setFuSteps([]); }}>Cancelar</button>
               </div>

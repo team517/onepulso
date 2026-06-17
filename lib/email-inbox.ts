@@ -238,7 +238,25 @@ async function processUids(
   return { fetched, new_messages: newMessages };
 }
 
-export async function syncInbox(opts: { days?: number; max?: number } = {}): Promise<SyncResult> {
+// CANDADO/COALESCING: si ya hay un syncInbox corriendo, las llamadas nuevas
+// reutilizan esa misma promesa en vez de abrir OTRA conexión IMAP y cargar
+// OTRA vez el blob de threads. Sin esto, el frontend llamando cada minuto
+// apilaba conexiones + cargas en memoria → OOM / "Connection not available"
+// → la plataforma se caía a los pocos minutos.
+let _inboxSyncInFlight: Promise<SyncResult> | null = null;
+
+export function syncInbox(opts: { days?: number; max?: number } = {}): Promise<SyncResult> {
+  if (_inboxSyncInFlight) {
+    console.log("[email-inbox] syncInbox ya en curso — reutilizando (no se abre otra conexión)");
+    return _inboxSyncInFlight;
+  }
+  _inboxSyncInFlight = _syncInboxImpl(opts).finally(() => {
+    _inboxSyncInFlight = null;
+  });
+  return _inboxSyncInFlight;
+}
+
+async function _syncInboxImpl(opts: { days?: number; max?: number } = {}): Promise<SyncResult> {
   const days = opts.days ?? 7;
   const max = opts.max ?? 100;
 
@@ -251,9 +269,11 @@ export async function syncInbox(opts: { days?: number; max?: number } = {}): Pro
     secure: cfg.imap_secure,
     auth: { user: cfg.imap_user, pass: cfg.imap_password },
     logger: false,
-    socketTimeout: 5 * 60 * 1000,
-    greetingTimeout: 30 * 1000,
-    connectionTimeout: 60 * 1000,
+    // 45s: una conexión colgada se libera rápido en vez de retener socket +
+    // memoria 5 minutos (antes 5*60*1000). El sync no necesita tanto.
+    socketTimeout: 45 * 1000,
+    greetingTimeout: 20 * 1000,
+    connectionTimeout: 30 * 1000,
   } as any);
 
   // Manejar errores de socket sin crashear el proceso
@@ -400,6 +420,10 @@ export async function syncInbox(opts: { days?: number; max?: number } = {}): Pro
     await client.logout();
   } catch (e: any) {
     error = e.message;
+  } finally {
+    // Cerrar SIEMPRE la conexión IMAP, aunque haya fallado a medias, para no
+    // dejar sockets colgados que retienen memoria/conexiones.
+    try { (client as any).close?.(); } catch {}
   }
 
   // Liberar referencias antes de salir

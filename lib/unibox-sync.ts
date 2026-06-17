@@ -235,22 +235,28 @@ export async function syncAccount(uniboxId: string, accountId: string): Promise<
 
       // CRÍTICO: usar lock para que el read-modify-write sea atómico.
       // Sin esto, cuentas paralelas se pisan al guardar y se pierden mensajes.
-      await withUniboxLock(uniboxId, async () => {
-        const currentMap = await loadMessagesMap(uniboxId);
-        const currentMsgs = currentMap[accountId] || [];
-        // Merge nuevos + existentes, dedup por UID (frescos prevalecen)
-        const merged = [...fresh, ...currentMsgs];
-        const seenUids = new Set<string>();
-        const deduped = merged.filter((m) => {
-          const k = String(m.uid);
-          if (seenUids.has(k)) return false;
-          seenUids.add(k);
-          return true;
+      //
+      // OPTIMIZACIÓN CLAVE ANTI-CRASH: solo cargamos+reescribimos el blob si
+      // hay mensajes nuevos. Antes se reescribía el blob ENTERO (todas las
+      // cuentas) en CADA sync de CADA cuenta aunque no hubiera nada nuevo →
+      // ~80 reescrituras/minuto del blob completo = pico de RAM + dead-tuples
+      // que inflaban el disco + CPU. Si no hay nada fresco, no se toca nada.
+      if (fresh.length > 0) {
+        await withUniboxLock(uniboxId, async () => {
+          const currentMap = await loadMessagesMap(uniboxId);
+          const currentMsgs = currentMap[accountId] || [];
+          // Merge nuevos + existentes, dedup por UID (frescos prevalecen)
+          const merged = [...fresh, ...currentMsgs];
+          const seenUids = new Set<string>();
+          const deduped = merged.filter((m) => {
+            const k = String(m.uid);
+            if (seenUids.has(k)) return false;
+            seenUids.add(k);
+            return true;
+          });
+          currentMap[accountId] = deduped.slice(0, MAX_MSGS_PER_ACCOUNT);
+          await saveMessagesMap(uniboxId, currentMap);
         });
-        currentMap[accountId] = deduped.slice(0, MAX_MSGS_PER_ACCOUNT);
-        await saveMessagesMap(uniboxId, currentMap);
-      });
-      if (newCount > 0) {
         console.log(`[unibox-sync] ${account.email}: ${newCount} mensajes nuevos en INBOX`);
       }
     } finally {
@@ -420,21 +426,22 @@ export async function syncAccountSent(uniboxId: string, accountId: string): Prom
         newCount++;
       }
       // Mismo lock per-unibox que en INBOX — evita pisar otros sync paralelos.
-      await withUniboxLock(uniboxId, async () => {
-        const currentMap = await loadMessagesMap(uniboxId);
-        const currentMsgs = currentMap[accountId] || [];
-        const merged = [...fresh, ...currentMsgs];
-        const seenUids = new Set<string>();
-        const deduped = merged.filter((m) => {
-          const k = String(m.uid);
-          if (seenUids.has(k)) return false;
-          seenUids.add(k);
-          return true;
+      // Solo tocamos el blob si hay envíos nuevos (ver nota anti-crash arriba).
+      if (fresh.length > 0) {
+        await withUniboxLock(uniboxId, async () => {
+          const currentMap = await loadMessagesMap(uniboxId);
+          const currentMsgs = currentMap[accountId] || [];
+          const merged = [...fresh, ...currentMsgs];
+          const seenUids = new Set<string>();
+          const deduped = merged.filter((m) => {
+            const k = String(m.uid);
+            if (seenUids.has(k)) return false;
+            seenUids.add(k);
+            return true;
+          });
+          currentMap[accountId] = deduped.slice(0, MAX_MSGS_PER_ACCOUNT);
+          await saveMessagesMap(uniboxId, currentMap);
         });
-        currentMap[accountId] = deduped.slice(0, MAX_MSGS_PER_ACCOUNT);
-        await saveMessagesMap(uniboxId, currentMap);
-      });
-      if (newCount > 0) {
         console.log(`[unibox-sync] ${account.email}: ${newCount} mensajes nuevos en SENT`);
       }
     } finally { lock.release(); }

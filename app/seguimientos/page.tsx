@@ -190,6 +190,8 @@ export default function SeguimientosPage() {
   const [fuDateExtraction, setFuDateExtraction] = useState<any>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
+  const emailSyncInFlightRef = useRef(false);
+  const lastEmailSyncRef = useRef(0);
   useEffect(() => {
     refreshStatus();
     refreshThreads();
@@ -200,16 +202,29 @@ export default function SeguimientosPage() {
     const intervalMs = thread ? 12000 : 30000;
     let syncCounter = 0;
     const t = setInterval(() => {
+      // No hacer polling con la pestaña en segundo plano: ahorra memoria/red
+      // del servidor y evita acumular trabajo mientras no miras.
+      if (typeof document !== "undefined" && document.hidden) return;
       refreshThreads();
       loadContractAlerts();
       loadPendingApprovals();
       if (thread) loadThread(thread.id);
       syncCounter++;
-      if (syncCounter % 2 === 0) {
-        fetch("/api/email/sync", { method: "POST" }).catch(() => {});
+
+      // SYNC DE INBOX (pesado: IMAP + carga de threads). Antes se llamaba cada
+      // ~1 min y, al solaparse, saturaba conexiones/memoria y tiraba la app.
+      // Ahora: como mucho cada 5 min y NUNCA solapado (guarda in-flight).
+      const now = Date.now();
+      if (!emailSyncInFlightRef.current && now - lastEmailSyncRef.current > 5 * 60_000) {
+        emailSyncInFlightRef.current = true;
+        lastEmailSyncRef.current = now;
+        fetch("/api/email/sync", { method: "POST" })
+          .catch(() => {})
+          .finally(() => { emailSyncInFlightRef.current = false; });
       }
-      // Cada ~1 min disparar el cron tick para que envíe los follow-ups vencidos
-      // (mantiene scheduler alive incluso si Railway reinicia el proceso)
+
+      // Cada ~2-3 min disparar el cron tick (ligero, no bloqueante) para que
+      // envíe los follow-ups vencidos aunque Railway haya reiniciado el proceso.
       if (syncCounter % 5 === 0) {
         fetch("/api/cron/tick").catch(() => {});
       }

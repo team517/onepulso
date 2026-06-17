@@ -10,6 +10,14 @@
  */
 import crypto from "crypto";
 import { readJson, writeJson, deleteJson } from "./storage";
+import {
+  loadMessagesMapDb,
+  replaceMessagesMapDb,
+  deleteAllMessages as dbDeleteAllMessages,
+  deleteAccountMessages as dbDeleteAccountMessages,
+  setMessageFolder as dbSetMessageFolder,
+  clearFolderAssignments as dbClearFolderAssignments,
+} from "./unibox-messages-db";
 
 export type Unibox = {
   id: string;
@@ -195,33 +203,26 @@ export async function addAccount(uniboxId: string, a: Omit<UniboxAccount, "id" |
 export async function deleteAccount(uniboxId: string, accountId: string): Promise<void> {
   const accs = await listAccounts(uniboxId);
   await saveAccounts(uniboxId, accs.filter((a) => a.id !== accountId));
-  const msgs = await loadMessagesMap(uniboxId);
-  delete msgs[accountId];
-  await saveMessagesMap(uniboxId, msgs);
+  await dbDeleteAccountMessages(uniboxId, accountId);
 }
 
 // -------- messages --------
+// Los mensajes viven ahora en la tabla `unibox_messages` (una fila por
+// mensaje), no en un bloque JSON gigante. Estas dos funciones mantienen la
+// MISMA interfaz {accountId: msgs[]} para el código antiguo, pero por debajo
+// usan la tabla. Para listar/escribir de forma eficiente, usa directamente
+// las funciones de ./unibox-messages-db (listMessagesPage, upsertMessages…).
 export async function loadMessagesMap(uniboxId: string): Promise<Record<string, UniboxMessage[]>> {
-  return (await readJson<Record<string, UniboxMessage[]>>(`uniboxes/${uniboxId}/messages`)) || {};
+  return (await loadMessagesMapDb(uniboxId)) as Record<string, UniboxMessage[]>;
 }
 export async function saveMessagesMap(uniboxId: string, m: Record<string, UniboxMessage[]>): Promise<void> {
-  await writeJson(`uniboxes/${uniboxId}/messages`, m);
+  await replaceMessagesMapDb(uniboxId, m as any);
 }
 
 /** Borra TODOS los mensajes de una unibox (de todas sus cuentas).
  *  El próximo sync los volverá a traer desde IMAP. */
 export async function clearAllMessages(uniboxId: string): Promise<{ accounts: number; deleted: number }> {
-  const msgs = await loadMessagesMap(uniboxId);
-  let total = 0;
-  let accountsTouched = 0;
-  for (const acctId of Object.keys(msgs)) {
-    if (msgs[acctId]?.length) {
-      total += msgs[acctId].length;
-      accountsTouched++;
-    }
-  }
-  await saveMessagesMap(uniboxId, {});
-  return { accounts: accountsTouched, deleted: total };
+  return dbDeleteAllMessages(uniboxId);
 }
 
 /** Detecta si un mensaje es un bounce / failure / delivery report.
@@ -384,7 +385,7 @@ export async function purgeBounces(uniboxId: string): Promise<{ removed: number;
     removed += diff;
     kept += msgs[acctId].length;
   }
-  await saveMessagesMap(uniboxId, msgs);
+  if (removed > 0) await saveMessagesMap(uniboxId, msgs);
   return { removed, kept };
 }
 
@@ -421,19 +422,9 @@ export async function deleteFolder(uniboxId: string, folderId: string): Promise<
   if (idx === -1) return { removed: false, messages_unassigned: 0 };
   folders.splice(idx, 1);
   await saveFolders(uniboxId, folders);
-  // Quitar folder_id de cualquier mensaje que tuviera esta carpeta
-  const msgs = await loadMessagesMap(uniboxId);
-  let unassigned = 0;
-  for (const acctId of Object.keys(msgs)) {
-    for (const m of msgs[acctId]) {
-      if ((m as any).folder_id === folderId) {
-        (m as any).folder_id = null;
-        unassigned++;
-      }
-    }
-  }
-  await saveMessagesMap(uniboxId, msgs);
-  return { removed: true, messages_unassigned: unassigned };
+  // Quitar folder_id de cualquier mensaje que tuviera esta carpeta (UPDATE puntual).
+  await dbClearFolderAssignments(uniboxId, folderId);
+  return { removed: true, messages_unassigned: 0 };
 }
 
 /** Asigna (o desasigna si folderId=null) una carpeta a un mensaje. */
@@ -443,12 +434,6 @@ export async function setMessageFolder(
   uid: number,
   folderId: string | null
 ): Promise<boolean> {
-  const msgs = await loadMessagesMap(uniboxId);
-  const list = msgs[accountId];
-  if (!list) return false;
-  const m = list.find((x) => x.uid === uid);
-  if (!m) return false;
-  (m as any).folder_id = folderId;
-  await saveMessagesMap(uniboxId, msgs);
+  await dbSetMessageFolder(uniboxId, accountId, uid, folderId);
   return true;
 }

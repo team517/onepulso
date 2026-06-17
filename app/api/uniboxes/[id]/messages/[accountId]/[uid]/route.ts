@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { loadMessagesMap, saveMessagesMap, listAccounts, getUnibox } from "@/lib/unibox-store";
+import { listAccounts, getUnibox } from "@/lib/unibox-store";
+import { getMessageRow, setMessageBody, deleteMessageByUid } from "@/lib/unibox-messages-db";
 import { requireAdmin, requireClientForUnibox } from "@/lib/unibox-auth";
 import { isNonIberianMessage } from "@/lib/unibox-warmup";
 import { ImapFlow } from "imapflow";
@@ -17,9 +18,7 @@ export async function GET(
   const clientSession = isAdmin ? null : await requireClientForUnibox(req, id);
   if (!isAdmin && !clientSession) return NextResponse.json({ error: "No autorizado" }, { status: 401 });
 
-  const map = await loadMessagesMap(id);
-  const msgs = map[accountId] || [];
-  const msg = msgs.find((m) => String(m.uid) === String(uid));
+  const msg = await getMessageRow(id, accountId, Number(uid));
   if (!msg) return NextResponse.json({ error: "No encontrado" }, { status: 404 });
 
   // ON-DEMAND BODY LOAD:
@@ -91,13 +90,14 @@ export async function GET(
               } catch {}
             }
 
-            // Guardar en cache para futuras lecturas
-            const idx = msgs.findIndex((m) => String(m.uid) === String(uid));
-            if (idx !== -1) {
-              msgs[idx] = msg;
-              map[accountId] = msgs;
-              await saveMessagesMap(id, map);
-            }
+            // Guardar el cuerpo en la fila del mensaje para futuras lecturas.
+            await setMessageBody(id, accountId, Number(uid), {
+              text: msg.text,
+              html: msg.html,
+              preview: msg.preview,
+              attachments: msg.attachments,
+              is_warmup: msg.is_warmup,
+            });
           }
         } finally {
           lock.release();
@@ -127,13 +127,7 @@ export async function DELETE(
   const clientSession = isAdmin ? null : await requireClientForUnibox(req, id);
   if (!isAdmin && !clientSession) return NextResponse.json({ error: "No autorizado" }, { status: 401 });
 
-  const map = await loadMessagesMap(id);
-  const msgs = map[accountId] || [];
-  const before = msgs.length;
-  map[accountId] = msgs.filter((m) => String(m.uid) !== String(uid));
-  if (map[accountId].length === before) {
-    return NextResponse.json({ error: "No encontrado" }, { status: 404 });
-  }
-  await saveMessagesMap(id, map);
+  const ok = await deleteMessageByUid(id, accountId, Number(uid));
+  if (!ok) return NextResponse.json({ error: "No encontrado" }, { status: 404 });
   return NextResponse.json({ ok: true });
 }

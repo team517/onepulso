@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getUnibox, loadMessagesMap, clearAllMessages, purgeBounces, isBounceOrFailure } from "@/lib/unibox-store";
+import { getUnibox, clearAllMessages, purgeBounces } from "@/lib/unibox-store";
+import { listMessagesPage } from "@/lib/unibox-messages-db";
 import { requireAdmin, requireClientForUnibox } from "@/lib/unibox-auth";
 
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -14,77 +15,29 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
   const url = new URL(req.url);
   const accountFilter = url.searchParams.get("account");
   const showWarmup = url.searchParams.get("show_warmup") === "1";
-  // El cliente puede pedir ?show_bounces=1 para ver los rebotes (debug); por defecto se ocultan.
-  // El admin SIEMPRE los ve a menos que indique lo contrario.
-  const showBounces = url.searchParams.get("show_bounces") === "1";
-  const filterBounces = !showBounces; // ocultar bounces por defecto en TODAS las vistas
 
-  // Paginación opcional: ?limit=N (default 5000), ?offset=N (default 0).
-  // Si el cliente pide ?limit=0 o ?all=1, devolvemos TODOS sin tope.
-  const limitParam = parseInt(url.searchParams.get("limit") || "5000", 10);
+  // Paginación opcional: ?limit=N, ?offset=N. ?all=1 o ?limit=0 → tope duro.
+  const limitParam = parseInt(url.searchParams.get("limit") || "2000", 10);
   const offset = parseInt(url.searchParams.get("offset") || "0", 10);
   const all = url.searchParams.get("all") === "1" || limitParam === 0;
 
-  const map = await loadMessagesMap(id);
-  const out: any[] = [];
-  let warmupCount = 0;
-  let bounceCount = 0;
-  for (const accId of Object.keys(map)) {
-    if (accountFilter && accountFilter !== accId) continue;
-    for (const m of map[accId]) {
-      if (m.is_warmup) {
-        warmupCount++;
-        if (!showWarmup) continue;
-      }
-      // Filtrar bounces / delivery failures (en caso de que se hayan colado antes
-      // de habilitarse el filtro en el sync). Doble red de seguridad.
-      if (filterBounces && isBounceOrFailure(m)) {
-        bounceCount++;
-        continue;
-      }
-      // PERFORMANCE: enviamos SOLO los campos necesarios para el listado.
-      // text/html quedan en backend (se piden bajo demanda al abrir el msg
-      // via /messages/[accountId]/[uid]). Antes mandar 5000 previews de
-      // 180 chars + subject + from era ~500KB-1MB. Ahora ~200KB.
-      out.push({
-        uid: m.uid,
-        accountId: accId,
-        messageId: m.messageId,
-        from: m.from,
-        fromName: m.fromName,
-        fromAddress: m.fromAddress,
-        to: m.to,
-        toAddress: m.toAddress,
-        subject: m.subject,
-        date: m.date,
-        preview: m.preview,
-        unread: m.unread,
-        is_warmup: m.is_warmup,
-        folder_id: (m as any).folder_id || null,
-        has_attachments: (m.attachments?.length || 0) > 0,
-        // has_body: el fast-mode sync solo trae metadata; el cuerpo se
-        // descarga al abrir. El cliente usa este flag para hidratar en
-        // background los mensajes recientes (mejora previews + clasificación).
-        has_body: !!(m.text || m.html),
-      });
-    }
-  }
-  out.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+  // Lectura PAGINADA e INDEXADA desde la tabla unibox_messages — ya NO carga
+  // todos los mensajes en RAM. Los bounces no se almacenan, así que no hay
+  // que filtrarlos aquí. El cuerpo (text/html) se pide al abrir el mensaje.
+  const { messages, total, warmupCount } = await listMessagesPage({
+    uniboxId: id,
+    accountId: accountFilter,
+    showWarmup,
+    limit: all ? 2000 : Math.min(limitParam, 2000),
+    offset: all ? 0 : offset,
+  });
 
-  const totalAvailable = out.length;
-  // Cap a 2000 mensajes devueltos al cliente. El frontend solo renderiza
-  // ~300-2000 a la vez (virtualización). Devolver 50k construía un JSON
-  // gigante en RAM por cada request. 2000 cubre de sobra para ver/filtrar.
-  const HARD_CAP = 2000;
-  const sliced = all
-    ? out.slice(0, HARD_CAP)
-    : out.slice(offset, offset + Math.min(limitParam, HARD_CAP));
   return NextResponse.json({
-    messages: sliced,
+    messages,
     warmupCount,
-    bounceCount,
-    total: totalAvailable,
-    has_more: !all && offset + sliced.length < totalAvailable,
+    bounceCount: 0,
+    total,
+    has_more: !all && offset + messages.length < total,
   });
 }
 

@@ -10,6 +10,7 @@ import {
   updateUnibox,
   isBounceOrFailure,
 } from "./unibox-store";
+import { upsertMessages, ensureMigrated } from "./unibox-messages-db";
 import { isWarmupMessage, isNonIberianMessage } from "./unibox-warmup";
 
 /** ¿Este unibox permite mensajes en cualquier idioma? Solo tcx (negocio
@@ -72,6 +73,9 @@ async function withUniboxLock<T>(uniboxId: string, fn: () => Promise<T>): Promis
 
 /** Sincroniza una cuenta IMAP — descarga últimos 50 mensajes, los mergea en caché. */
 export async function syncAccount(uniboxId: string, accountId: string): Promise<number> {
+  // Migrar el histórico del bloque viejo a la tabla ANTES de insertar nuevos
+  // (si no, la tabla tendría solo lo nuevo y se perdería el histórico).
+  await ensureMigrated(uniboxId);
   const accs = await listAccounts(uniboxId);
   const idx = accs.findIndex((a) => a.id === accountId);
   if (idx === -1) return 0;
@@ -233,30 +237,11 @@ export async function syncAccount(uniboxId: string, accountId: string): Promise<
       }
       console.log(`[unibox-sync] ${account.email}: fetched=${fetched} new=${newCount} dupe=${skippedDupe} filtered=${skippedFilter} parseErr=${parseErrors}`);
 
-      // CRÍTICO: usar lock para que el read-modify-write sea atómico.
-      // Sin esto, cuentas paralelas se pisan al guardar y se pierden mensajes.
-      //
-      // OPTIMIZACIÓN CLAVE ANTI-CRASH: solo cargamos+reescribimos el blob si
-      // hay mensajes nuevos. Antes se reescribía el blob ENTERO (todas las
-      // cuentas) en CADA sync de CADA cuenta aunque no hubiera nada nuevo →
-      // ~80 reescrituras/minuto del blob completo = pico de RAM + dead-tuples
-      // que inflaban el disco + CPU. Si no hay nada fresco, no se toca nada.
+      // Insert/Update de filas individuales (atómico por fila vía ON CONFLICT).
+      // Ya NO cargamos ni reescribimos un bloque gigante: cada mensaje es una
+      // fila. Sin candado, sin race, sin pico de RAM. Solo escribe si hay nuevos.
       if (fresh.length > 0) {
-        await withUniboxLock(uniboxId, async () => {
-          const currentMap = await loadMessagesMap(uniboxId);
-          const currentMsgs = currentMap[accountId] || [];
-          // Merge nuevos + existentes, dedup por UID (frescos prevalecen)
-          const merged = [...fresh, ...currentMsgs];
-          const seenUids = new Set<string>();
-          const deduped = merged.filter((m) => {
-            const k = String(m.uid);
-            if (seenUids.has(k)) return false;
-            seenUids.add(k);
-            return true;
-          });
-          currentMap[accountId] = deduped.slice(0, MAX_MSGS_PER_ACCOUNT);
-          await saveMessagesMap(uniboxId, currentMap);
-        });
+        await upsertMessages(uniboxId, accountId, fresh as any);
         console.log(`[unibox-sync] ${account.email}: ${newCount} mensajes nuevos en INBOX`);
       }
     } finally {
@@ -302,6 +287,7 @@ export async function forceFullResync(uniboxId: string, accountId: string): Prom
 
 /** Sincroniza también la carpeta Sent (envíos del propio usuario) — opcional, no falla si no existe. */
 export async function syncAccountSent(uniboxId: string, accountId: string): Promise<number> {
+  await ensureMigrated(uniboxId);
   const accs = await listAccounts(uniboxId);
   const idx = accs.findIndex((a) => a.id === accountId);
   if (idx === -1) return 0;
@@ -425,23 +411,10 @@ export async function syncAccountSent(uniboxId: string, accountId: string): Prom
         if (msg.uid && msg.uid > maxUidSentSeen) maxUidSentSeen = msg.uid;
         newCount++;
       }
-      // Mismo lock per-unibox que en INBOX — evita pisar otros sync paralelos.
-      // Solo tocamos el blob si hay envíos nuevos (ver nota anti-crash arriba).
+      // Upsert de filas individuales (igual que INBOX). Los enviados llevan
+      // is_sent=true y uid negativo.
       if (fresh.length > 0) {
-        await withUniboxLock(uniboxId, async () => {
-          const currentMap = await loadMessagesMap(uniboxId);
-          const currentMsgs = currentMap[accountId] || [];
-          const merged = [...fresh, ...currentMsgs];
-          const seenUids = new Set<string>();
-          const deduped = merged.filter((m) => {
-            const k = String(m.uid);
-            if (seenUids.has(k)) return false;
-            seenUids.add(k);
-            return true;
-          });
-          currentMap[accountId] = deduped.slice(0, MAX_MSGS_PER_ACCOUNT);
-          await saveMessagesMap(uniboxId, currentMap);
-        });
+        await upsertMessages(uniboxId, accountId, fresh as any);
         console.log(`[unibox-sync] ${account.email}: ${newCount} mensajes nuevos en SENT`);
       }
     } finally { lock.release(); }

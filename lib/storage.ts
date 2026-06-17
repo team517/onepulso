@@ -26,6 +26,16 @@ const CACHE_MAX_SIZE = 150; // bajado de 1000 → menos RAM
 // la fluidez importa. Los blobs grandes se leen de Postgres (rápido igual).
 const CACHE_MAX_VALUE_CHARS = 256 * 1024; // 256 KB por entrada máx
 
+// CLAVES "CALIENTES" grandes que SÍ merece la pena cachear brevemente: se
+// leen muchas veces seguidas (la lista de /seguimientos lee este blob ~4
+// veces al cargar + en cada poll). Cachear UNA copia unos segundos es barato
+// en RAM; lo que disparaba la RAM a 5GB era cachear DECENAS de blobs de
+// mensajes de unibox a la vez, no este único blob. Sin esto, cada lectura
+// deserializa varios MB desde Postgres → /seguimientos va lento.
+const HOT_LARGE_KEYS = new Set(["email-threads"]);
+const HOT_LARGE_MAX_CHARS = 8 * 1024 * 1024; // 8 MB tope para claves calientes
+const HOT_LARGE_TTL_MS = 15_000; // TTL un poco mayor para cubrir el polling
+
 function cacheGet(key: string): any | undefined {
   const e = _cache.get(key);
   if (!e) return undefined;
@@ -36,11 +46,13 @@ function cacheGet(key: string): any | undefined {
   return e.value;
 }
 function cacheSet(key: string, value: any): void {
+  const isHot = HOT_LARGE_KEYS.has(key);
+  const maxChars = isHot ? HOT_LARGE_MAX_CHARS : CACHE_MAX_VALUE_CHARS;
   // Skip blobs grandes — no queremos GB de mensajes en RAM.
   try {
     if (value && typeof value === "object") {
       const approxSize = JSON.stringify(value).length;
-      if (approxSize > CACHE_MAX_VALUE_CHARS) {
+      if (approxSize > maxChars) {
         _cache.delete(key); // por si había una versión vieja
         return;
       }
@@ -52,7 +64,7 @@ function cacheSet(key: string, value: any): void {
     const firstKey = _cache.keys().next().value;
     if (firstKey) _cache.delete(firstKey);
   }
-  _cache.set(key, { value, expires: Date.now() + CACHE_TTL_MS });
+  _cache.set(key, { value, expires: Date.now() + (isHot ? HOT_LARGE_TTL_MS : CACHE_TTL_MS) });
 }
 function cacheInvalidate(key: string): void {
   _cache.delete(key);

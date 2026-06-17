@@ -1,4 +1,4 @@
-import { listAllScheduledFollowups, getThread, updateFollowup, appendMessage, listThreads } from "./email-threads";
+import { listAllScheduledFollowups, getThread, updateFollowup, appendMessage, listThreads, compactThreads } from "./email-threads";
 import { sendEmail } from "./email-send";
 import { readEmailConfig } from "./email-config";
 import { syncInbox, deepRefreshAllThreads } from "./email-inbox";
@@ -104,6 +104,9 @@ async function rescueStuckSendingFollowups(maxStuckMinutes = 5): Promise<number>
 let lastStuckCheck = 0;
 const STUCK_CHECK_MS = 5 * 60_000; // cada 5 min
 
+let lastCompact = 0;
+const COMPACT_MS = 6 * 60 * 60_000; // cada 6h: archiva hilos viejos/cerrados
+
 export async function tick() {
   // EMERGENCY_MODE bypass — no hacer trabajo de fondo si está activo.
   if (process.env.EMERGENCY_MODE === "1" || process.env.EMERGENCY_MODE === "true") {
@@ -117,6 +120,22 @@ export async function tick() {
       if (n > 0) console.log(`[email-scheduler] ${n} follow-ups rescatadas de sending → scheduled`);
     } catch (e: any) {
       console.error("[email-scheduler] stuck check error:", e.message);
+    }
+  }
+
+  // 0.b Cada 6h, compactar el blob email-threads: archiva hilos inactivos
+  // (cerrados/obsoletos > 30 días y sin follow-up pendiente) a una clave
+  // aparte. Mantiene el blob principal pequeño → /seguimientos carga rápido
+  // y el tick lee menos MB.
+  if (Date.now() - lastCompact > COMPACT_MS) {
+    lastCompact = Date.now();
+    try {
+      const c = await compactThreads({ olderThanDays: 30 });
+      if (c.archivedNow > 0) {
+        console.log(`[email-scheduler] compactado: ${c.archivedNow} hilos archivados (activos=${c.keptActive})`);
+      }
+    } catch (e: any) {
+      console.error("[email-scheduler] compact error:", e.message);
     }
   }
 

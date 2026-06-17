@@ -339,9 +339,13 @@ export default function SeguimientosPage() {
     else if (view === "connect") setView("list");
   }
   async function refreshThreads() {
-    const r = await fetch("/api/email/threads").then((r) => r.json());
+    // En PARALELO (antes en serie). Ambos leen el mismo blob email-threads;
+    // gracias a la caché caliente la 2ª lectura es instantánea.
+    const [r, fr] = await Promise.all([
+      fetch("/api/email/threads").then((r) => r.json()).catch(() => ({ threads: [] })),
+      fetch("/api/email/followups").then((r) => r.json()).catch(() => ({ items: [] })),
+    ]);
     setThreads(r.threads ?? []);
-    const fr = await fetch("/api/email/followups").then((r) => r.json()).catch(() => ({ items: [] }));
     setAllFollowups(fr.items ?? []);
   }
 

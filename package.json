@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "next dev -p 3000",
     "build": "next build",
-    "start": "NODE_OPTIONS=--max-old-space-size=1280 next start"
+    "start": "NODE_OPTIONS=--max-old-space-size=2048 next start"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.40.1",

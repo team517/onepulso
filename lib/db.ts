@@ -7,11 +7,43 @@ declare global {
   var __pgInitDone: boolean | undefined;
 }
 
-/** Devuelve el pool de Postgres si DATABASE_URL está definido, si no null.
+/**
+ * Resuelve la cadena de conexión a Postgres probando VARIOS nombres de
+ * variable. En Railway es muy fácil que el servicio web no tenga
+ * `DATABASE_URL` referenciada pero sí otra (`DATABASE_PUBLIC_URL`, las `PG*`
+ * del plugin de Postgres, etc.). Antes, si faltaba `DATABASE_URL` exacta, la
+ * app caía al disco temporal y PERDÍA los datos al reiniciar. Ahora la
+ * encontramos aunque tenga otro nombre.
+ */
+export function resolveDatabaseUrl(): string | null {
+  const e = process.env;
+  const direct =
+    e.DATABASE_URL ||
+    e.DATABASE_PRIVATE_URL ||
+    e.POSTGRES_URL ||
+    e.POSTGRESQL_URL ||
+    e.PG_URL ||
+    e.DATABASE_PUBLIC_URL || // pública la última: preferimos la interna (sin egress)
+    e.POSTGRES_PUBLIC_URL;
+  if (direct && /^postgres(ql)?:\/\//i.test(direct)) return direct;
+
+  // Ensamblar desde variables sueltas PG* (las inyecta el plugin de Postgres).
+  const host = e.PGHOST || e.POSTGRES_HOST;
+  const user = e.PGUSER || e.POSTGRES_USER;
+  const pass = e.PGPASSWORD || e.POSTGRES_PASSWORD;
+  const db = e.PGDATABASE || e.POSTGRES_DB || e.PGDATABASE_NAME;
+  const port = e.PGPORT || e.POSTGRES_PORT || "5432";
+  if (host && user && pass && db) {
+    return `postgresql://${encodeURIComponent(user)}:${encodeURIComponent(pass)}@${host}:${port}/${db}`;
+  }
+  return null;
+}
+
+/** Devuelve el pool de Postgres si hay alguna cadena de conexión válida, si no null.
  *  Pre-calienta una conexión al crearlo + keepalive cada 25s para que
  *  la primera query del usuario sea INSTANTÁNEA (no espera TCP+TLS+auth). */
 export function getPool(): Pool | null {
-  const url = process.env.DATABASE_URL;
+  const url = resolveDatabaseUrl();
   if (!url) return null;
   if (globalThis.__pgPool) return globalThis.__pgPool;
   globalThis.__pgPool = new Pool({
@@ -170,5 +202,5 @@ export async function withClient<T>(fn: (c: PoolClient) => Promise<T>): Promise<
 }
 
 export function isDbEnabled(): boolean {
-  return !!process.env.DATABASE_URL;
+  return !!resolveDatabaseUrl();
 }

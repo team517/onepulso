@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getPool, ensureSchema, isDbEnabled, withClient } from "@/lib/db";
+import { getPool, ensureSchema, isDbEnabled, withClient, resolveDatabaseUrl } from "@/lib/db";
 
 export const runtime = "nodejs";
 
@@ -15,10 +15,13 @@ export async function GET() {
     return NextResponse.json({ ..._cached.data, cached: true }, { status: 200 });
   }
 
+  const resolvedUrl = resolveDatabaseUrl();
   const report: any = {
-    has_database_url: !!process.env.DATABASE_URL,
-    db_url_host: process.env.DATABASE_URL
-      ? new URL(process.env.DATABASE_URL.replace("postgresql://", "https://").replace("postgres://", "https://")).hostname
+    // has_database_url ahora refleja si EXISTE alguna conexión válida (con
+    // cualquier nombre de variable), no solo la DATABASE_URL exacta.
+    has_database_url: !!resolvedUrl,
+    db_url_host: resolvedUrl
+      ? (() => { try { return new URL(resolvedUrl.replace(/^postgres(ql)?:\/\//, "https://")).hostname; } catch { return "?"; } })()
       : null,
     is_db_enabled: isDbEnabled(),
     data_dir: process.env.DATA_DIR || "(no DATA_DIR set)",

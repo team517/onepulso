@@ -24,21 +24,30 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
   // Lectura PAGINADA e INDEXADA desde la tabla unibox_messages — ya NO carga
   // todos los mensajes en RAM. Los bounces no se almacenan, así que no hay
   // que filtrarlos aquí. El cuerpo (text/html) se pide al abrir el mensaje.
-  const { messages, total, warmupCount } = await listMessagesPage({
-    uniboxId: id,
-    accountId: accountFilter,
-    showWarmup,
-    limit: all ? 2000 : Math.min(limitParam, 2000),
-    offset: all ? 0 : offset,
-  });
+  try {
+    const { messages, total, warmupCount } = await listMessagesPage({
+      uniboxId: id,
+      accountId: accountFilter,
+      showWarmup,
+      limit: all ? 2000 : Math.min(limitParam, 2000),
+      offset: all ? 0 : offset,
+    });
 
-  return NextResponse.json({
-    messages,
-    warmupCount,
-    bounceCount: 0,
-    total,
-    has_more: !all && offset + messages.length < total,
-  });
+    return NextResponse.json({
+      messages,
+      warmupCount,
+      bounceCount: 0,
+      total,
+      has_more: !all && offset + messages.length < total,
+    });
+  } catch (e: any) {
+    // Si la BD falla, devolver el error visible (no quedarse en blanco en silencio).
+    console.error("[messages] listMessagesPage error:", e?.message || e);
+    return NextResponse.json(
+      { messages: [], warmupCount: 0, bounceCount: 0, total: 0, has_more: false, error: e?.message || String(e) },
+      { status: 200 }
+    );
+  }
 }
 
 /**

@@ -136,11 +136,24 @@ function rowToMessage(r: any): UniboxMessageRow {
   };
 }
 
+// Columnas en orden fijo. Los índices de columnas JSONB (para castear el
+// placeholder con ::jsonb). Generamos los $N programáticamente para que el
+// número de placeholders SIEMPRE cuadre con las columnas (contar a mano es
+// un bug clásico: si sobra/falta uno, TODO el INSERT falla y no se guarda nada).
+const MSG_COLUMNS = [
+  "unibox_id", "account_id", "uid", "message_id", "in_reply_to", "refs",
+  "from_raw", "from_name", "from_address", "to_raw", "to_address", "subject",
+  "msg_date", "preview", "body_text", "body_html", "unread", "is_warmup",
+  "is_sent", "folder_id", "attachments",
+];
+const MSG_JSONB_COLS = new Set(["refs", "attachments"]);
+
 /** Inserta/actualiza un lote de mensajes de UNA cuenta. ON CONFLICT preserva
  *  el cuerpo ya hidratado y la carpeta a la que el usuario movió el mensaje. */
 export async function upsertMessages(uniboxId: string, accountId: string, msgs: UniboxMessageRow[]): Promise<void> {
   if (!msgs.length) return;
   await ensureMessagesTable();
+  const nCols = MSG_COLUMNS.length;
   await withClient(async (c) => {
     // Insert por lotes en una sola sentencia (parámetros agrupados).
     const CHUNK = 200;
@@ -151,9 +164,9 @@ export async function upsertMessages(uniboxId: string, accountId: string, msgs: 
       let p = 0;
       for (const m of slice) {
         const isSent = (m as any).is_sent === true || (typeof m.uid === "number" && m.uid < 0);
-        values.push(
-          `($${++p},$${++p},$${++p},$${++p},$${++p},$${++p}::jsonb,$${++p},$${++p},$${++p},$${++p},$${++p},$${++p},$${++p},$${++p},$${++p},$${++p},$${++p},$${++p},$${++p},$${++p}::jsonb)`
-        );
+        // Placeholders generados a partir de las columnas → cuenta garantizada.
+        const ph = MSG_COLUMNS.map((col) => `$${++p}${MSG_JSONB_COLS.has(col) ? "::jsonb" : ""}`);
+        values.push(`(${ph.join(",")})`);
         params.push(
           uniboxId,
           accountId,
@@ -178,11 +191,13 @@ export async function upsertMessages(uniboxId: string, accountId: string, msgs: 
           JSON.stringify(m.attachments || [])
         );
       }
+      // Guarda de seguridad: si por lo que sea params no cuadra con columnas, abortar claro.
+      if (params.length !== slice.length * nCols) {
+        throw new Error(`upsertMessages: params=${params.length} != ${slice.length}*${nCols}`);
+      }
       await c.query(
         `INSERT INTO unibox_messages
-          (unibox_id, account_id, uid, message_id, in_reply_to, refs, from_raw, from_name,
-           from_address, to_raw, to_address, subject, msg_date, preview, body_text, body_html,
-           unread, is_warmup, is_sent, folder_id, attachments)
+          (${MSG_COLUMNS.join(", ")})
          VALUES ${values.join(",")}
          ON CONFLICT (unibox_id, account_id, uid) DO UPDATE SET
            message_id   = EXCLUDED.message_id,

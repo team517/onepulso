@@ -68,34 +68,57 @@ export default function PersonalizacionPage() {
   const [verifyResult, setVerifyResult] = useState<any>(null);
   const [verifyError, setVerifyError] = useState<string | null>(null);
 
-  function verifyEmails() {
+  async function verifyEmails() {
     if (!file || verifying) return;
     const col = mapping.email || (file.email_columns && file.email_columns[0]) || "";
     if (!col) { alert("No se ha detectado columna de email. Asigna primero la columna del email abajo."); return; }
     setVerifying(true); setVerifyError(null); setVerifyResult(null); setVerifyBuilding(false); setVerifyProgress({ done: 0, total: 0 });
-    const params = new URLSearchParams({ file_id: file.file_id, email_column: col, filename: file.filename || "leads" });
-    const es = new EventSource(`/api/personalization/verify-stream?${params.toString()}`);
-    let finished = false; // ya recibimos 'done' o un error de servidor → no reintentar
-    es.addEventListener("start", (e: any) => { const d = JSON.parse(e.data); setVerifyProgress({ done: 0, total: d.total }); });
-    es.addEventListener("progress", (e: any) => { const d = JSON.parse(e.data); setVerifyProgress({ done: d.done, total: d.total }); });
-    es.addEventListener("phase", () => { setVerifyBuilding(true); });
-    es.addEventListener("done", (e: any) => { finished = true; setVerifyResult(JSON.parse(e.data)); setVerifying(false); setVerifyBuilding(false); es.close(); });
-    es.addEventListener("error", (e: any) => {
-      // Error del SERVIDOR (trae data) vs caída de conexión (EventSource genérico).
-      if (e?.data) {
-        try { setVerifyError(JSON.parse(e.data).message || "Error verificando"); } catch { setVerifyError("Error verificando"); }
-        finished = true; setVerifying(false); setVerifyBuilding(false); es.close();
+    try {
+      // 1) Lanzar el trabajo en segundo plano → nos da un job_id al instante.
+      const startRes = await fetch("/api/personalization/verify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ file_id: file.file_id, email_column: col, filename: file.filename || "leads" }),
+      }).then((r) => r.json());
+      if (startRes?.error || !startRes?.job_id) {
+        setVerifyError(startRes?.error || "No se pudo iniciar la verificación");
+        setVerifying(false);
         return;
       }
-      // Caída de conexión: si ya habíamos terminado, ignorar (es el cierre normal).
-      if (finished) { es.close(); return; }
-      // Si no, cerramos para que NO reintente solo (reiniciaría la verificación)
-      // y avisamos de que se cortó.
-      finished = true;
-      es.close();
-      setVerifying(false); setVerifyBuilding(false);
-      setVerifyError("Se cortó la conexión durante la verificación. Si la lista es muy grande, vuelve a darle a Verificar — ahora aguanta conexiones largas.");
-    });
+      const jobId = startRes.job_id;
+
+      // 2) Consultar el progreso cada 1.5s (sin conexión larga → no se corta).
+      let misses = 0;
+      const poll = setInterval(async () => {
+        try {
+          const r = await fetch(`/api/personalization/verify/${jobId}`, { cache: "no-store" });
+          if (r.status === 404) {
+            misses++;
+            // Un 404 puntual puede ser un reinicio; toleramos unos pocos.
+            if (misses >= 3) { clearInterval(poll); setVerifying(false); setVerifyBuilding(false); setVerifyError("La verificación se interrumpió (el servidor se reinició). Vuelve a darle a Verificar."); }
+            return;
+          }
+          misses = 0;
+          const job = await r.json();
+          setVerifyProgress({ done: job.done || 0, total: job.total || 0 });
+          setVerifyBuilding(job.phase === "building");
+          if (job.status === "done") {
+            clearInterval(poll);
+            setVerifyResult(job.result);
+            setVerifying(false); setVerifyBuilding(false);
+          } else if (job.status === "error") {
+            clearInterval(poll);
+            setVerifyError(job.error || "Error verificando");
+            setVerifying(false); setVerifyBuilding(false);
+          }
+        } catch {
+          // Un fallo de red puntual NO cancela: el trabajo sigue por detrás.
+        }
+      }, 1500);
+    } catch (e: any) {
+      setVerifyError(e?.message || "Error iniciando la verificación");
+      setVerifying(false);
+    }
   }
 
   function useCleanFile() {

@@ -75,14 +75,26 @@ export default function PersonalizacionPage() {
     setVerifying(true); setVerifyError(null); setVerifyResult(null); setVerifyBuilding(false); setVerifyProgress({ done: 0, total: 0 });
     const params = new URLSearchParams({ file_id: file.file_id, email_column: col, filename: file.filename || "leads" });
     const es = new EventSource(`/api/personalization/verify-stream?${params.toString()}`);
+    let finished = false; // ya recibimos 'done' o un error de servidor → no reintentar
     es.addEventListener("start", (e: any) => { const d = JSON.parse(e.data); setVerifyProgress({ done: 0, total: d.total }); });
     es.addEventListener("progress", (e: any) => { const d = JSON.parse(e.data); setVerifyProgress({ done: d.done, total: d.total }); });
     es.addEventListener("phase", () => { setVerifyBuilding(true); });
-    es.addEventListener("done", (e: any) => { setVerifyResult(JSON.parse(e.data)); setVerifying(false); setVerifyBuilding(false); es.close(); });
+    es.addEventListener("done", (e: any) => { finished = true; setVerifyResult(JSON.parse(e.data)); setVerifying(false); setVerifyBuilding(false); es.close(); });
     es.addEventListener("error", (e: any) => {
-      let msg = "Error verificando";
-      try { if (e?.data) msg = JSON.parse(e.data).message || msg; } catch {}
-      setVerifyError(msg); setVerifying(false); es.close();
+      // Error del SERVIDOR (trae data) vs caída de conexión (EventSource genérico).
+      if (e?.data) {
+        try { setVerifyError(JSON.parse(e.data).message || "Error verificando"); } catch { setVerifyError("Error verificando"); }
+        finished = true; setVerifying(false); setVerifyBuilding(false); es.close();
+        return;
+      }
+      // Caída de conexión: si ya habíamos terminado, ignorar (es el cierre normal).
+      if (finished) { es.close(); return; }
+      // Si no, cerramos para que NO reintente solo (reiniciaría la verificación)
+      // y avisamos de que se cortó.
+      finished = true;
+      es.close();
+      setVerifying(false); setVerifyBuilding(false);
+      setVerifyError("Se cortó la conexión durante la verificación. Si la lista es muy grande, vuelve a darle a Verificar — ahora aguanta conexiones largas.");
     });
   }
 

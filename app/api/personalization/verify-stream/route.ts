@@ -40,14 +40,22 @@ export async function GET(req: NextRequest) {
   const encoder = new TextEncoder();
   const stream = new ReadableStream({
     async start(controller) {
+      let closed = false;
       const send = (event: string, data: any) => {
         try { controller.enqueue(encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`)); } catch {}
       };
+      // LATIDO: una señal cada 10s para que ningún proxy corte la conexión por
+      // estar "callada" durante sondeos SMTP lentos o al generar el CSV final.
+      const heartbeat = setInterval(() => {
+        if (closed) return;
+        try { controller.enqueue(encoder.encode(`: ping\n\n`)); } catch {}
+      }, 10_000);
+      const stop = () => { closed = true; clearInterval(heartbeat); try { controller.close(); } catch {} };
       try {
         const { columns, rows } = await readCSVRows(file_id);
         if (!columns.includes(emailColumn)) {
           send("error", { message: `La columna "${emailColumn}" no existe en el CSV` });
-          controller.close();
+          stop();
           return;
         }
 
@@ -133,7 +141,7 @@ export async function GET(req: NextRequest) {
       } catch (e: any) {
         send("error", { message: e?.message || String(e) });
       } finally {
-        controller.close();
+        stop();
       }
     },
   });

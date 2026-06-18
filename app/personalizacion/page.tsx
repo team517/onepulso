@@ -64,6 +64,7 @@ export default function PersonalizacionPage() {
   // Verificación de emails (estilo MillionVerifier)
   const [verifying, setVerifying] = useState(false);
   const [verifyProgress, setVerifyProgress] = useState<{ done: number; total: number } | null>(null);
+  const [verifyBuilding, setVerifyBuilding] = useState(false);
   const [verifyResult, setVerifyResult] = useState<any>(null);
   const [verifyError, setVerifyError] = useState<string | null>(null);
 
@@ -71,12 +72,13 @@ export default function PersonalizacionPage() {
     if (!file || verifying) return;
     const col = mapping.email || (file.email_columns && file.email_columns[0]) || "";
     if (!col) { alert("No se ha detectado columna de email. Asigna primero la columna del email abajo."); return; }
-    setVerifying(true); setVerifyError(null); setVerifyResult(null); setVerifyProgress({ done: 0, total: 0 });
+    setVerifying(true); setVerifyError(null); setVerifyResult(null); setVerifyBuilding(false); setVerifyProgress({ done: 0, total: 0 });
     const params = new URLSearchParams({ file_id: file.file_id, email_column: col, filename: file.filename || "leads" });
     const es = new EventSource(`/api/personalization/verify-stream?${params.toString()}`);
     es.addEventListener("start", (e: any) => { const d = JSON.parse(e.data); setVerifyProgress({ done: 0, total: d.total }); });
     es.addEventListener("progress", (e: any) => { const d = JSON.parse(e.data); setVerifyProgress({ done: d.done, total: d.total }); });
-    es.addEventListener("done", (e: any) => { setVerifyResult(JSON.parse(e.data)); setVerifying(false); es.close(); });
+    es.addEventListener("phase", () => { setVerifyBuilding(true); });
+    es.addEventListener("done", (e: any) => { setVerifyResult(JSON.parse(e.data)); setVerifying(false); setVerifyBuilding(false); es.close(); });
     es.addEventListener("error", (e: any) => {
       let msg = "Error verificando";
       try { if (e?.data) msg = JSON.parse(e.data).message || msg; } catch {}
@@ -1054,7 +1056,9 @@ export default function PersonalizacionPage() {
                 {verifying && verifyProgress && (
                   <div style={{ marginTop: 10 }}>
                     <div style={{ fontSize: 12, color: "#047857", marginBottom: 4, fontWeight: 600 }}>
-                      Verificando {verifyProgress.done.toLocaleString()} / {verifyProgress.total.toLocaleString()} emails únicos…
+                      {verifyBuilding
+                        ? "Generando CSV limpio (sin inválidos ni duplicados)…"
+                        : `Verificando ${verifyProgress.done.toLocaleString()} / ${verifyProgress.total.toLocaleString()} emails únicos…`}
                     </div>
                     <div style={{ height: 8, background: "rgba(16,185,129,0.15)", borderRadius: 99, overflow: "hidden" }}>
                       <div style={{ height: "100%", width: `${verifyProgress.total ? Math.round((verifyProgress.done / verifyProgress.total) * 100) : 0}%`, background: "#10b981", transition: "width .3s" }} />

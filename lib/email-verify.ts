@@ -244,49 +244,187 @@ export type BatchSummary = {
   smtp_available: boolean; // si el puerto 25 funcionó al menos una vez
 };
 
+type DomainSmtpResult = {
+  blocked?: boolean;
+  ok: boolean;
+  catchAll?: boolean;
+  accepted?: Set<string>;
+  rejected?: Set<string>;
+};
+
+// Máximo de buzones que probamos por conexión (proteger reputación de la IP y
+// evitar que el servidor nos tarpitee). Los que sobren quedan "unknown".
+const MAX_RCPT_PER_CONNECTION = 30;
+
 /**
- * Verifica un LOTE: deduplica, verifica con concurrencia limitada y agrupa por
- * dominio (reaprovecha MX). Devuelve resultados + resumen.
+ * Verifica TODOS los buzones de UN dominio en UNA sola conexión SMTP:
+ *   EHLO → MAIL FROM → (catch-all probe) → RCPT TO por cada email.
+ * Así no abrimos una conexión por email (lo que hacía MillionVerifier-lento).
+ */
+function verifyDomainSmtp(
+  mxHost: string,
+  fromAddr: string,
+  domain: string,
+  emails: string[],
+  timeoutMs = 7000
+): Promise<DomainSmtpResult> {
+  return new Promise((resolve) => {
+    const socket = net.createConnection({ host: mxHost, port: 25 });
+    socket.setTimeout(timeoutMs);
+    let buf = "";
+    let done = false;
+    const accepted = new Set<string>();
+    const rejected = new Set<string>();
+    const responses: number[] = [];
+    let pending: ((code: number) => void) | null = null;
+
+    const finish = (r: DomainSmtpResult) => {
+      if (done) return;
+      done = true;
+      try { socket.write("QUIT\r\n"); } catch {}
+      try { socket.destroy(); } catch {}
+      resolve(r);
+    };
+    const deliver = (code: number) => {
+      if (pending) { const p = pending; pending = null; p(code); }
+      else responses.push(code);
+    };
+    const nextResponse = (): Promise<number> =>
+      responses.length ? Promise.resolve(responses.shift()!) : new Promise((res) => { pending = res; });
+
+    socket.on("timeout", () => finish({ ok: false }));
+    socket.on("error", (err: any) => {
+      const code = err?.code || "";
+      const blocked = ["EACCES", "ENETUNREACH", "ECONNREFUSED", "ETIMEDOUT", "EHOSTUNREACH"].includes(code);
+      finish({ ok: false, blocked });
+    });
+    socket.on("data", (d) => {
+      buf += d.toString();
+      let nl: number;
+      while ((nl = buf.indexOf("\n")) >= 0) {
+        const raw = buf.slice(0, nl).replace(/\r$/, "");
+        buf = buf.slice(nl + 1);
+        const m = raw.match(/^(\d{3})([ -]?)/);
+        // Solo la línea FINAL de una respuesta (no las de continuación "250-").
+        if (m && m[2] !== "-") deliver(parseInt(m[1], 10));
+      }
+    });
+
+    async function run() {
+      const greet = await nextResponse();
+      if (Math.floor(greet / 100) !== 2) return finish({ ok: false });
+      socket.write(`EHLO verifier.local\r\n`);
+      let r = await nextResponse();
+      if (Math.floor(r / 100) !== 2) {
+        socket.write(`HELO verifier.local\r\n`);
+        r = await nextResponse();
+        if (Math.floor(r / 100) !== 2) return finish({ ok: false });
+      }
+      socket.write(`MAIL FROM:<${fromAddr}>\r\n`);
+      r = await nextResponse();
+      if (Math.floor(r / 100) !== 2) return finish({ ok: false });
+
+      // Catch-all: ¿acepta una dirección que NO existe?
+      const rand = `ca${Math.abs(hashStr(domain)).toString(36)}zz@${domain}`;
+      socket.write(`RCPT TO:<${rand}>\r\n`);
+      const ca = await nextResponse();
+      if (ca === 250 || ca === 251) return finish({ ok: true, catchAll: true });
+
+      // Buzón por buzón (hasta el tope por conexión).
+      const probe = emails.slice(0, MAX_RCPT_PER_CONNECTION);
+      for (const e of probe) {
+        socket.write(`RCPT TO:<${e}>\r\n`);
+        const rr = await nextResponse();
+        if (rr === 250 || rr === 251) accepted.add(e);
+        else if ([550, 551, 552, 553, 554, 501, 503].includes(rr)) rejected.add(e);
+        // 4xx (greylisting/temporal) → ni aceptado ni rechazado → quedará unknown
+      }
+      finish({ ok: true, accepted, rejected });
+    }
+    socket.on("connect", () => { run().catch(() => finish({ ok: false })); });
+  });
+}
+
+/**
+ * Verifica un LOTE de forma EFICIENTE (como un verificador profesional):
+ *  - deduplica
+ *  - agrupa por dominio
+ *  - 1 sola conexión SMTP por dominio (catch-all + todos sus buzones)
+ *  - alta concurrencia ENTRE dominios
  */
 export async function verifyBatch(
   emails: string[],
   opts: { fromAddr?: string; smtp?: boolean; concurrency?: number; onProgress?: (done: number, total: number) => void } = {}
 ): Promise<{ results: VerifyResult[]; summary: BatchSummary }> {
-  const concurrency = Math.max(1, Math.min(opts.concurrency ?? 8, 20));
+  const concurrency = Math.max(1, Math.min(opts.concurrency ?? 25, 50));
+  const fromAddr = opts.fromAddr || "verify@onepulso.online";
+  const wantSmtp = opts.smtp !== false;
+
+  // 1) Dedup
   const seen = new Set<string>();
   const unique: string[] = [];
   const results: VerifyResult[] = [];
   let duplicates = 0;
-
   for (const raw of emails) {
     const e = normalizeEmail(raw);
     if (!e) continue;
     if (seen.has(e)) {
       duplicates++;
-      results.push({
-        email: e, status: "duplicate", reason: "duplicado", syntax_ok: isValidSyntax(e),
-        has_mx: false, disposable: false, role: false, catch_all: false, smtp_checked: false,
-      });
+      results.push({ email: e, status: "duplicate", reason: "duplicado", syntax_ok: isValidSyntax(e), has_mx: false, disposable: false, role: false, catch_all: false, smtp_checked: false });
       continue;
     }
     seen.add(e);
     unique.push(e);
   }
 
+  const total = unique.length;
   let done = 0;
-  let i = 0;
   let smtpAvailable = false;
-  async function worker() {
-    while (i < unique.length) {
-      const idx = i++;
-      const r = await verifyEmail(unique[idx], { fromAddr: opts.fromAddr, smtp: opts.smtp });
-      if (r.smtp_checked) smtpAvailable = true;
-      results.push(r);
-      done++;
-      opts.onProgress?.(done, unique.length);
+  const tick = () => { done++; opts.onProgress?.(done, total); };
+
+  // 2) Sintaxis/desechable + agrupar por dominio
+  const byDomain = new Map<string, string[]>();
+  for (const e of unique) {
+    if (!isValidSyntax(e)) { results.push({ email: e, status: "invalid", reason: "formato inválido", syntax_ok: false, has_mx: false, disposable: false, role: false, catch_all: false, smtp_checked: false }); tick(); continue; }
+    if (isDisposable(e)) { results.push({ email: e, status: "invalid", reason: "dominio desechable", syntax_ok: true, has_mx: false, disposable: true, role: false, catch_all: false, smtp_checked: false }); tick(); continue; }
+    const d = domainOf(e);
+    const arr = byDomain.get(d); if (arr) arr.push(e); else byDomain.set(d, [e]);
+  }
+
+  // 3) Procesar dominios con concurrencia
+  const domains = [...byDomain.keys()];
+  let di = 0;
+  async function domainWorker() {
+    while (di < domains.length) {
+      const domain = domains[di++];
+      const list = byDomain.get(domain)!;
+      const mxHosts = await getMxHosts(domain);
+      if (mxHosts.length === 0) {
+        for (const e of list) { results.push({ email: e, status: "invalid", reason: "el dominio no puede recibir correo (sin MX/DNS)", syntax_ok: true, has_mx: false, disposable: false, role: isRoleAccount(e), catch_all: false, smtp_checked: false }); tick(); }
+        continue;
+      }
+      let smtpRes: DomainSmtpResult = { ok: false };
+      if (wantSmtp && _smtpBlocked !== true) {
+        smtpRes = await verifyDomainSmtp(mxHosts[0], fromAddr, domain, list);
+        if (smtpRes.blocked) _smtpBlocked = true;
+        else if (smtpRes.ok) smtpAvailable = true;
+      }
+      for (const e of list) {
+        const role = isRoleAccount(e);
+        const base = { email: e, syntax_ok: true, has_mx: true, disposable: false, role, catch_all: !!smtpRes.catchAll, smtp_checked: !!smtpRes.ok };
+        if (smtpRes.ok) {
+          if (smtpRes.catchAll) results.push({ ...base, status: "risky", reason: "catch-all (el servidor acepta todo)" });
+          else if (smtpRes.rejected?.has(e)) results.push({ ...base, status: "invalid", reason: "el servidor rechaza el buzón" });
+          else if (smtpRes.accepted?.has(e)) results.push({ ...base, status: role ? "risky" : "valid", reason: role ? "válido (buzón de rol)" : "válido (buzón existe)" });
+          else results.push({ ...base, status: "unknown", reason: "respuesta no concluyente" });
+        } else {
+          results.push({ ...base, smtp_checked: false, status: role ? "risky" : "unknown", reason: role ? "buzón de rol (dominio OK)" : "dominio OK; buzón no comprobable (SMTP no disponible)" });
+        }
+        tick();
+      }
     }
   }
-  await Promise.all(Array.from({ length: concurrency }, () => worker()));
+  await Promise.all(Array.from({ length: concurrency }, () => domainWorker()));
 
   const summary: BatchSummary = {
     total: emails.length,

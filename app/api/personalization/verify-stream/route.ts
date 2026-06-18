@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { readCSVRows } from "@/lib/personalization";
-import { verifyEmail, normalizeEmail, isValidSyntax, type VerifyResult } from "@/lib/email-verify";
+import { verifyBatch, normalizeEmail, isValidSyntax, type VerifyResult } from "@/lib/email-verify";
 import { writeBlob } from "@/lib/storage";
 import { randomUUID } from "crypto";
 
@@ -61,23 +61,23 @@ export async function GET(req: NextRequest) {
 
         send("start", { total: uniqueEmails.length, total_rows: rows.length });
 
-        // Verificación con concurrencia limitada + progreso.
+        // Verificación EFICIENTE: agrupada por dominio, 1 conexión SMTP por
+        // dominio, alta concurrencia (ver lib/email-verify.ts).
+        let lastSent = 0;
+        const { results, summary: batchSummary } = await verifyBatch(uniqueEmails, {
+          smtp: wantSmtp,
+          concurrency: 30,
+          onProgress: (d, t) => {
+            // Emitir progreso como mucho cada 50 para no saturar el SSE.
+            if (d - lastSent >= 50 || d === t) { lastSent = d; send("progress", { done: d, total: t }); }
+          },
+        });
         const statusByEmail = new Map<string, VerifyResult>();
-        const CONCURRENCY = 8;
-        let done = 0;
-        let i = 0;
-        let smtpAvailable = false;
-        const worker = async () => {
-          while (i < uniqueEmails.length) {
-            const e = uniqueEmails[i++];
-            const res = await verifyEmail(e, { smtp: wantSmtp });
-            if (res.smtp_checked) smtpAvailable = true;
-            statusByEmail.set(e, res);
-            done++;
-            if (done % 25 === 0 || done === uniqueEmails.length) send("progress", { done, total: uniqueEmails.length });
-          }
-        };
-        await Promise.all(Array.from({ length: CONCURRENCY }, () => worker()));
+        for (const r of results) statusByEmail.set(r.email, r);
+        const smtpAvailable = batchSummary.smtp_available;
+
+        // Fase de construcción del CSV limpio (avisamos para que no parezca colgado).
+        send("phase", { phase: "building" });
 
         // Reconstruir a nivel de FILA: dedup (1ª ocurrencia) + quitar inválidos.
         const seenRows = new Set<string>();

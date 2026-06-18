@@ -444,7 +444,26 @@ async function _syncInboxImpl(opts: { days?: number; max?: number } = {}): Promi
  * Esto es el equivalente a llamar /api/email/sync-thread para cada hilo, pero
  * más eficiente porque comparte la conexión.
  */
-export async function deepRefreshAllThreads(opts: {
+// Candado/coalescing: deepRefreshAllThreads es MUY pesado (escanea IMAP de
+// decenas de hilos). Si llegan llamadas solapadas reutilizan la misma en curso
+// en vez de apilar conexiones IMAP + lecturas del blob (causa de cuelgues).
+let _deepRefreshInFlight: Promise<{ threads_refreshed: number; new_messages: number; errors: number }> | null = null;
+
+export function deepRefreshAllThreads(opts: {
+  days?: number;
+  maxThreads?: number;
+} = {}): Promise<{ threads_refreshed: number; new_messages: number; errors: number }> {
+  if (_deepRefreshInFlight) {
+    console.log("[email-inbox] deepRefresh ya en curso — reutilizando");
+    return _deepRefreshInFlight;
+  }
+  _deepRefreshInFlight = _deepRefreshAllThreadsImpl(opts).finally(() => {
+    _deepRefreshInFlight = null;
+  });
+  return _deepRefreshInFlight;
+}
+
+async function _deepRefreshAllThreadsImpl(opts: {
   days?: number;
   maxThreads?: number;
 } = {}): Promise<{ threads_refreshed: number; new_messages: number; errors: number }> {
@@ -499,9 +518,10 @@ export async function deepRefreshAllThreads(opts: {
     secure: cfg.imap_secure,
     auth: { user: cfg.imap_user, pass: cfg.imap_password },
     logger: false,
-    socketTimeout: 5 * 60 * 1000,
-    greetingTimeout: 30 * 1000,
-    connectionTimeout: 60 * 1000,
+    // 60s: una conexión colgada se libera rápido (antes 5 min retenía socket).
+    socketTimeout: 60 * 1000,
+    greetingTimeout: 20 * 1000,
+    connectionTimeout: 30 * 1000,
   } as any);
   (client as any).on?.("error", (err: any) => {
     console.warn("[deep-refresh] imap socket error:", err?.message || err);
@@ -803,6 +823,9 @@ export async function deepRefreshAllThreads(opts: {
   } catch (e: any) {
     errors++;
     console.error("[deep-refresh] fatal:", e.message);
+  } finally {
+    // Cerrar SIEMPRE la conexión IMAP aunque falle a medias (no filtrar sockets).
+    try { (client as any).close?.(); } catch {}
   }
 
   if (totalNew > 0) {

@@ -371,6 +371,30 @@ export async function deleteMessageByUid(uniboxId: string, accountId: string, ui
   return (r.rowCount || 0) > 0;
 }
 
+/** ¿Hay algún mensaje RECIBIDO (no enviado) de `recipient` posterior a
+ *  `afterIso` en esta cuenta? Consulta puntual e indexada (para los
+ *  recordatorios: detectar si el destinatario ya respondió). */
+export async function hasInboundReplyAfter(
+  uniboxId: string,
+  accountId: string,
+  recipient: string,
+  afterIso: string
+): Promise<boolean> {
+  await ensureMessagesTable();
+  const like = `%${recipient.toLowerCase()}%`;
+  const r = await withClient((c) =>
+    c.query(
+      `SELECT 1 FROM unibox_messages
+       WHERE unibox_id = $1 AND account_id = $2 AND is_sent = false
+         AND msg_date > $3
+         AND (lower(from_address) LIKE $4 OR lower(from_raw) LIKE $4)
+       LIMIT 1`,
+      [uniboxId, accountId, afterIso, like]
+    )
+  );
+  return (r.rowCount || 0) > 0;
+}
+
 /** Mapa completo {accountId: msgs[]} — compatibilidad con código antiguo.
  *  Úsalo SOLO en rutas no críticas (reclasificar, herramientas). */
 export async function loadMessagesMapDb(uniboxId: string): Promise<Record<string, UniboxMessageRow[]>> {

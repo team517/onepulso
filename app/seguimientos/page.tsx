@@ -192,6 +192,12 @@ export default function SeguimientosPage() {
 
   const emailSyncInFlightRef = useRef(false);
   const lastEmailSyncRef = useRef(0);
+  const deepRefreshInFlightRef = useRef(false);
+  const lastDeepRefreshRunRef = useRef(0);
+  // Espejo de thread/view en refs para que el deep-refresh (que corre en un
+  // intervalo que NO se reinicia al navegar) sepa qué refrescar después.
+  const threadIdRef = useRef<string | null>(null);
+  const viewRef = useRef<string>("list");
   useEffect(() => {
     refreshStatus();
     refreshThreads();
@@ -580,39 +586,39 @@ export default function SeguimientosPage() {
     }
   }
 
-  // Deep refresh automático cada 2 minutos mientras la plataforma esté abierta
+  // Mantener los refs sincronizados con el estado (para el deep-refresh).
+  useEffect(() => { threadIdRef.current = thread?.id ?? null; }, [thread?.id]);
+  useEffect(() => { viewRef.current = view; }, [view]);
+
+  // DEEP REFRESH (pesado: escanea IMAP de todos los hilos). Antes corría cada
+  // 2 min Y se reiniciaba al navegar (disparando uno a los 5s en cada click) →
+  // se apilaban y agotaban las conexiones. Ahora: efecto SOLO al montar (deps
+  // vacías), como mucho cada 10 min, NUNCA solapado, y pausado si la pestaña
+  // está en segundo plano. El sync incremental (/api/email/sync) ya trae lo
+  // nuevo más a menudo; el deep-refresh es solo una red de seguridad ocasional.
   useEffect(() => {
-    // Disparar uno al inicio (tras 5s, para no bloquear el primer paint)
-    const t0 = setTimeout(() => {
-      fetch("/api/email/deep-refresh", { method: "POST" })
-        .then((r) => r.json())
-        .then((r) => {
-          setLastDeepRefresh(new Date());
-          if (r.new_messages > 0) {
-            refreshThreads();
-            if (thread) loadThread(thread.id);
-            if (view === "inbox") loadInbox(inboxUnreadOnly);
-          }
-        })
-        .catch(() => {});
-    }, 5000);
-    // Luego cada 2 min
-    const t = setInterval(() => {
-      fetch("/api/email/deep-refresh", { method: "POST" })
-        .then((r) => r.json())
-        .then((r) => {
-          setLastDeepRefresh(new Date());
-          if (r.new_messages > 0) {
-            refreshThreads();
-            if (thread) loadThread(thread.id);
-            if (view === "inbox") loadInbox(inboxUnreadOnly);
-          }
-        })
-        .catch(() => {});
-    }, 2 * 60 * 1000);
+    const runDeepRefresh = async () => {
+      if (typeof document !== "undefined" && document.hidden) return;
+      if (deepRefreshInFlightRef.current) return;
+      if (Date.now() - lastDeepRefreshRunRef.current < 10 * 60_000) return;
+      deepRefreshInFlightRef.current = true;
+      lastDeepRefreshRunRef.current = Date.now();
+      try {
+        const r = await fetch("/api/email/deep-refresh", { method: "POST" }).then((r) => r.json());
+        setLastDeepRefresh(new Date());
+        if (r?.new_messages > 0) {
+          refreshThreads();
+          if (threadIdRef.current) loadThread(threadIdRef.current);
+          if (viewRef.current === "inbox") loadInbox(inboxUnreadOnly);
+        }
+      } catch {}
+      finally { deepRefreshInFlightRef.current = false; }
+    };
+    const t0 = setTimeout(runDeepRefresh, 20_000); // primero a los 20s
+    const t = setInterval(runDeepRefresh, 2 * 60_000); // chequea cada 2 min, pero el guard de 10 min decide
     return () => { clearTimeout(t0); clearInterval(t); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [thread?.id, view, inboxUnreadOnly]);
+  }, []);
 
   async function openInbox() {
     setView("inbox");

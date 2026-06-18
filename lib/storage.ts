@@ -70,29 +70,49 @@ function cacheInvalidate(key: string): void {
   _cache.delete(key);
 }
 
+// SINGLE-FLIGHT: si varias peticiones piden la MISMA clave a la vez (p.ej. la
+// página de seguimientos dispara /threads + /followups + /contract-alerts +
+// /pending casi simultáneamente, todas leen "email-threads"), solo se ejecuta
+// UNA consulta a la BD; las demás esperan a esa misma promesa. Esto evita la
+// "avalancha" de consultas idénticas que agotaba el pool y colgaba la app.
+const _inflightReads = new Map<string, Promise<any>>();
+
 /** Lee un valor JSON por clave. Devuelve null si no existe. */
 export async function readJson<T = any>(key: string): Promise<T | null> {
   // Fast path: cache hit
   const cached = cacheGet(key);
   if (cached !== undefined) return cached;
 
-  if (isDbEnabled()) {
-    await ensureSchema();
-    const r = await withClient((c) => c.query<{ value: T }>("SELECT value FROM kv_store WHERE key = $1", [key]));
-    const value = r.rows[0]?.value ?? null;
-    cacheSet(key, value);
-    return value;
-  }
-  // Fallback fs
+  // ¿Ya hay una lectura de esta misma clave en curso? Reutilízala.
+  const inflight = _inflightReads.get(key);
+  if (inflight) return inflight as Promise<T | null>;
+
+  const p = (async (): Promise<T | null> => {
+    if (isDbEnabled()) {
+      await ensureSchema();
+      const r = await withClient((c) => c.query<{ value: T }>("SELECT value FROM kv_store WHERE key = $1", [key]));
+      const value = r.rows[0]?.value ?? null;
+      cacheSet(key, value);
+      return value;
+    }
+    // Fallback fs
+    try {
+      const filePath = keyToPath(key);
+      const raw = await fs.readFile(filePath, "utf-8");
+      const value = JSON.parse(raw) as T;
+      cacheSet(key, value);
+      return value;
+    } catch {
+      cacheSet(key, null);
+      return null;
+    }
+  })();
+
+  _inflightReads.set(key, p);
   try {
-    const filePath = keyToPath(key);
-    const raw = await fs.readFile(filePath, "utf-8");
-    const value = JSON.parse(raw) as T;
-    cacheSet(key, value);
-    return value;
-  } catch {
-    cacheSet(key, null);
-    return null;
+    return await p;
+  } finally {
+    _inflightReads.delete(key);
   }
 }
 

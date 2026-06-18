@@ -1,5 +1,6 @@
 import nodemailer from "nodemailer";
-import { listUniboxIds, listAccounts, loadMessagesMap } from "./unibox-store";
+import { listUniboxIds, listAccounts } from "./unibox-store";
+import { hasInboundReplyAfter } from "./unibox-messages-db";
 import { listReminders, updateReminder } from "./unibox-reminders";
 
 declare global {
@@ -48,8 +49,6 @@ async function processReminders(uniboxId: string) {
   const pending = reminders.filter((r) => r.status === "pending");
   if (pending.length === 0) return;
 
-  // Cargamos mensajes en memoria para chequear si recibimos respuesta del recipient
-  const msgsMap = await loadMessagesMap(uniboxId);
   const now = Date.now();
   const accs = await listAccounts(uniboxId);
 
@@ -57,18 +56,8 @@ async function processReminders(uniboxId: string) {
     if (r.status !== "pending") continue;
 
     // 1) ¿Recibió respuesta del destinatario tras crear el reminder?
-    //    Si en la cuenta del remitente hay algún mensaje INBOUND de
-    //    r.recipient con date > r.created_at → cancelar.
-    const acctMsgs = msgsMap[r.account_id] || [];
-    const createdMs = new Date(r.created_at).getTime();
-    const replied = acctMsgs.find((m) => {
-      // Sólo mensajes positivos (recibidos, no enviados)
-      if (typeof m.uid === "number" && m.uid < 0) return false; // negative uids = sent
-      const fromAddr = (m.fromAddress || m.from || "").toLowerCase();
-      if (!fromAddr.includes(r.recipient)) return false;
-      const dateMs = new Date(m.date).getTime();
-      return dateMs > createdMs;
-    });
+    //    Consulta puntual e indexada (antes cargaba TODOS los mensajes en RAM).
+    const replied = await hasInboundReplyAfter(uniboxId, r.account_id, r.recipient, r.created_at);
     if (replied) {
       await updateReminder(uniboxId, r.id, {
         status: "cancelled_by_reply",

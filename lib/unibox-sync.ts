@@ -437,21 +437,18 @@ export async function syncUnibox(uniboxId: string): Promise<{ ok: number; fail: 
   const accs = await listAccounts(uniboxId);
   let ok = 0, fail = 0, total = 0;
 
-  // 6 cuentas en paralelo (antes 30). CADA cuenta concurrente recarga el
-  // mapa de mensajes en RAM dentro del lock → 30 simultáneas = 30 copias
-  // del blob = pico de RAM enorme. Con 6 el sync sigue rápido pero la RAM
-  // se mantiene baja. Es el cambio más importante para no crashear.
-  const CONCURRENCY = 6;
+  // 3 cuentas en paralelo, e INBOX+Sent en SERIE dentro de cada cuenta.
+  // El sync es de fondo (sin prisa): mantenerlo en ≤3 operaciones de BD
+  // simultáneas deja libre el pool de conexiones para la PANTALLA, que es
+  // lo que el usuario nota. Antes 6 cuentas × (INBOX+Sent en paralelo) = 12
+  // operaciones a la vez saturaban el pool → la UI "se colgaba" al sincronizar.
+  const CONCURRENCY = 3;
   for (let i = 0; i < accs.length; i += CONCURRENCY) {
     const batch = accs.slice(i, i + CONCURRENCY);
     const results = await Promise.allSettled(
       batch.map(async (a) => {
-        // INBOX y Sent EN PARALELO dentro de cada cuenta — usan conexiones IMAP
-        // distintas, no compiten. Antes era serial → 2x latencia.
-        const [inboxNew, sentNew] = await Promise.all([
-          syncAccount(uniboxId, a.id).catch(() => 0),
-          syncAccountSent(uniboxId, a.id).catch(() => 0),
-        ]);
+        const inboxNew = await syncAccount(uniboxId, a.id).catch(() => 0);
+        const sentNew = await syncAccountSent(uniboxId, a.id).catch(() => 0);
         return inboxNew + sentNew;
       })
     );

@@ -53,7 +53,19 @@ export function getPool(): Pool | null {
     // sync masivo + dashboard + múltiples usuarios sin esperar.
     max: 25,
     idleTimeoutMillis: 30_000,
-    connectionTimeoutMillis: 15_000,
+    // Si en 10s no hay conexión libre, fallar rápido y reintentar (withClient)
+    // en vez de dejar la petición colgada 15s (se sentía como "se cuelga").
+    connectionTimeoutMillis: 10_000,
+    // TCP keepalive: evita que la red interna de Railway corte conexiones
+    // idle sin avisar (causa típica de "la conexión se cuelga a ratos").
+    keepAlive: true,
+    keepAliveInitialDelayMillis: 10_000,
+    // Una query atascada no debe retener su conexión para siempre (agota el
+    // pool → todo se cuelga). 30s es de sobra para cualquier query normal;
+    // las de mantenimiento (VACUUM) ponen statement_timeout=0 por su cuenta.
+    // OJO: NO usar query_timeout (cliente) porque no se puede sobrescribir por
+    // query y mataría el VACUUM. statement_timeout (servidor) sí es overridable.
+    statement_timeout: 30_000,
   });
   // Handler de errores idle — evita matar el proceso por desconexiones.
   globalThis.__pgPool.on("error", (err) => {

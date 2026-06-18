@@ -60,6 +60,42 @@ export default function PersonalizacionPage() {
   const [previewResult, setPreviewResult] = useState<any>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
   const [previewError, setPreviewError] = useState<string | null>(null);
+
+  // Verificación de emails (estilo MillionVerifier)
+  const [verifying, setVerifying] = useState(false);
+  const [verifyProgress, setVerifyProgress] = useState<{ done: number; total: number } | null>(null);
+  const [verifyResult, setVerifyResult] = useState<any>(null);
+  const [verifyError, setVerifyError] = useState<string | null>(null);
+
+  function verifyEmails() {
+    if (!file || verifying) return;
+    const col = mapping.email || (file.email_columns && file.email_columns[0]) || "";
+    if (!col) { alert("No se ha detectado columna de email. Asigna primero la columna del email abajo."); return; }
+    setVerifying(true); setVerifyError(null); setVerifyResult(null); setVerifyProgress({ done: 0, total: 0 });
+    const params = new URLSearchParams({ file_id: file.file_id, email_column: col, filename: file.filename || "leads" });
+    const es = new EventSource(`/api/personalization/verify-stream?${params.toString()}`);
+    es.addEventListener("start", (e: any) => { const d = JSON.parse(e.data); setVerifyProgress({ done: 0, total: d.total }); });
+    es.addEventListener("progress", (e: any) => { const d = JSON.parse(e.data); setVerifyProgress({ done: d.done, total: d.total }); });
+    es.addEventListener("done", (e: any) => { setVerifyResult(JSON.parse(e.data)); setVerifying(false); es.close(); });
+    es.addEventListener("error", (e: any) => {
+      let msg = "Error verificando";
+      try { if (e?.data) msg = JSON.parse(e.data).message || msg; } catch {}
+      setVerifyError(msg); setVerifying(false); es.close();
+    });
+  }
+
+  function useCleanFile() {
+    if (!verifyResult?.clean_file_id) return;
+    setFile((f: any) => ({
+      ...f,
+      file_id: verifyResult.clean_file_id,
+      filename: verifyResult.clean_filename,
+      row_count: verifyResult.clean_row_count,
+      columns: verifyResult.columns,
+    }));
+    setVerifyResult(null);
+    setVerifyProgress(null);
+  }
   const promptRef = useRef<HTMLTextAreaElement>(null);
 
   function insertPlaceholder(token: string) {
@@ -1003,6 +1039,59 @@ export default function PersonalizacionPage() {
                   ))}
                 </div>
               </details>
+
+              {/* VERIFICACIÓN DE EMAILS (estilo MillionVerifier) */}
+              <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1px dashed rgba(16,185,129,0.3)" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                  <button onClick={verifyEmails} disabled={verifying} style={{ ...btnPrimary, opacity: verifying ? 0.5 : 1 }}>
+                    {verifying ? "🔍 Verificando…" : "✅ Verificar emails (quitar inválidos y duplicados)"}
+                  </button>
+                  <span style={{ fontSize: 11.5, color: "var(--text-dim)" }}>
+                    Comprueba formato, dominio/MX y existencia del buzón. Recomendado antes de personalizar.
+                  </span>
+                </div>
+
+                {verifying && verifyProgress && (
+                  <div style={{ marginTop: 10 }}>
+                    <div style={{ fontSize: 12, color: "#047857", marginBottom: 4, fontWeight: 600 }}>
+                      Verificando {verifyProgress.done.toLocaleString()} / {verifyProgress.total.toLocaleString()} emails únicos…
+                    </div>
+                    <div style={{ height: 8, background: "rgba(16,185,129,0.15)", borderRadius: 99, overflow: "hidden" }}>
+                      <div style={{ height: "100%", width: `${verifyProgress.total ? Math.round((verifyProgress.done / verifyProgress.total) * 100) : 0}%`, background: "#10b981", transition: "width .3s" }} />
+                    </div>
+                  </div>
+                )}
+
+                {verifyError && (
+                  <div style={{ marginTop: 10, fontSize: 12.5, color: "#b91c1c", background: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.25)", borderRadius: 8, padding: "8px 12px" }}>
+                    ⚠ {verifyError}
+                  </div>
+                )}
+
+                {verifyResult?.summary && (
+                  <div style={{ marginTop: 10, background: "#fff", border: "1px solid rgba(16,185,129,0.25)", borderRadius: 10, padding: "12px 14px" }}>
+                    <div style={{ fontSize: 13.5, fontWeight: 700, color: "#0f172a", marginBottom: 8 }}>Resultado de la verificación</div>
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: 8, fontSize: 12.5 }}>
+                      <Stat label="✅ Válidos" value={verifyResult.summary.valid} color="#047857" />
+                      <Stat label="⚠ Arriesgados" value={verifyResult.summary.risky} color="#b45309" />
+                      <Stat label="❔ No comprobables" value={verifyResult.summary.unknown} color="#64748b" />
+                      <Stat label="❌ Inválidos" value={verifyResult.summary.invalid} color="#b91c1c" />
+                      <Stat label="🔁 Duplicados" value={verifyResult.summary.duplicates} color="#7c3aed" />
+                    </div>
+                    <div style={{ fontSize: 12.5, color: "#0f172a", marginTop: 10 }}>
+                      Se quitarán <strong>{verifyResult.summary.removed.toLocaleString()}</strong> (inválidos + duplicados) y quedarán <strong style={{ color: "#047857" }}>{verifyResult.summary.kept.toLocaleString()}</strong> leads buenos.
+                    </div>
+                    {!verifyResult.summary.smtp_available && (
+                      <div style={{ fontSize: 11.5, color: "#b45309", marginTop: 6 }}>
+                        ℹ La comprobación buzón-a-buzón (SMTP) no estuvo disponible en este plan de hosting, así que los "no comprobables" son válidos a nivel de dominio. Para verificación de buzón exacto haría falta la API de MillionVerifier.
+                      </div>
+                    )}
+                    <button onClick={useCleanFile} style={{ ...btnPrimary, marginTop: 12 }}>
+                      🧹 Usar lista limpia ({verifyResult.clean_row_count.toLocaleString()} leads) para personalizar
+                    </button>
+                  </div>
+                )}
+              </div>
             </div>
           )}
         </Step>
@@ -1738,6 +1827,15 @@ function Step({ n, label, children, done }: any) {
   );
 }
 
+function Stat({ label, value, color }: { label: string; value: number; color: string }) {
+  return (
+    <div style={{ background: "rgba(15,23,42,0.03)", borderRadius: 8, padding: "8px 10px", textAlign: "center" }}>
+      <div style={{ fontSize: 18, fontWeight: 800, color, fontVariantNumeric: "tabular-nums" }}>{(value ?? 0).toLocaleString()}</div>
+      <div style={{ fontSize: 11, color: "var(--text-dim)", marginTop: 2 }}>{label}</div>
+    </div>
+  );
+}
+
 function RadioRow({ label, checked, onClick }: { label: any; checked: boolean; onClick: () => void }) {
   return (
     <label
@@ -1850,7 +1948,7 @@ const tokenBtnSecondary: React.CSSProperties = {
   border: "1px solid var(--border)",
   borderRadius: 99,
   fontSize: 11, fontWeight: 600,
-  cursor: "pointer", fontFamily: "inherit",
+  cursor: "pointer",
   fontFamily: "ui-monospace, Menlo, monospace",
 } as React.CSSProperties;
 const modalBackdrop: React.CSSProperties = {

@@ -771,7 +771,7 @@ export default function ClienteInboxPage() {
         <button
           style={{ ...ghostBtn, color: "#f59e0b", borderColor: "rgba(245,158,11,0.35)", fontSize: 11.5 }}
           onClick={async () => {
-            if (!confirm("Esto descarga los últimos 1500 mensajes de IMAP por cuenta (puede tardar 1-3 min). ¿Continuar?")) return;
+            if (!confirm("Esto vuelve a descargar los mensajes de los últimos 15 días de cada cuenta desde IMAP (puede tardar 1-3 min). ¿Continuar?")) return;
             setLoading(true);
             try {
               const r = await fetch(`/api/uniboxes/${id}/force-resync`, {

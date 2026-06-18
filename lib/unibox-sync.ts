@@ -38,6 +38,11 @@ async function uniboxAllowsAllLanguages(uniboxId: string): Promise<boolean> {
 // Con 1500 → 40 cuentas = 60k mensajes = blob manejable (~50MB en RAM).
 const MAX_MSGS_PER_ACCOUNT = 1500;
 
+// VENTANA de sincronización: por defecto traemos los mensajes de los últimos
+// N días (no todo el histórico). Es lo que el cliente quiere ver en la bandeja
+// y hace el sync mucho más rápido/ligero. El "Forzar resync" puede ampliarla.
+const SYNC_WINDOW_DAYS = 15;
+
 // ─────────────────────────────────────────────────────────────────────────────
 // LOCK PER-UNIBOX para escrituras del mapa de mensajes.
 //
@@ -129,41 +134,60 @@ export async function syncAccount(uniboxId: string, accountId: string): Promise<
       // ve TODO el histórico tras una sync.
       const lastUid = account.last_uid_inbox || 0;
       const cachedCount = existing.length;
-      // El objetivo de cache es min(total, MAX_MSGS_PER_ACCOUNT). El cache
-      // está "completo" si tiene el 80% de ese objetivo. Así una cuenta con
-      // 5000 mensajes pero cap 1500 NO re-sincroniza eternamente.
-      const targetCount = Math.min(total, MAX_MSGS_PER_ACCOUNT);
-      const cacheCompleteEnough = cachedCount >= targetCount * 0.8;
-      let range: string;
-      let isIncremental = false;
-      if (lastUid > 0 && cacheCompleteEnough) {
-        // Cache OK + UID guardado → incremental rápido
-        range = `${lastUid + 1}:*`;
-        isIncremental = true;
-      } else {
-        // Cache vacío/incompleto → descarga los últimos MAX_MSGS_PER_ACCOUNT
-        // (no TODO el histórico — ahorra RAM y ancho de banda).
-        if (lastUid > 0 && !cacheCompleteEnough) {
-          console.log(`[unibox-sync] ${account.email}: cache=${cachedCount}/${targetCount} → full sync (últimos ${MAX_MSGS_PER_ACCOUNT})`);
-        }
-        const start = Math.max(1, total - (MAX_MSGS_PER_ACCOUNT - 1));
-        range = `${start}:*`;
-      }
-
-      console.log(`[unibox-sync] ${account.email}: ${isIncremental ? `incremental UID > ${lastUid}` : `inicial seq ${range}`} (UIDNEXT=${status.uidNext}, total=${total})`);
 
       const fresh: UniboxMessage[] = [];
       let fetched = 0;
       let skippedDupe = 0;
       let skippedFilter = 0;
       let parseErrors = 0;
+
+      // DECISIÓN DE QUÉ TRAER:
+      //  - Incremental (rápido): ya tenemos UID guardado y caché poblada →
+      //    solo mensajes con UID > last_uid_inbox.
+      //  - Inicial/recuperación: traer solo los últimos SYNC_WINDOW_DAYS días
+      //    (por FECHA, no por número). Es lo que el cliente quiere ver y es
+      //    ligero. Si no hay caché, esto repuebla la bandeja con lo reciente.
+      let isIncremental = false;
+      let fetcher: AsyncIterable<any> | null = null;
+
+      if (lastUid > 0 && cachedCount > 0) {
+        isIncremental = true;
+        console.log(`[unibox-sync] ${account.email}: incremental UID > ${lastUid} (total=${total})`);
+        fetcher = client.fetch(`${lastUid + 1}:*`, { envelope: true, uid: true, flags: true }, { uid: true });
+      } else {
+        // FULL por FECHA: buscar UIDs de mensajes recibidos en los últimos N días.
+        const since = new Date(Date.now() - SYNC_WINDOW_DAYS * 24 * 60 * 60 * 1000);
+        let uids: number[] = [];
+        try {
+          uids = (await client.search({ since }, { uid: true })) || [];
+        } catch (e: any) {
+          console.warn(`[unibox-sync] ${account.email}: search SINCE falló (${e?.message}); fallback a últimos ${MAX_MSGS_PER_ACCOUNT}`);
+          const start = Math.max(1, total - (MAX_MSGS_PER_ACCOUNT - 1));
+          uids = [];
+          fetcher = client.fetch(`${start}:*`, { envelope: true, uid: true, flags: true });
+        }
+        if (fetcher === null) {
+          // Cap por si hay muchísimos en la ventana: quedarnos con los más recientes.
+          if (uids.length > MAX_MSGS_PER_ACCOUNT) uids = uids.slice(-MAX_MSGS_PER_ACCOUNT);
+          console.log(`[unibox-sync] ${account.email}: ventana ${SYNC_WINDOW_DAYS}d → ${uids.length} mensajes desde ${since.toISOString().slice(0, 10)} (total mailbox=${total})`);
+          if (uids.length === 0) {
+            // Nada reciente. Marcar al día para que el próximo sea incremental.
+            accs[idx].last_sync = new Date().toISOString();
+            accs[idx].last_error = null;
+            if (status.uidNext && status.uidNext - 1 > (accs[idx].last_uid_inbox || 0)) {
+              accs[idx].last_uid_inbox = status.uidNext - 1;
+            }
+            await saveAccounts(uniboxId, accs);
+            await client.logout();
+            return 0;
+          }
+          fetcher = client.fetch(uids.join(","), { envelope: true, uid: true, flags: true }, { uid: true });
+        }
+      }
+
       // FAST MODE: solo envelope, sin source. El cuerpo se descarga
       // bajo demanda cuando el usuario abre el mensaje (10x más rápido).
-      // Resultado: por cuenta ~3s en vez de ~30s.
-      const fetcher = isIncremental
-        ? client.fetch(range, { envelope: true, uid: true, flags: true }, { uid: true })
-        : client.fetch(range, { envelope: true, uid: true, flags: true });
-      for await (const msg of fetcher) {
+      for await (const msg of fetcher!) {
         fetched++;
         const uidStr = String(msg.uid);
 
@@ -328,30 +352,35 @@ export async function syncAccountSent(uniboxId: string, accountId: string): Prom
       const total = status.messages || 0;
       if (total === 0) { await client.logout(); return 0; }
 
-      // SYNC INCREMENTAL para Sent — mismo patrón auto-detección que INBOX.
+      // Mismo criterio que INBOX: incremental si ya hay estado; si no, ventana
+      // por FECHA de los últimos SYNC_WINDOW_DAYS días.
       const lastSentUid = account.last_uid_sent || 0;
-      // Contamos solo los Sent del cache (UID negativos)
       const cachedSentCount = existing.filter((m) => m.uid < 0).length;
-      const targetSentCount = Math.min(total, MAX_MSGS_PER_ACCOUNT);
-      const sentCacheCompleteEnough = cachedSentCount >= targetSentCount * 0.8;
-      let range: string;
-      let isIncrementalSent = false;
-      if (lastSentUid > 0 && sentCacheCompleteEnough) {
-        range = `${lastSentUid + 1}:*`;
-        isIncrementalSent = true;
-      } else {
-        if (lastSentUid > 0 && !sentCacheCompleteEnough) {
-          console.log(`[unibox-sync sent] ${account.email}: cache=${cachedSentCount}/${targetSentCount} → full sync`);
-        }
-        const start = Math.max(1, total - (MAX_MSGS_PER_ACCOUNT - 1));
-        range = `${start}:*`;
-      }
 
       const fresh: UniboxMessage[] = [];
-      const fetcher = isIncrementalSent
-        ? client.fetch(range, { envelope: true, uid: true, flags: true }, { uid: true })
-        : client.fetch(range, { envelope: true, uid: true, flags: true });
-      for await (const msg of fetcher) {
+      let isIncrementalSent = false;
+      let fetcher: AsyncIterable<any> | null = null;
+
+      if (lastSentUid > 0 && cachedSentCount > 0) {
+        isIncrementalSent = true;
+        fetcher = client.fetch(`${lastSentUid + 1}:*`, { envelope: true, uid: true, flags: true }, { uid: true });
+      } else {
+        const since = new Date(Date.now() - SYNC_WINDOW_DAYS * 24 * 60 * 60 * 1000);
+        let uids: number[] = [];
+        try {
+          uids = (await client.search({ since }, { uid: true })) || [];
+        } catch {
+          const start = Math.max(1, total - (MAX_MSGS_PER_ACCOUNT - 1));
+          fetcher = client.fetch(`${start}:*`, { envelope: true, uid: true, flags: true });
+        }
+        if (fetcher === null) {
+          if (uids.length > MAX_MSGS_PER_ACCOUNT) uids = uids.slice(-MAX_MSGS_PER_ACCOUNT);
+          if (uids.length === 0) { await client.logout(); return 0; }
+          fetcher = client.fetch(uids.join(","), { envelope: true, uid: true, flags: true }, { uid: true });
+        }
+      }
+      void isIncrementalSent;
+      for await (const msg of fetcher!) {
         // Para Sent guardamos UIDs como negativos en el cache para no colisionar
         // con INBOX. NO avanzamos maxUidSentSeen hasta procesar con éxito.
         const uidPseudo = -1 * msg.uid; // negative UIDs identifican Sent

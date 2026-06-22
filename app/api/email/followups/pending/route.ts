@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { listThreads } from "@/lib/email-threads";
+import { listThreadsLight } from "@/lib/email-threads";
 
 export const runtime = "nodejs";
 
@@ -8,13 +8,13 @@ export const runtime = "nodejs";
  * Devuelve los follow-ups en estado "pending_approval" (esperando confirmación humana).
  */
 export async function GET() {
-  const threads = await listThreads();
+  const threads = await listThreadsLight();
   const items: any[] = [];
   for (const t of threads) {
     for (const f of t.followups) {
       if (f.status !== "pending_approval") continue;
       const prospect = t.participants.find((p) => !/onepulso\.online$/i.test(p)) || t.participants[0] || "";
-      const lastInbound = [...t.messages].reverse().find((m) => m.direction === "inbound");
+      const lastInbound = t.last_message?.direction === "inbound" ? t.last_message : undefined;
       items.push({
         id: f.id,
         thread_id: t.id,
@@ -24,7 +24,7 @@ export async function GET() {
         body_html: f.body_html,
         scheduled_at: f.scheduled_at,
         origin: f.origin,
-        last_inbound_excerpt: (lastInbound?.body_text || "").slice(0, 160),
+        last_inbound_excerpt: (lastInbound?.preview || "").slice(0, 160),
         last_inbound_date: lastInbound?.date,
       });
     }

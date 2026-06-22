@@ -66,13 +66,61 @@ async function readThreads(): Promise<Thread[]> {
   return (await readJson<Thread[]>(KEY)) ?? [];
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// ÍNDICE LIGERO de threads para la LISTA de /seguimientos.
+//
+// El blob `email-threads` pesa MB porque guarda el HTML de TODOS los mensajes.
+// La lista solo necesita asunto, participantes, último mensaje y contadores.
+// Mantenemos un índice SIN los cuerpos de mensaje → se lee al instante y cabe
+// en caché. Se reconstruye en cada writeThreads (el único punto de escritura).
+// ─────────────────────────────────────────────────────────────────────────────
+const INDEX_KEY = "email-threads/list-index";
+
+/** Thread sin el array pesado de `messages`: solo resumen del último mensaje. */
+export type ThreadLight = Omit<Thread, "messages"> & {
+  message_count: number;
+  last_message?: { direction: "outbound" | "inbound"; date: string; preview: string };
+};
+
+function lightPreview(m?: EmailMessage): string {
+  if (!m) return "";
+  const t = m.body_text || (m.body_html ? m.body_html.replace(/<[^>]+>/g, " ") : "");
+  return t.replace(/\s+/g, " ").trim().slice(0, 200);
+}
+
+function buildThreadIndex(all: Thread[]): ThreadLight[] {
+  return all.map((t) => {
+    const last = t.messages[t.messages.length - 1];
+    const { messages, ...rest } = t;
+    return {
+      ...rest,
+      message_count: t.messages.length,
+      last_message: last ? { direction: last.direction, date: last.date, preview: lightPreview(last) } : undefined,
+    };
+  });
+}
+
 async function writeThreads(threads: Thread[]) {
   await writeJson(KEY, threads);
+  // Reconstruir el índice ligero (best-effort: si falla, la lista cae al blob).
+  try { await writeJson(INDEX_KEY, buildThreadIndex(threads)); } catch {}
 }
 
 export async function listThreads(): Promise<Thread[]> {
   const all = await readThreads();
   return all.sort((a, b) => b.updated_at.localeCompare(a.updated_at));
+}
+
+/** Lista LIGERA (sin cuerpos de mensaje) para la vista de lista — rápida.
+ *  Si el índice aún no existe (primera vez), lo construye desde el blob. */
+export async function listThreadsLight(): Promise<ThreadLight[]> {
+  let idx = await readJson<ThreadLight[]>(INDEX_KEY);
+  if (!idx) {
+    const all = await readThreads();
+    idx = buildThreadIndex(all);
+    try { await writeJson(INDEX_KEY, idx); } catch {}
+  }
+  return idx.sort((a, b) => b.updated_at.localeCompare(a.updated_at));
 }
 
 export async function getThread(id: string): Promise<Thread | null> {
@@ -244,6 +292,19 @@ export async function deleteFollowup(threadId: string, followupId: string) {
 export async function listAllScheduledFollowups(): Promise<Array<Followup & { thread: Thread }>> {
   const all = await readThreads();
   const out: Array<Followup & { thread: Thread }> = [];
+  for (const t of all) {
+    for (const f of t.followups) {
+      if (f.status === "scheduled") out.push({ ...f, thread: t });
+    }
+  }
+  return out;
+}
+
+/** Igual que listAllScheduledFollowups pero LIGERO (índice sin cuerpos de
+ *  mensaje) — para la lista/calendario de /seguimientos. Rápido. */
+export async function listAllScheduledFollowupsLight(): Promise<Array<Followup & { thread: ThreadLight }>> {
+  const all = await listThreadsLight();
+  const out: Array<Followup & { thread: ThreadLight }> = [];
   for (const t of all) {
     for (const f of t.followups) {
       if (f.status === "scheduled") out.push({ ...f, thread: t });

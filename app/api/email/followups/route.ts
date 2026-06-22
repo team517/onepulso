@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
-import { listAllScheduledFollowups, scheduleFollowup, scheduleFollowupsBatch } from "@/lib/email-threads";
+import { listAllScheduledFollowupsLight, scheduleFollowup, scheduleFollowupsBatch } from "@/lib/email-threads";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
 export async function GET() {
-  const items = await listAllScheduledFollowups();
+  const items = await listAllScheduledFollowupsLight();
   return NextResponse.json({ items });
 }
 

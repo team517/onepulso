@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { listThreads } from "@/lib/email-threads";
+import { listThreadsLight } from "@/lib/email-threads";
 import { readEmailConfig } from "@/lib/email-config";
 
 export const runtime = "nodejs";
@@ -13,9 +13,8 @@ export type ThreadDynamicStatus =
 
 function computeStatus(t: any): ThreadDynamicStatus {
   if (t.status === "closed") return "cerrado";
-  const msgs = t.messages ?? [];
-  if (msgs.length === 0) return "esperando";
-  const last = msgs[msgs.length - 1];
+  const last = t.last_message; // índice ligero: resumen del último mensaje
+  if (!last || (t.message_count ?? 0) === 0) return "esperando";
   const lastDate = new Date(last.date).getTime();
   const days = (Date.now() - lastDate) / 86400000;
   if (days > 60) return "obsoleto";
@@ -25,7 +24,7 @@ function computeStatus(t: any): ThreadDynamicStatus {
 }
 
 export async function GET() {
-  const all = await listThreads();
+  const all = await listThreadsLight();
   const cfg = await readEmailConfig();
   const myEmail = (cfg?.email ?? "").toLowerCase();
 
@@ -40,14 +39,14 @@ export async function GET() {
   return NextResponse.json({
     threads: filtered.map((t) => {
       const otherParticipants = t.participants.filter((p) => p.toLowerCase() !== myEmail);
-      const lastMsg = t.messages[t.messages.length - 1];
+      const lastMsg = t.last_message;
       return {
         id: t.id,
         subject: t.subject,
         participants: t.participants,
         contact_email: otherParticipants[0] ?? t.participants[0],
         contact_name: extractName(otherParticipants[0] ?? ""),
-        message_count: t.messages.length,
+        message_count: t.message_count,
         last_inbound_at: t.last_inbound_at,
         last_outbound_at: t.last_outbound_at,
         last_direction: lastMsg?.direction,
@@ -56,7 +55,7 @@ export async function GET() {
         dynamic_status: computeStatus(t),
         followups_count: t.followups.length,
         followups_pending: t.followups.filter((f) => f.status === "scheduled").length,
-        preview: lastMsg?.body_text?.slice(0, 140) ?? stripHtml(lastMsg?.body_html ?? "").slice(0, 140),
+        preview: (lastMsg?.preview ?? "").slice(0, 140),
         updated_at: t.updated_at,
       };
     }),

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { listThreads } from "@/lib/email-threads";
+import { listThreadsLight } from "@/lib/email-threads";
 
 export const runtime = "nodejs";
 
@@ -8,7 +8,7 @@ export const runtime = "nodejs";
  * Devuelve los threads con contract_alert pendiente (no acknowledged).
  */
 export async function GET() {
-  const threads = await listThreads();
+  const threads = await listThreadsLight();
   const alerts = threads
     .filter(t => t.contract_alert && !t.contract_alert.acknowledged)
     .map(t => {

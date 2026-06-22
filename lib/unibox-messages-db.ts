@@ -260,7 +260,7 @@ export async function listMessagesPage(opts: {
 
     const [rows, totalRes, warmRes] = await Promise.all([
       c.query(
-        `SELECT account_id, uid, message_id, from_raw, from_name, from_address, to_raw, to_address,
+        `SELECT account_id, uid, message_id, in_reply_to, refs, from_raw, from_name, from_address, to_raw, to_address,
                 subject, msg_date, preview, unread, is_warmup, is_sent, folder_id,
                 jsonb_array_length(attachments) AS att_count,
                 (body_text <> '' OR body_html <> '') AS has_body
@@ -278,6 +278,8 @@ export async function listMessagesPage(opts: {
       uid: Number(r.uid),
       accountId: r.account_id,
       messageId: r.message_id || "",
+      inReplyTo: r.in_reply_to || "",
+      references: Array.isArray(r.refs) ? r.refs : [],
       from: r.from_raw || "",
       fromName: r.from_name || "",
       fromAddress: r.from_address || "",

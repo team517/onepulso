@@ -36,6 +36,12 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
           closed = true;
         }
       };
+      // Latido: evita que un proxy corte la conexión mientras verifica cuentas
+      // lentas (mismo patrón anti-corte que la verificación de emails).
+      const heartbeat = setInterval(() => {
+        if (closed) return;
+        try { controller.enqueue(encoder.encode(`: ping\n\n`)); } catch { closed = true; }
+      }, 10_000);
       send("start", { total: accs.length });
 
       const finalStatus = new Map<string, "ok" | "fail">();
@@ -133,6 +139,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
       const finalOk = Array.from(finalStatus.values()).filter(s => s === "ok").length;
       const finalFail = Array.from(finalStatus.values()).filter(s => s === "fail").length;
       send("done", { ok: finalOk, fail: finalFail, total: accs.length, elapsed_ms: Date.now() - startTs });
+      clearInterval(heartbeat);
       try { controller.close(); } catch {}
     },
   });

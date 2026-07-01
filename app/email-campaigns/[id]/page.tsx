@@ -1332,6 +1332,8 @@ function CsvUploadModal({ campaignId, campaign, onClose, onDone, toast }: {
   const [fileName, setFileName] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [selectedLines, setSelectedLines] = useState<Set<number>>(new Set());
+  // Columns (variable keys) the user chose to import; email is always kept.
+  const [selectedCols, setSelectedCols] = useState<Set<string>>(new Set());
   const [hideErrors, setHideErrors] = useState(false);
   const [page, setPage] = useState(1);
   const [progress, setProgress] = useState<{ done: number; total: number; added: number; updated: number } | null>(null);
@@ -1344,8 +1346,9 @@ function CsvUploadModal({ campaignId, campaign, onClose, onDone, toast }: {
 
   // Al cargar nuevo CSV: seleccionamos TODAS las filas válidas por defecto
   useEffect(() => {
-    if (!parsed) { setSelectedLines(new Set()); return; }
+    if (!parsed) { setSelectedLines(new Set()); setSelectedCols(new Set()); return; }
     setSelectedLines(new Set(parsed.rows.filter((r) => !r.__error).map((r) => r.line)));
+    setSelectedCols(new Set(parsed.variableKeys)); // por defecto: importar todas
     setPage(1);
   }, [text]);
 
@@ -1411,10 +1414,16 @@ function CsvUploadModal({ campaignId, campaign, onClose, onDone, toast }: {
     if (!parsed.emailHeader) { toast("El CSV no tiene columna de email"); return; }
     if (toImportCount === 0) { toast("Selecciona al menos una fila válida"); return; }
 
-    // Construye la lista de leads ya seleccionados y válidos
+    // Construye la lista de leads ya seleccionados y válidos. Solo se importan
+    // las columnas que el usuario dejó marcadas (email siempre va aparte).
     const allLeads = parsed.rows
       .filter((r) => !r.__error && selectedLines.has(r.line))
-      .map((r) => ({ email: r.email, variables: r.variables }));
+      .map((r) => ({
+        email: r.email,
+        variables: Object.fromEntries(
+          Object.entries(r.variables).filter(([k]) => selectedCols.has(k))
+        ),
+      }));
 
     setSubmitting(true);
     setProgress({ done: 0, total: allLeads.length, added: 0, updated: 0 });
@@ -1550,14 +1559,40 @@ function CsvUploadModal({ campaignId, campaign, onClose, onDone, toast }: {
             </div>
           )}
 
-          {/* Header mapping */}
+          {/* Column selection → variables */}
           <div style={{ marginBottom: 14 }}>
-            <div style={{ fontSize: 11, color: INK_4, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 8 }}>
-              Mapeo de columnas → variables ({varColumns.length + (parsed.emailHeader ? 1 : 0)})
+            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
+              <div style={{ fontSize: 11, color: INK_4, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em" }}>
+                Seleccionar columnas a importar ({selectedCols.size + (parsed.emailHeader ? 1 : 0)}/{varColumns.length + (parsed.emailHeader ? 1 : 0)})
+              </div>
+              <button onClick={() => setSelectedCols(new Set(parsed.variableKeys))} style={{ ...ghostBtn, height: 26, fontSize: 11.5, padding: "0 10px" }}>Todas</button>
+              <button onClick={() => setSelectedCols(new Set())} style={{ ...ghostBtn, height: 26, fontSize: 11.5, padding: "0 10px" }}>Ninguna</button>
             </div>
             <div style={{ display: "flex", flexWrap: "wrap", gap: 6, maxHeight: 140, overflow: "auto", padding: 2 }}>
-              {parsed.emailHeader && <HeaderChip raw={parsed.emailHeader} key_={"(email del lead)"} isEmail />}
-              {varColumns.map((c, i) => <HeaderChip key={c.raw + i} raw={c.raw} key_={c.key} />)}
+              {parsed.emailHeader && (
+                <span style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "5px 10px", background: "rgba(154,105,245,0.10)", border: "1px solid rgba(154,105,245,0.30)", borderRadius: 999, fontSize: 12, color: INK_2 }}>
+                  <input type="checkbox" checked disabled style={{ cursor: "not-allowed" }} />
+                  <strong>{parsed.emailHeader}</strong>
+                  <span style={{ color: INK_4, fontFamily: FONT_MONO, fontSize: 11 }}>obligatoria</span>
+                </span>
+              )}
+              {varColumns.map((c, i) => {
+                const on = selectedCols.has(c.key);
+                return (
+                  <label key={c.raw + i} title={`${c.raw} → {{${c.key}}}`}
+                    style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "5px 10px", background: on ? SURF : "transparent", border: `1px solid ${on ? LINE2 : LINE}`, borderRadius: 999, fontSize: 12, color: on ? INK_2 : INK_4, cursor: "pointer", opacity: on ? 1 : 0.6 }}>
+                    <input type="checkbox" checked={on}
+                      onChange={(e) => setSelectedCols((prev) => {
+                        const next = new Set(prev);
+                        e.target.checked ? next.add(c.key) : next.delete(c.key);
+                        return next;
+                      })}
+                    />
+                    <span>{c.raw}</span>
+                    <span style={{ color: INK_4, fontFamily: FONT_MONO, fontSize: 11 }}>→ {c.key}</span>
+                  </label>
+                );
+              })}
             </div>
           </div>
 
@@ -1597,7 +1632,7 @@ function CsvUploadModal({ campaignId, campaign, onClose, onDone, toast }: {
                   </th>
                   <th style={{ ...th, width: 50 }}>Fila</th>
                   <th style={th}>Email</th>
-                  {varColumns.map((c) => (
+                  {varColumns.filter((c) => selectedCols.has(c.key)).map((c) => (
                     <th key={c.raw} style={th} title={c.raw}>
                       {c.raw.length > 22 ? c.raw.slice(0, 20) + "…" : c.raw}
                     </th>
@@ -1634,7 +1669,7 @@ function CsvUploadModal({ campaignId, campaign, onClose, onDone, toast }: {
                         </div>
                         {r.__error && <div style={{ color: "#c12530", fontSize: 10.5, marginTop: 2 }}>⚠ {r.__error}</div>}
                       </td>
-                      {varColumns.map((c) => {
+                      {varColumns.filter((c) => selectedCols.has(c.key)).map((c) => {
                         const v = r.variables[c.key] ?? "";
                         return (
                           <td key={c.raw} style={{ padding: "8px 12px", verticalAlign: "middle", color: INK_2, fontSize: 12 }}>

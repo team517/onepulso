@@ -142,6 +142,21 @@ function getAccountState(accountId: string): AccountState {
 
 function cleanPass(p: string) { return (p || "").replace(/\s+/g, ""); }
 
+/** True si el cuerpo ya trae HTML explícito (p.ej. un {{personalized_message}} con <p>). */
+function bodyHasHtml(s: string): boolean {
+  return /<(p|div|br|span|a|table|tr|td|ul|ol|li|strong|em|b|i|u|h[1-6]|blockquote|img)\b/i.test(s);
+}
+/** Convierte HTML a texto plano legible (para el alternativo text/plain). */
+function htmlToPlain(s: string): string {
+  return s
+    .replace(/<\/(p|div|h[1-6]|li|tr)>/gi, "\n")
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<[^>]+>/g, "")
+    .replace(/&nbsp;/gi, " ").replace(/&amp;/gi, "&").replace(/&lt;/gi, "<").replace(/&gt;/gi, ">")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
 /** Hace el envío real vía SMTP, devuelve {ok, error}. */
 async function sendOne(
   account: EmailAccount, lead: Lead, variant: Variant, campaign: Campaign,
@@ -175,15 +190,25 @@ async function sendOne(
     headers["List-Unsubscribe-Post"] = "List-Unsubscribe=One-Click";
   }
 
+  // Si el cuerpo trae HTML explícito (p.ej. {{personalized_message}} con <p style=…>),
+  // se renderiza TAL CUAL para que su espaciado (margin/line-height) se vea perfecto, y
+  // se fuerza el envío HTML (mandarlo como text/plain filtraría los tags). Si es texto
+  // plano, se usa el envoltorio pre-wrap + nl2br de siempre.
+  const isHtmlBody = bodyHasHtml(html);
+  const textOnly = campaign.options.text_only_all || (campaign.options.text_only_first && lead.current_step === 0);
+  const htmlPart = (textOnly && !isHtmlBody)
+    ? undefined
+    : isHtmlBody
+      ? `<div style="font-family:-apple-system,sans-serif;font-size:14px;color:#0a0d14">${html}</div>`
+      : `<div style="font-family:-apple-system,sans-serif;font-size:14px;line-height:1.55;color:#0a0d14;white-space:pre-wrap">${html.replace(/\n/g, "<br>")}</div>`;
+
   try {
     const info = await t.sendMail({
       from: `"${fromName}" <${account.email}>`,
       to: lead.email,
       subject,
-      text: html.replace(/<[^>]+>/g, ""),
-      html: campaign.options.text_only_all || (campaign.options.text_only_first && lead.current_step === 0)
-        ? undefined
-        : `<div style="font-family:-apple-system,sans-serif;font-size:14px;line-height:1.55;color:#0a0d14;white-space:pre-wrap">${html.replace(/\n/g, "<br>")}</div>`,
+      text: isHtmlBody ? htmlToPlain(html) : html.replace(/<[^>]+>/g, ""),
+      html: htmlPart,
       cc: campaign.options.cc || undefined,
       bcc: campaign.options.bcc || undefined,
       headers,

@@ -86,6 +86,12 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const seed = lead?.id || variant.id;
   const subject = renderTemplate(variant.subject || "(sin asunto)", variables, { seed });
   const html    = renderTemplate(variant.body || "(sin contenido)", variables, { seed });
+  // Si el cuerpo trae HTML explícito, se renderiza tal cual (espaciado perfecto);
+  // si es texto plano, envoltorio pre-wrap + nl2br.
+  const isHtmlBody = /<(p|div|br|span|a|table|tr|td|ul|ol|li|strong|em|b|i|u|h[1-6]|blockquote|img)\b/i.test(html);
+  const htmlPart = isHtmlBody
+    ? `<div style="font-family:-apple-system,sans-serif;font-size:14px;color:#0a0d14">${html}</div>`
+    : `<div style="font-family:-apple-system,sans-serif;font-size:14px;line-height:1.55;color:#0a0d14;white-space:pre-wrap">${html.replace(/\n/g, "<br>")}</div>`;
 
   // SMTP transporter usando las credenciales de la cuenta
   const t = nodemailer.createTransport({
@@ -111,9 +117,9 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       from: `"${fromName}" <${account.email}>`,
       to: toEmail,
       subject: `[TEST · ${c.name}] ${subject}`,
-      // Mandamos como text + simple HTML wrapping (sin tracking) — es un test.
+      // Mandamos como text + HTML (sin tracking) — es un test.
       text: html.replace(/<[^>]+>/g, ""),
-      html: `<div style="font-family:-apple-system,sans-serif;font-size:14px;line-height:1.55;color:#0a0d14;white-space:pre-wrap">${html.replace(/\n/g, "<br>")}</div>`,
+      html: htmlPart,
       headers: {
         "X-OnePulso-Test": "1",
         "X-OnePulso-Campaign": c.id,

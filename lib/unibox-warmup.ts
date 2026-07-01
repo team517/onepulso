@@ -66,68 +66,68 @@ export function isWarmupMessage(input: {
 // En tcx (negocio internacional) se permite cualquier idioma.
 // ─────────────────────────────────────────────────────────────────────────────
 
-// Palabras MUY frecuentes y exclusivas de cada grupo (stopwords).
-const ES_CA_WORDS = [
-  // Español
-  "el", "la", "los", "las", "un", "una", "unos", "unas", "de", "del", "que",
-  "en", "con", "por", "para", "como", "más", "pero", "muy", "ya", "este", "esta",
-  "esto", "ese", "esa", "su", "sus", "le", "les", "nos", "me", "te", "se", "lo",
-  "hola", "gracias", "saludos", "buenos", "días", "tardes", "noches", "cordial",
-  "estamos", "estoy", "está", "están", "tengo", "tiene", "tienen", "somos",
-  "hacer", "puede", "podría", "quería", "interesa", "interesados", "información",
-  "empresa", "correo", "reunión", "precio", "presupuesto", "adjunto", "atentamente",
-  "no", "sí", "también", "porque", "cuando", "donde", "quién", "cuál", "vuestra",
-  // Catalán
-  "els", "les", "amb", "per", "què", "està", "estan", "tinc", "té", "tenen",
-  "som", "fer", "pot", "podria", "volia", "interessa", "informació", "empresa",
-  "correu", "reunió", "preu", "pressupost", "adjunt", "atentament", "gràcies",
-  "salutacions", "bon", "dia", "tarda", "vespre", "cordialment", "nosaltres",
-  "vostra", "aquest", "aquesta", "molt", "però", "també", "perquè", "quan", "on",
-];
+// Detección por BUCKETS de idioma — criterio idéntico al Unibox de referencia.
+// Se MUESTRAN: español/catalán, francés e italiano (mercados del cliente) y los
+// mensajes ambiguos. Se OCULTAN solo: inglés puro (warmup / spam de outreach) y
+// otros idiomas de ruido (alemán, portugués, polaco, ruso).
+//
+// Clave: francés e italiano se detectan ANTES que el inglés, de modo que un
+// auto-reply bilingüe FR+EN o IT+EN (muy común: "Je suis absent… / I am away…")
+// se MUESTRA en lugar de ocultarse por la parte inglesa.
 
-const EN_WORDS = [
-  "the", "and", "you", "your", "for", "with", "this", "that", "are", "our",
-  "we", "i", "is", "to", "of", "in", "on", "be", "have", "has", "would", "could",
-  "hello", "hi", "hey", "thanks", "thank", "regards", "best", "cheers", "dear",
-  "interested", "information", "company", "meeting", "price", "quote", "please",
-  "let", "know", "looking", "forward", "reach", "out", "team", "hope", "doing",
-  "wanted", "reaching", "quick", "question", "schedule", "call", "available",
-];
+// Palabras distintivas de español/catalán (evita 2-letras que también existen en
+// inglés como "me", "son", "no", "a", "i").
+const LANG_ES_CA = /\b(el|la|los|las|un[oa]?s?|del|al|que|qué|por|para|con|como|pero|porque|cuando|cuándo|donde|dónde|gracias|hola|saludos|buenos|buenas|cordial(?:es|mente)?|atentamente|estimad[oa]s?|señor(?:a|es)?|empresa|reunión|información|interesa|interesad[oa]s?|necesito|necesitamos|necesita|quiero|queremos|quería|querría|puede[ns]?|podemos|podríamos?|tengo|tenemos|tiene[ns]?|somos|estamos|está[ns]?|esto|esta|este|estos|estas|eso|esa|nuestr[oa]s?|vuestr[oa]s?|usted(?:es)?|también|según|sólo|solo|muy|más|sin|sobre|desde|hasta|mientras|aunque|entonces|vale|claro|perfecto|genial|encantad[oa]|quedamos|llamada|correo|adjunto|propuesta|presupuesto|consulta|pregunta|duda|cita|amb|per|què|gràcies|salutacions|atentament|nosaltres|aquest[a]?|aquests|aquestes|també|molt|més|sense|fins|vostè|voldria|d'acord|tinc|tenim|podem|bon\s?dia)\b/gi;
+// Inglés — palabras muy comunes; casi todo email inglés acierta varias.
+const LANG_EN = /\b(the|and|you|your|yours|for|with|this|that|these|those|have|has|had|are|was|were|will|would|could|should|been|being|is|of|to|in|on|at|as|be|by|or|if|from|but|not|can|just|get|got|know|let|let's|see|time|week|day|here|there|our|we|us|i'm|i'll|we're|we'll|don't|doesn't|thanks|thank|regards|best|hi|hello|hey|dear|please|company|meeting|information|interested|need|want|team|cheers|sincerely|looking|forward|kind|sounds|great|schedule|call|available|reach|reaching|out)\b/gi;
+// Francés — respuestas reales de leads FR se MUESTRAN.
+const LANG_FR = /\b(merci|bonjour|cordialement|salutations|madame|monsieur|votre|notre|nous|vous|êtes|suis|absent[e]?|bureau|jusqu'au|jusqu|veuillez|prie|s'il\s?vous\s?plaît|disponible|répondre|réponse|entreprise|réunion|rendez-vous|actuellement|serai|retour|contacter|contactez|message|société|joindre|dès|meilleures)\b/gi;
+// Italiano — respuestas reales de leads IT se MUESTRAN.
+const LANG_IT = /\b(grazie|salve|buongiorno|cordiali|saluti|distinti|sono|assente|ufficio|fino|contattare|contatti|prego|gentile|egregio|signor[ae]?|vostr[oa]|nostr[oa]|siamo|essere|disponibile|rispondere|risposta|azienda|riunione|messaggio|ritorno|tornerò|cortesia|attualmente|potete|grazie\s?mille)\b/gi;
+// Idiomas de ruido (alemán / portugués / polaco / ruso) — se OCULTAN.
+const LANG_OTHER = /\b(danke|sehr|freundlichen|grüße|guten|ich|und|mit|obrigad[oa]|olá|você|atenciosamente|dziękuję|pozdrawiam|spasibo|zdravstvuyte)\b/gi;
+
+export function detectLanguageBucket(text: string): "es" | "en" | "fr" | "it" | "other" | "unknown" {
+  const t = (text || "").toLowerCase();
+  const es = (t.match(LANG_ES_CA) || []).length;
+  const en = (t.match(LANG_EN) || []).length;
+  const fr = (t.match(LANG_FR) || []).length;
+  const it = (t.match(LANG_IT) || []).length;
+  const other = (t.match(LANG_OTHER) || []).length;
+  // Caracteres exclusivos de español/catalán son señal ES fuerte (el inglés no tiene).
+  const esChars = /[ñ¿¡]|·l|ç/.test(t) ? 1 : 0;
+  const esScore = es + esChars * 2;
+
+  // Español/catalán gana en cuanto hay señal ES real no batida por otro idioma.
+  if (esScore > 0 && esScore >= en && esScore >= fr && esScore >= it) return "es";
+  // Francés / italiano (mercados del cliente) — mostrar cuando dominan claramente.
+  if (fr >= 2 && fr >= it && fr >= en) return "fr";
+  if (it >= 2 && it >= fr && it >= en) return "it";
+  // Solo ocultar con señal foránea CLARA (≥2 marcadores y sin señal ES), para que
+  // una palabra inglesa suelta en un correo español nunca lo oculte.
+  if (esScore === 0 && en >= 2) return "en";
+  if (esScore === 0 && other >= 2) return "other";
+  if (esScore > 0) return "es";
+  return "unknown"; // ambiguo / poco texto → no ocultar
+}
 
 /**
- * Devuelve true si el texto parece NO estar en español ni catalán
- * (probablemente inglés u otro idioma). Heurística por stopwords:
- * compara cuántas palabras típicas ES/CA vs EN aparecen.
+ * Devuelve true si el mensaje debe OCULTARSE por idioma (inglés puro de warmup u
+ * otro idioma de ruido). Español/catalán, francés, italiano y ambiguos → false.
  *
- * Conservador: si hay duda (pocas palabras, o señales mixtas), devuelve
- * false (= NO filtrar), para no esconder mensajes legítimos por error.
+ * Criterio idéntico al Unibox de referencia: mismos mensajes entran igual.
  */
 export function isNonIberianMessage(input: { subject?: string; text?: string; html?: string }): boolean {
   // Combinar subject + algo de texto si está disponible.
-  let txt = `${input.subject || ""} ${input.text || ""}`;
-  if (!txt.trim() && input.html) {
-    txt = input.html.replace(/<[^>]+>/g, " ");
+  let body = input.text || "";
+  if (!body.trim() && input.html) {
+    body = input.html.replace(/<[^>]+>/g, " ");
   }
-  txt = txt.toLowerCase().replace(/[^\p{L}\s]/gu, " ");
-  const words = txt.split(/\s+/).filter((w) => w.length >= 2);
-  if (words.length < 3) return false; // muy poco texto → no arriesgar
+  const combined = `${input.subject || ""} ${body}`;
+  // Muy poco texto → no arriesgar (igual que "unknown").
+  const wordCount = (combined.match(/[\p{L}]{2,}/gu) || []).length;
+  if (wordCount < 3) return false;
 
-  // Caracteres exclusivos del español/catalán → señal fuerte de iberian.
-  if (/[ñçàèòïü·]/i.test(input.subject || "") || /[ñçàèòïü·]/i.test(input.text || "")) {
-    return false;
-  }
-
-  const wordSet = new Set(words);
-  let esCa = 0, en = 0;
-  for (const w of ES_CA_WORDS) if (wordSet.has(w)) esCa++;
-  for (const w of EN_WORDS) if (wordSet.has(w)) en++;
-
-  // Si hay señal clara de español/catalán → NO filtrar.
-  if (esCa >= 2) return false;
-  // Si hay clara señal inglesa Y nada de ES/CA → es inglés → filtrar.
-  if (en >= 2 && esCa === 0) return true;
-  // Caso "Re:"/asuntos muy cortos en inglés con 1 palabra inglesa fuerte
-  if (en >= 3) return true;
-  // Duda → no filtrar (conservador)
-  return false;
+  const bucket = detectLanguageBucket(`${input.subject || ""} ${body.slice(0, 800)}`);
+  return bucket === "en" || bucket === "other";
 }

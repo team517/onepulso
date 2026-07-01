@@ -123,6 +123,13 @@ export function isNonIberianMessage(input: { subject?: string; text?: string; ht
   if (!body.trim() && input.html) {
     body = input.html.replace(/<[^>]+>/g, " ");
   }
+  // CRÍTICO: sin CUERPO no se puede juzgar el idioma con fiabilidad. El asunto
+  // suele estar en inglés en auto-respuestas ("Automatic reply", "Out of Office")
+  // aunque el cuerpo sea español/catalán → clasificar por asunto solo ocultaba
+  // respuestas reales. Con solo asunto, NUNCA ocultamos por idioma (conservador);
+  // el idioma se re-evalúa cuando el cuerpo está disponible (al abrir / reclasificar).
+  if (!body.trim()) return false;
+
   const combined = `${input.subject || ""} ${body}`;
   // Muy poco texto → no arriesgar (igual que "unknown").
   const wordCount = (combined.match(/[\p{L}]{2,}/gu) || []).length;

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { listAccounts, getUnibox } from "@/lib/unibox-store";
 import { getMessageRow, setMessageBody, deleteMessageByUid } from "@/lib/unibox-messages-db";
 import { requireAdmin, requireClientForUnibox } from "@/lib/unibox-auth";
-import { isNonIberianMessage } from "@/lib/unibox-warmup";
+import { isNonIberianMessage, isWarmupMessage } from "@/lib/unibox-warmup";
 import { ImapFlow } from "imapflow";
 import { simpleParser } from "mailparser";
 
@@ -77,16 +77,19 @@ export async function GET(
             const previewText = msg.text || (msg.html ? msg.html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim() : "");
             if (previewText) msg.preview = previewText.slice(0, 180);
 
-            // RE-EVALUAR IDIOMA con el cuerpo completo: en uniboxes != tcx,
-            // los mensajes RECIBIDOS que no son español/catalán pasan a warmup.
-            // (Los enviados — is_sent / uid negativo — se respetan siempre.)
-            if (!isSent && !msg.is_warmup) {
+            // RE-EVALUAR WARMUP con el cuerpo completo — BIDIRECCIONAL. Ahora que
+            // tenemos el cuerpo (no solo el asunto), recalculamos is_warmup en AMBOS
+            // sentidos: así un mensaje mal marcado en el sync (que clasifica solo por
+            // asunto) se CORRIGE al abrirlo. Antes solo se ponía a true y nunca se
+            // quitaba → un auto-reply ES+EN con asunto inglés quedaba oculto para
+            // siempre. (Los enviados — is_sent / uid negativo — se respetan siempre.)
+            if (!isSent) {
               try {
                 const u = await getUnibox(id);
                 const allowAll = (u?.title || "").toLowerCase().includes("tcx");
-                if (!allowAll && isNonIberianMessage({ subject: msg.subject, text: msg.text, html: msg.html })) {
-                  msg.is_warmup = true;
-                }
+                const codeWarmup = isWarmupMessage({ subject: msg.subject, text: msg.text, html: msg.html, from: msg.from });
+                const langWarmup = !allowAll && isNonIberianMessage({ subject: msg.subject, text: msg.text, html: msg.html });
+                msg.is_warmup = codeWarmup || langWarmup;
               } catch {}
             }
 

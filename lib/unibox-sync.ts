@@ -347,6 +347,10 @@ export async function syncAccountSent(uniboxId: string, accountId: string): Prom
       const msgsMap = await loadMessagesMap(uniboxId);
       const existing = msgsMap[accountId] || [];
       const existingUids = new Set(existing.map((m) => String(m.uid)));
+      // Message-ids ya guardados (incluye los enviados que persistimos al enviar)
+      // → evita duplicar en Enviados el mismo mensaje que el sync también trae.
+      const normId = (s: string) => String(s || "").replace(/^<+|>+$/g, "").trim().toLowerCase();
+      const existingMsgIds = new Set(existing.map((m) => normId(m.messageId)).filter(Boolean));
 
       const status = await client.status(sentFolder.path, { messages: true, uidNext: true });
       const total = status.messages || 0;
@@ -398,6 +402,13 @@ export async function syncAccountSent(uniboxId: string, accountId: string): Prom
         const envDate = envelope.date ? new Date(envelope.date).toISOString() : new Date().toISOString();
         const envMessageId = envelope.messageId || "";
         const envInReplyTo = envelope.inReplyTo || "";
+
+        // Dedup por message-id: si ya lo tenemos (p.ej. lo guardamos al enviar),
+        // no lo volvemos a insertar como una fila distinta.
+        if (envMessageId && existingMsgIds.has(normId(envMessageId))) {
+          if (msg.uid && msg.uid > maxUidSentSeen) maxUidSentSeen = msg.uid;
+          continue;
+        }
 
         // FAST MODE: solo envelope, sin source (10x más rápido).
         const subject = envSubject;

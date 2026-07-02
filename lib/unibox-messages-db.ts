@@ -226,6 +226,91 @@ export async function upsertMessages(uniboxId: string, accountId: string, msgs: 
   });
 }
 
+/** Normaliza un message-id para comparar (sin <>, en minúsculas). */
+function normMsgId(id: string): string {
+  return String(id || "").replace(/^<+|>+$/g, "").trim().toLowerCase();
+}
+
+/**
+ * Guarda un correo RECIÉN ENVIADO directamente en la bandeja de ENVIADOS del
+ * Unibox (no depende de que el proveedor lo copie a su carpeta Sent por IMAP).
+ * Así el mensaje enviado aparece al instante y de forma PERMANENTE, con a quién
+ * se escribió y qué se escribió. Dedup por message-id (si ya existe, no duplica).
+ * Devuelve el uid sintético usado (negativo).
+ */
+export async function insertSentMessage(
+  uniboxId: string,
+  accountId: string,
+  m: {
+    messageId: string;
+    fromName?: string;
+    fromAddress: string;
+    to: string;
+    subject: string;
+    html: string;
+    text?: string;
+    date?: string;
+    inReplyTo?: string;
+    references?: string[];
+    attachments?: { filename: string; contentType: string; size: number }[];
+    nowMs: number; // Date.now() pasado desde la ruta (aquí no se puede llamar)
+  }
+): Promise<number | null> {
+  await ensureMessagesTable();
+  // Dedup por message-id: si ya está guardado (o lo trajo el sync), no duplicar.
+  if (m.messageId) {
+    const wanted = normMsgId(m.messageId);
+    const existing = await withClient((c) =>
+      c.query<{ message_id: string }>(
+        `SELECT message_id FROM unibox_messages WHERE unibox_id = $1 AND account_id = $2 AND is_sent = true AND message_id <> ''`,
+        [uniboxId, accountId]
+      )
+    );
+    if (existing.rows.some((r) => normMsgId(r.message_id) === wanted)) return null;
+  }
+  // UID sintético negativo y grande (no choca con los UID reales de Sent, que
+  // son negativos pequeños). Único por milisegundo/cuenta.
+  const uid = -Math.abs(m.nowMs);
+  const html = m.html || "";
+  const text = m.text || html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+  const preview = text.slice(0, 180);
+  const row: UniboxMessageRow = {
+    uid,
+    messageId: m.messageId || "",
+    inReplyTo: m.inReplyTo,
+    references: m.references || [],
+    from: m.fromName ? `${m.fromName} <${m.fromAddress}>` : m.fromAddress,
+    fromName: m.fromName || "",
+    fromAddress: m.fromAddress,
+    to: m.to,
+    toAddress: m.to,
+    subject: m.subject || "(sin asunto)",
+    date: m.date || new Date(m.nowMs).toISOString(),
+    preview,
+    text,
+    html,
+    unread: false,
+    is_warmup: false,
+    attachments: m.attachments || [],
+    folder_id: null,
+    is_sent: true,
+  };
+  await upsertMessages(uniboxId, accountId, [row]);
+  return uid;
+}
+
+/** Message-ids ya guardados de una cuenta (para dedup del sync de Enviados). */
+export async function getKnownMessageIds(uniboxId: string, accountId: string): Promise<Set<string>> {
+  await ensureMessagesTable();
+  const r = await withClient((c) =>
+    c.query<{ message_id: string }>(
+      `SELECT message_id FROM unibox_messages WHERE unibox_id = $1 AND account_id = $2 AND message_id <> ''`,
+      [uniboxId, accountId]
+    )
+  );
+  return new Set(r.rows.map((x) => normMsgId(x.message_id)));
+}
+
 /** Lista paginada para la bandeja. NO trae cuerpos (text/html). */
 export async function listMessagesPage(opts: {
   uniboxId: string;

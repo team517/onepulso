@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import nodemailer from "nodemailer";
 import { listAccounts } from "@/lib/unibox-store";
+import { insertSentMessage } from "@/lib/unibox-messages-db";
 import { requireAdmin, requireClientForUnibox } from "@/lib/unibox-auth";
 
 export const runtime = "nodejs";
@@ -174,6 +175,27 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   }
 
   console.log(`[unibox-send] ✓ ${acc.email} → ${to} (${info?.messageId})`);
+
+  // GUARDAR EN ENVIADOS de forma PERMANENTE en la propia bandeja del Unibox,
+  // sin depender de que el proveedor copie el mensaje a su carpeta Sent (IONOS
+  // y otros NO lo hacen). Así el enviado aparece al instante y no desaparece al
+  // recargar. Dedup por message-id con el sync posterior.
+  try {
+    await insertSentMessage(id, acc.id, {
+      messageId: info.messageId || "",
+      fromName: displayName,
+      fromAddress: acc.email,
+      to,
+      subject: finalSubject,
+      html,
+      inReplyTo: normalizedInReplyTo || undefined,
+      references: (mail.references as string[]) || [],
+      attachments: attachments.map((a: any) => ({ filename: a.filename || "", contentType: "", size: (a.content?.length || 0) })),
+      nowMs: Date.now(),
+    });
+  } catch (e: any) {
+    console.warn(`[unibox-send] no se pudo guardar en Enviados (bandeja):`, e?.message || e);
+  }
 
   // CRÍTICO: NO bloquear la respuesta esperando al sync de Sent. El SMTP
   // ya tuvo éxito, el mensaje SE ENVIÓ. El sync de Sent puede tardar

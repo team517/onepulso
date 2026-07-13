@@ -1119,6 +1119,10 @@ function MessageDetail({ m, uniboxId, folders, classification, onReply, onForwar
 function ComposeModal({ uniboxId, accounts, initial, onClose, onSent }: any) {
   const [accountId, setAccountId] = useState(initial.accountId || accounts[0]?.id || "");
   const [to, setTo] = useState(initial.to || "");
+  const [cc, setCc] = useState(initial.cc || "");
+  const [bcc, setBcc] = useState(initial.bcc || "");
+  // Mostrar CC/CCO: si ya vienen con valor (p.ej. "Responder a todos"), abiertos.
+  const [showCcBcc, setShowCcBcc] = useState(!!(initial.cc || initial.bcc));
   const [subject, setSubject] = useState(initial.subject || "");
   // body se lee del editor cuando se pulsa Enviar, no en cada keystroke.
   // Esto evita el bug de escribir al revés (cursor jump al final).
@@ -1180,6 +1184,9 @@ function ComposeModal({ uniboxId, accounts, initial, onClose, onSent }: any) {
       const fd = new FormData();
       fd.append("accountId", accountId);
       fd.append("to", to);
+      // CC / CCO — se pueden poner varios correos separados por coma.
+      if (cc.trim()) fd.append("cc", cc.trim());
+      if (bcc.trim()) fd.append("bcc", bcc.trim());
       fd.append("subject", subject);
       fd.append("body", body);
       // El cliente YA gestionó la firma (incluida o no) — el servidor
@@ -1224,14 +1231,46 @@ function ComposeModal({ uniboxId, accounts, initial, onClose, onSent }: any) {
             {accounts.map((a: any) => <option key={a.id} value={a.id}>{a.email}</option>)}
           </select>
 
-          <label style={composeLabel}>Para</label>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+            <label style={composeLabel}>Para</label>
+            {!showCcBcc && (
+              <button
+                type="button"
+                onClick={() => setShowCcBcc(true)}
+                style={{ background: "none", border: "none", color: "#2563eb", fontSize: 12, fontWeight: 600, cursor: "pointer", padding: 0 }}
+              >
+                + CC / CCO
+              </button>
+            )}
+          </div>
           <input
             type="text"
             value={to}
             onChange={(e) => setTo(e.target.value)}
-            placeholder="destinatario@empresa.com"
+            placeholder="destinatario@empresa.com (puedes poner varios separados por coma)"
             style={composeInput}
           />
+
+          {showCcBcc && (
+            <>
+              <label style={composeLabel}>CC (con copia)</label>
+              <input
+                type="text"
+                value={cc}
+                onChange={(e) => setCc(e.target.value)}
+                placeholder="copia1@empresa.com, copia2@empresa.com"
+                style={composeInput}
+              />
+              <label style={composeLabel}>CCO (copia oculta)</label>
+              <input
+                type="text"
+                value={bcc}
+                onChange={(e) => setBcc(e.target.value)}
+                placeholder="oculto1@empresa.com, oculto2@empresa.com"
+                style={composeInput}
+              />
+            </>
+          )}
 
           <label style={composeLabel}>Asunto</label>
           <input

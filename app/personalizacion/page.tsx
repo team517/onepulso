@@ -863,7 +863,7 @@ export default function PersonalizacionPage() {
                     : "Click o arrastra un CSV"}
                 </div>
                 <div style={{ fontSize: 12, color: "var(--text-faint)" }}>
-                  Hasta 50 MB · Cualquier formato (separador comma, semicolon, tab)
+                  Hasta 100 MB · Cualquier formato (separador comma, semicolon, tab)
                 </div>
                 <input ref={fileRef} type="file" accept=".csv,.tsv" hidden onChange={(e) => onPickFile(e.target.files?.[0])} />
               </label>

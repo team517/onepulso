@@ -7,7 +7,15 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
   const { id } = await ctx.params;
   const j = await getJob(id);
   if (!j) return NextResponse.json({ error: "no encontrado" }, { status: 404 });
-  return NextResponse.json({ job: j });
+  // LIGERO: el sondeo del progreso corre cada 2s. Enviar TODOS los mensajes
+  // generados (miles) haría cada respuesta enorme y la barra parpadearía.
+  // Mandamos solo los 10 primeros (para la vista previa) + el contador total.
+  const light = {
+    ...j,
+    results: (j.results || []).slice(0, 10),
+    result_count: (j.results || []).length,
+  };
+  return NextResponse.json({ job: light });
 }
 
 export async function DELETE(_req: Request, ctx: { params: Promise<{ id: string }> }) {

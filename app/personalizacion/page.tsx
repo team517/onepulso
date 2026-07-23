@@ -321,7 +321,9 @@ export default function PersonalizacionPage() {
   async function loadHistory() {
     try {
       const r = await fetch("/api/personalization/jobs").then((r) => r.json());
-      setHistory(r.jobs || []);
+      // Solo actualizamos si la respuesta es válida. Si llega lenta o rara,
+      // NO vaciamos la lista (eso causaba que el progreso "aparezca y desaparezca").
+      if (Array.isArray(r?.jobs)) setHistory(r.jobs);
     } catch {}
   }
   useEffect(() => { loadHistory(); }, []);

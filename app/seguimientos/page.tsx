@@ -1577,14 +1577,14 @@ export default function SeguimientosPage() {
               ¡ATENCIÓN! Tus datos NO se están guardando permanentemente.
             </div>
             <div style={{ fontSize: 13, color: "#7f1d1d", lineHeight: 1.55, marginBottom: 8 }}>
-              Railway no tiene la variable <code style={{ background: "#fecaca", padding: "1px 5px", borderRadius: 4 }}>DATABASE_URL</code> conectada al servicio. Por eso los seguimientos desaparecen cuando el servidor se reinicia.
+              El servidor no tiene la variable <code style={{ background: "#fecaca", padding: "1px 5px", borderRadius: 4 }}>DATABASE_URL</code> conectada a la base de datos. Por eso los seguimientos desaparecen cuando el servidor se reinicia.
             </div>
             <div style={{ fontSize: 12, color: "#7f1d1d", lineHeight: 1.6, background: "rgba(255,255,255,0.5)", padding: "10px 12px", borderRadius: 8 }}>
-              <strong>Cómo arreglarlo (2 min):</strong><br/>
-              1. Ve a <a href="https://railway.app" target="_blank" rel="noreferrer" style={{ color: "#dc2626", fontWeight: 700 }}>railway.app</a> → tu proyecto → click en el servicio <strong>web</strong> (no en Postgres)<br/>
-              2. Pestaña <strong>Variables</strong> → <strong>+ New Variable</strong> → <strong>Add Reference</strong><br/>
-              3. Selecciona <strong>Postgres</strong> → variable <strong>DATABASE_URL</strong> → Add<br/>
-              4. Espera 1-2 min al redeploy y refresca esta página
+              <strong>Cómo arreglarlo (2 min) — con Supabase en EasyPanel:</strong><br/>
+              1. Supabase → <strong>Project Settings → Database → Connection string (URI)</strong> y copia la cadena (pon tu contraseña de BD)<br/>
+              2. EasyPanel → tu servicio de la app → pestaña <strong>Entorno</strong><br/>
+              3. Añade <strong>DATABASE_URL</strong> = esa cadena de conexión de Supabase<br/>
+              4. Pulsa <strong>Implementar</strong> y espera 1-2 min; luego refresca esta página
             </div>
           </div>
           <button

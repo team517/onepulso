@@ -49,9 +49,10 @@ export function getPool(): Pool | null {
   globalThis.__pgPool = new Pool({
     connectionString: url,
     ssl: url.includes("railway.internal") ? false : { rejectUnauthorized: false },
-    // CAPACIDAD MÁXIMA: 25 conexiones simultáneas (antes 10) — cubre
-    // sync masivo + dashboard + múltiples usuarios sin esperar.
-    max: 25,
+    // MÁX conexiones. Bajado a 10 porque el pooler de Supabase (plan gratis)
+    // limita las conexiones de servidor; 10 cubre el uso real sin agotar el
+    // pooler. Si se migra a un Postgres con más margen, se puede volver a subir.
+    max: 10,
     idleTimeoutMillis: 30_000,
     // Si en 10s no hay conexión libre, fallar rápido y reintentar (withClient)
     // en vez de dejar la petición colgada 15s (se sentía como "se cuelga").

@@ -1600,6 +1600,25 @@ export default function SeguimientosPage() {
         </div>
       )}
 
+      {/* Indicador POSITIVO: base de datos conectada (Supabase/Postgres). */}
+      {storageStatus?.postgres?.connected && (
+        <div style={{
+          display: "flex", alignItems: "center", gap: 8,
+          margin: "0 0 12px", padding: "8px 14px",
+          background: "rgba(16,185,129,0.10)", border: "1px solid rgba(16,185,129,0.35)",
+          borderRadius: 10, fontSize: 13, color: "#047857", fontWeight: 600,
+        }}>
+          <span style={{ width: 9, height: 9, borderRadius: "50%", background: "#10b981", boxShadow: "0 0 6px rgba(16,185,129,0.6)" }} />
+          Base de datos conectada — tus datos se guardan
+          {storageStatus?.db_url_host ? (
+            <span style={{ fontWeight: 500, color: "#059669" }}>
+              · {String(storageStatus.db_url_host).includes("supabase") ? "Supabase" : storageStatus.db_url_host}
+            </span>
+          ) : null}
+          <span style={{ marginLeft: "auto", fontSize: 11, fontWeight: 700, background: "#10b981", color: "#fff", padding: "2px 8px", borderRadius: 99 }}>CONNECTED</span>
+        </div>
+      )}
+
       <header className="seg-header">
         <div>
           <div className="dash-page-title">Seguimientos</div>

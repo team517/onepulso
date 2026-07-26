@@ -12,6 +12,7 @@ import { randomUUID } from "crypto";
 import Papa from "papaparse";
 import { readJson, writeJson, readBlob, writeBlob } from "./storage";
 import { generateText, AIProvider } from "./ai-providers";
+import { memoryAsContext } from "./memory";
 
 const JOBS_PREFIX = "personalization-job/";
 const JOBS_INDEX = "personalization-jobs-index";
@@ -304,17 +305,33 @@ function ensureStructuredOutput(raw: string): string {
   return applyParagraphStyles(`<p>${s}</p>`);
 }
 
-/** Genera un mensaje personalizado para un row concreto. Usado por preview y por el job runner. */
+/** Genera un mensaje personalizado para un row concreto. Usado por preview y por el job runner.
+ *  memoryContext (opcional): contexto/memoria del usuario (cómo escribe, qué vende, casos)
+ *  para que la IA escriba en su voz. Se pasa YA cargado (una vez por job/preview),
+ *  no se lee por fila. */
 export async function generateForRow(
   prompt: string,
   row: Record<string, string>,
   mapping: ColumnMapping,
   provider: AIProvider,
+  memoryContext?: string,
 ): Promise<string> {
   const final = applyMapping(prompt, row, mapping);
+  let system = DEFAULT_SYSTEM;
+  const mem = (memoryContext || "").trim();
+  if (mem && !mem.startsWith("(sin memoria")) {
+    system = `${DEFAULT_SYSTEM}
+
+════════ MEMORIA DEL USUARIO ════════
+Usa esto para escribir en SU voz, con lo que vende y sus casos/datos reales.
+NO lo copies literal: intégralo de forma natural en la personalización.
+
+${mem}
+════════════════════════════════════`;
+  }
   const raw = await generateText({
     provider,
-    system: DEFAULT_SYSTEM,
+    system,
     prompt: final,
     maxTokens: 1200,
     temperature: 0.75,
@@ -421,6 +438,11 @@ export async function runJob(jobId: string, onProgress?: (j: PersonalizationJob)
   await saveJob(job);
 
   const { rows } = await readCSVRows(job.file_id);
+  // Cargar la MEMORIA del usuario UNA vez (no por fila) para que la IA escriba
+  // en su voz con sus casos/datos. Si no hay memoria, memoryAsContext devuelve
+  // un placeholder que generateForRow ignora.
+  let memoryContext = "";
+  try { memoryContext = await memoryAsContext(); } catch {}
   const CONCURRENCY = 6; // 6 llamadas LLM simultáneas (balance velocidad vs rate-limit)
 
   for (let i = 0; i < job.selected_rows.length; i += CONCURRENCY) {
@@ -443,7 +465,7 @@ export async function runJob(jobId: string, onProgress?: (j: PersonalizationJob)
         const row = rows[idx];
         if (!row) return { idx, message: "", error: "Fila fuera de rango" };
         try {
-          const msg = await generateForRow(job!.prompt, row, job!.mapping, job!.provider);
+          const msg = await generateForRow(job!.prompt, row, job!.mapping, job!.provider, memoryContext);
           const email = job!.mapping.email ? row[job!.mapping.email] : undefined;
           return { idx, message: msg, lead_email: email };
         } catch (e: any) {

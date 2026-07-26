@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { readCSVRows, generateForRow, applyMapping } from "@/lib/personalization";
+import { memoryAsContext } from "@/lib/memory";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -21,7 +22,9 @@ export async function POST(req: Request) {
     const idx = typeof row_index === "number" && row_index >= 0 && row_index < rows.length ? row_index : 0;
     const row = rows[idx];
     const resolvedPrompt = applyMapping(prompt, row, mapping);
-    const message = await generateForRow(prompt, row, mapping, provider || "claude");
+    let memoryContext = "";
+    try { memoryContext = await memoryAsContext(); } catch {}
+    const message = await generateForRow(prompt, row, mapping, provider || "claude", memoryContext);
     return NextResponse.json({
       ok: true,
       row_index: idx,

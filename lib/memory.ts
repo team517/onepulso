@@ -3,6 +3,13 @@ import path from "path";
 import { readJson, writeJson, deleteJson, listKeys } from "./storage";
 import { dataPath } from "./data-dir";
 import { isDbEnabled } from "./db";
+import {
+  isSupabaseMemoryEnabled,
+  sbListMemory,
+  sbGetMemory,
+  sbSaveMemory,
+  sbDeleteMemory,
+} from "./supabase-memory";
 
 const PREFIX = "memory/";
 
@@ -32,6 +39,38 @@ function parseFrontmatter(raw: string): { meta: any; body: string } {
 
 /** Lee TODAS las entradas — Postgres + filesystem (.md bundled o legacy). Auto-importa .md a Postgres. */
 export async function listMemory(): Promise<MemoryEntry[]> {
+  // Si Supabase está configurado, la memoria vive allí.
+  if (isSupabaseMemoryEnabled()) {
+    try {
+      const found = new Map<string, MemoryEntry>();
+      for (const e of await sbListMemory()) found.set(e.slug, e);
+      // Auto-import de los .md incluidos en el repo si aún no están en Supabase.
+      try {
+        const dir = dataPath("memory");
+        const files = await fs.readdir(dir).catch(() => []);
+        for (const f of files) {
+          if (!f.endsWith(".md")) continue;
+          const slug = f.replace(/\.md$/, "");
+          if (found.has(slug)) continue;
+          const raw = await fs.readFile(path.join(dir, f), "utf-8").catch(() => "");
+          if (!raw) continue;
+          const parsed = parseFrontmatter(raw);
+          const entry: MemoryEntry = {
+            slug, title: parsed.meta.title ?? slug,
+            category: parsed.meta.category ?? "general",
+            content: parsed.body, updated: new Date().toISOString(),
+          };
+          found.set(slug, entry);
+          await sbSaveMemory(entry).catch(() => {});
+        }
+      } catch {}
+      return [...found.values()].sort((a, b) => (b.updated || "").localeCompare(a.updated || ""));
+    } catch (e: any) {
+      console.warn("[memory] Supabase list falló, fallback a KV:", e?.message);
+      // sigue al flujo normal (KV/fs) para no romper la app.
+    }
+  }
+
   const found = new Map<string, MemoryEntry>();
 
   // 1) Leer de Postgres / KV
@@ -75,6 +114,10 @@ export async function listMemory(): Promise<MemoryEntry[]> {
 }
 
 export async function getMemory(slug: string): Promise<MemoryEntry | null> {
+  if (isSupabaseMemoryEnabled()) {
+    try { return await sbGetMemory(slug); }
+    catch (e: any) { console.warn("[memory] Supabase get falló, fallback a KV:", e?.message); }
+  }
   const j = await readJson<MemoryEntry>(`${PREFIX}${slug}`);
   if (j) return j;
 
@@ -111,11 +154,19 @@ export async function saveMemory(input: {
     content: input.content,
     updated: new Date().toISOString(),
   };
+  if (isSupabaseMemoryEnabled()) {
+    await sbSaveMemory(entry); // si falla, lanza (la UI muestra el error)
+    return entry;
+  }
   await writeJson(`${PREFIX}${slug}`, entry);
   return entry;
 }
 
 export async function deleteMemory(slug: string) {
+  if (isSupabaseMemoryEnabled()) {
+    await sbDeleteMemory(slug);
+    return;
+  }
   await deleteJson(`${PREFIX}${slug}`);
   // También borrar .md legacy si existe (sólo en fs)
   if (!isDbEnabled()) {

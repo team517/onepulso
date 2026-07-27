@@ -142,9 +142,17 @@ export async function getCampaignAnalyticsRaw(campaignId: string | number): Prom
   return slGet(`/campaigns/${campaignId}/analytics`, api_key);
 }
 
-/** Agrega las analíticas de TODAS las campañas de un cliente. */
-export async function getClientAnalytics(clientId: string | number): Promise<{ stats: CampaignStats; campaigns: Array<{ name: string; stats: CampaignStats }> }> {
-  const camps = await listCampaigns(clientId);
+/** Agrega las analíticas de las campañas de un cliente.
+ *  Si se pasa `campaignIds` (no vacío), SOLO esas campañas; si no, todas. */
+export async function getClientAnalytics(
+  clientId: string | number,
+  campaignIds?: Array<string | number>
+): Promise<{ stats: CampaignStats; campaigns: Array<{ name: string; stats: CampaignStats }> }> {
+  let camps = await listCampaigns(clientId);
+  if (campaignIds && campaignIds.length > 0) {
+    const set = new Set(campaignIds.map((x) => String(x)));
+    camps = camps.filter((c) => set.has(String(c.id)));
+  }
   const perCampaign: Array<{ name: string; stats: CampaignStats }> = [];
   const total: CampaignStats = { sent: 0, opens: 0, replies: 0, bounces: 0, clicks: 0, total: 0 };
   for (const c of camps) {

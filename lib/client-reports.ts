@@ -27,6 +27,8 @@ export type ReportConfig = {
   pdf_intro: string;
   enabled: boolean;
   interval_hours: number;
+  /** Campañas incluidas en el informe. Vacío/undefined = TODAS las del cliente. */
+  campaign_ids?: string[];
   last_sent_at?: string | null;
   updated_at: string;
 };
@@ -176,8 +178,8 @@ export async function generateReportPDF(opts: {
 // ─────────────────────────────────────────────────────────────────────────────
 // Generar (datos) + enviar
 // ─────────────────────────────────────────────────────────────────────────────
-export async function buildReportForClient(clientId: string, clientName: string, intro: string): Promise<Buffer> {
-  const { stats, campaigns } = await getClientAnalytics(clientId);
+export async function buildReportForClient(clientId: string, clientName: string, intro: string, campaignIds?: string[]): Promise<Buffer> {
+  const { stats, campaigns } = await getClientAnalytics(clientId, campaignIds);
   const now = new Date();
   const dateLabel = `Período hasta ${now.toLocaleDateString("es", { day: "numeric", month: "long", year: "numeric" })}`;
   return generateReportPDF({ clientName, intro, stats, campaigns, dateLabel });
@@ -195,7 +197,7 @@ export async function sendReportForClient(
   const isTest = !!(opts?.test || opts?.overrideEmail);
   const to = (opts?.overrideEmail || cfg.recipient_email || "").trim();
   if (!to) throw new Error(isTest ? "Escribe un email de prueba." : "Este cliente no tiene email de destino configurado.");
-  const pdf = await buildReportForClient(clientId, cfg.client_name, cfg.pdf_intro);
+  const pdf = await buildReportForClient(clientId, cfg.client_name, cfg.pdf_intro, cfg.campaign_ids);
 
   // sendEmail adjunta por RUTA → escribimos el PDF a un temp file.
   const tmp = path.join(os.tmpdir(), `informe-${clientId}-${randomUUID()}.pdf`);

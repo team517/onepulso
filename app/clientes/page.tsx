@@ -5,7 +5,7 @@ import DashboardNav from "../components/DashboardNav";
 type Cfg = {
   client_id: string; client_name: string; recipient_email: string;
   email_subject: string; email_body_html: string; pdf_intro: string;
-  enabled: boolean; interval_hours: number; last_sent_at?: string | null;
+  enabled: boolean; interval_hours: number; campaign_ids?: string[]; last_sent_at?: string | null;
 };
 type Row = { client_id: string; client_name: string; email?: string; config: Cfg };
 
@@ -23,8 +23,31 @@ export default function ClientesPage() {
   const [busy, setBusy] = useState("");
   const [feedback, setFeedback] = useState("");
   const [testEmails, setTestEmails] = useState<Record<string, string>>({});
+  const [campaignsByClient, setCampaignsByClient] = useState<Record<string, Array<{ id: string; name: string; status?: string }>>>({});
+  const [loadingCamps, setLoadingCamps] = useState("");
 
   useEffect(() => { loadStatus(); }, []);
+
+  // Al abrir el modal de un cliente, cargar sus campañas (para elegir cuáles incluir).
+  useEffect(() => {
+    if (!openId || campaignsByClient[openId]) return;
+    setLoadingCamps(openId);
+    fetch(`/api/clients/${openId}/campaigns`).then((r) => r.json())
+      .then((d) => setCampaignsByClient((m) => ({ ...m, [openId!]: d.campaigns || [] })))
+      .catch(() => {})
+      .finally(() => setLoadingCamps(""));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [openId]);
+
+  function toggleCampaign(row: Row, campId: string) {
+    const all = (campaignsByClient[row.client_id] || []).map((c) => c.id);
+    const c = cur(row);
+    const set = new Set(c.campaign_ids && c.campaign_ids.length ? c.campaign_ids : all);
+    if (set.has(campId)) set.delete(campId); else set.add(campId);
+    const arr = [...set];
+    const isAll = all.length > 0 && arr.length === all.length;
+    edit(row.client_id, { campaign_ids: isAll ? [] : arr });
+  }
 
   async function loadStatus() {
     try {
@@ -223,6 +246,42 @@ export default function ClientesPage() {
                   <label style={lbl}>Texto de intro del PDF (personaliza el informe)</label>
                   <textarea value={c.pdf_intro} onChange={(e) => edit(row.client_id, { pdf_intro: e.target.value })} rows={2} style={{ ...inp, resize: "vertical", fontFamily: "inherit" }} />
                 </div>
+
+                {/* Selección de campañas del cliente */}
+                {(() => {
+                  const camps = campaignsByClient[row.client_id] || [];
+                  const allIn = !c.campaign_ids || c.campaign_ids.length === 0;
+                  const sel = new Set(allIn ? camps.map((x) => x.id) : c.campaign_ids);
+                  return (
+                    <div>
+                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
+                        <label style={{ ...lbl, marginBottom: 0 }}>Campañas incluidas {camps.length ? `(${sel.size}/${camps.length})` : ""}</label>
+                        {camps.length > 0 && (
+                          <button type="button" onClick={() => edit(row.client_id, { campaign_ids: [] })} style={{ background: "none", border: "none", color: "#7c3aed", fontSize: 11.5, fontWeight: 700, cursor: "pointer", padding: 0 }}>
+                            Todas
+                          </button>
+                        )}
+                      </div>
+                      {loadingCamps === row.client_id ? (
+                        <div style={{ fontSize: 12, color: "var(--text-dim)" }}>Cargando campañas…</div>
+                      ) : camps.length === 0 ? (
+                        <div style={{ fontSize: 12, color: "var(--text-dim)" }}>Este cliente no tiene campañas (o aún cargando). Se incluirán todas.</div>
+                      ) : (
+                        <div style={{ maxHeight: 140, overflowY: "auto", border: "1px solid var(--border)", borderRadius: 8, padding: 6, display: "grid", gap: 2 }}>
+                          {camps.map((camp) => (
+                            <label key={camp.id} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12.5, padding: "4px 6px", borderRadius: 6, cursor: "pointer" }}>
+                              <input type="checkbox" checked={sel.has(camp.id)} onChange={() => toggleCampaign(row, camp.id)} />
+                              <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{camp.name}</span>
+                              {camp.status && <span style={{ fontSize: 10, color: "var(--text-faint)" }}>{camp.status}</span>}
+                            </label>
+                          ))}
+                        </div>
+                      )}
+                      <div style={{ fontSize: 10.5, color: "var(--text-dim)", marginTop: 4 }}>Las métricas del informe suman solo las campañas marcadas. "Todas" = todas las del cliente.</div>
+                    </div>
+                  );
+                })()}
+
                 <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, cursor: "pointer" }}>
                   <input type="checkbox" checked={c.enabled} onChange={(e) => edit(row.client_id, { enabled: e.target.checked })} />
                   <span>Enviar informe <b>automáticamente cada {c.interval_hours || 48}h</b></span>

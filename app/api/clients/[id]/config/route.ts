@@ -13,7 +13,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const { id } = await params;
   const body = await req.json().catch(() => ({}));
   const patch: any = {};
-  for (const k of ["client_name", "recipient_email", "email_subject", "email_body_html", "pdf_intro", "enabled", "interval_hours"]) {
+  for (const k of ["client_name", "recipient_email", "email_subject", "email_body_html", "pdf_intro", "enabled", "interval_hours", "campaign_ids"]) {
     if (k in body) patch[k] = body[k];
   }
   const config = await saveReportConfig(id, patch);

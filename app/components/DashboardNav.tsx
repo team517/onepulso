@@ -7,6 +7,7 @@ const NAV = [
   { href: "/",              label: "Inicio",        icon: "⊞", exact: true },
   { href: "/campaigns",    label: "Campañas",      icon: "✦", exact: false },
   { href: "/personalizacion", label: "Personalización", icon: "✺", exact: false },
+  { href: "/clientes",     label: "Clientes",      icon: "◑", exact: false },
   { href: "/seguimientos", label: "Seguimientos",  icon: "◈", exact: false },
   { href: "/onboarding",   label: "Onboarding",    icon: "◉", exact: false },
   { href: "/estudios",     label: "Estudios",      icon: "◬", exact: false },

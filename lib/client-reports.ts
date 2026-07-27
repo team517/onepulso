@@ -183,10 +183,18 @@ export async function buildReportForClient(clientId: string, clientName: string,
   return generateReportPDF({ clientName, intro, stats, campaigns, dateLabel });
 }
 
-/** Genera el PDF y lo envía por email al destinatario configurado. */
-export async function sendReportForClient(clientId: string): Promise<{ ok: boolean; to: string; bytes: number }> {
+/** Genera el PDF y lo envía por email.
+ *  - Sin opts: al destinatario configurado (envío real) → marca last_sent_at.
+ *  - opts.overrideEmail: envío de PRUEBA a ese email (p.ej. el tuyo) → NO marca
+ *    last_sent_at (no cuenta como enviado al cliente). */
+export async function sendReportForClient(
+  clientId: string,
+  opts?: { overrideEmail?: string; test?: boolean }
+): Promise<{ ok: boolean; to: string; bytes: number; test: boolean }> {
   const cfg = await getReportConfig(clientId);
-  if (!cfg.recipient_email) throw new Error("Este cliente no tiene email de destino configurado.");
+  const isTest = !!(opts?.test || opts?.overrideEmail);
+  const to = (opts?.overrideEmail || cfg.recipient_email || "").trim();
+  if (!to) throw new Error(isTest ? "Escribe un email de prueba." : "Este cliente no tiene email de destino configurado.");
   const pdf = await buildReportForClient(clientId, cfg.client_name, cfg.pdf_intro);
 
   // sendEmail adjunta por RUTA → escribimos el PDF a un temp file.
@@ -194,16 +202,16 @@ export async function sendReportForClient(clientId: string): Promise<{ ok: boole
   await fs.writeFile(tmp, pdf);
   try {
     await sendEmail({
-      to: cfg.recipient_email,
-      subject: cfg.email_subject || `Informe de campañas — ${cfg.client_name}`,
-      body_html: cfg.email_body_html || `<p>Adjunto el informe de campañas.</p>`,
+      to,
+      subject: (isTest ? "[PRUEBA] " : "") + (cfg.email_subject || `Informe de campañas — ${cfg.client_name}`),
+      body_html: (isTest ? `<p style="color:#b45309"><b>Esto es una PRUEBA</b> — así le llegará el informe al cliente.</p>` : "") + (cfg.email_body_html || `<p>Adjunto el informe de campañas.</p>`),
       attachments: [{ filename: `Informe-${cfg.client_name.replace(/[^\w\-]+/g, "_")}.pdf`, path: tmp }],
     });
   } finally {
     fs.unlink(tmp).catch(() => {});
   }
-  await saveReportConfig(clientId, { last_sent_at: new Date().toISOString() });
-  return { ok: true, to: cfg.recipient_email, bytes: pdf.length };
+  if (!isTest) await saveReportConfig(clientId, { last_sent_at: new Date().toISOString() });
+  return { ok: true, to, bytes: pdf.length, test: isTest };
 }
 
 /** Llamado por el scheduler: envía a los clientes activados cuyo intervalo venció. */

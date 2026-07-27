@@ -22,6 +22,7 @@ export default function ClientesPage() {
   const [edits, setEdits] = useState<Record<string, Partial<Cfg>>>({});
   const [busy, setBusy] = useState("");
   const [feedback, setFeedback] = useState("");
+  const [testEmails, setTestEmails] = useState<Record<string, string>>({});
 
   useEffect(() => { loadStatus(); }, []);
 
@@ -88,6 +89,22 @@ export default function ClientesPage() {
       if (r.ok) flash(`✓ Informe enviado a ${r.to}`);
       else flash("⚠ " + (r.error || "Error enviando"));
       loadClients();
+    } catch (e: any) { flash("⚠ " + e.message); }
+    setBusy("");
+  }
+
+  async function sendTest(row: Row) {
+    const email = (testEmails[row.client_id] || "").trim();
+    if (!email) { alert("Escribe tu email para la prueba."); return; }
+    setBusy("test-" + row.client_id);
+    try {
+      await saveConfig(row); // usar los últimos textos/intro en la prueba
+      const r = await fetch(`/api/clients/${row.client_id}/send`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ test_email: email }),
+      }).then((r) => r.json());
+      if (r.ok) flash(`✓ Prueba enviada a ${r.to} — mira cómo queda`);
+      else flash("⚠ " + (r.error || "Error en la prueba"));
     } catch (e: any) { flash("⚠ " + e.message); }
     setBusy("");
   }
@@ -192,7 +209,29 @@ export default function ClientesPage() {
                           <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 4 }}>
                             <button onClick={() => saveConfig(row)} disabled={busy === "save-" + row.client_id} style={btnPrimary}>{busy === "save-" + row.client_id ? "Guardando…" : "Guardar"}</button>
                             <a href={`/api/clients/${row.client_id}/pdf`} target="_blank" rel="noreferrer" style={{ ...btnGhost, textDecoration: "none", display: "inline-flex", alignItems: "center" }}>👁 Ver PDF</a>
-                            <button onClick={() => sendNow(row)} disabled={busy === "send-" + row.client_id} style={{ ...btnPrimary, background: "linear-gradient(135deg,#f9a603,#d15cfe)" }}>{busy === "send-" + row.client_id ? "Enviando…" : "📤 Enviar ahora"}</button>
+                            <a href={`/api/clients/${row.client_id}/pdf?download=1`} style={{ ...btnGhost, textDecoration: "none", display: "inline-flex", alignItems: "center" }}>⬇ Descargar PDF</a>
+                          </div>
+
+                          {/* Probar envío a TU email */}
+                          <div style={{ marginTop: 6, padding: 12, background: "rgba(124,58,237,0.06)", border: "1px dashed rgba(124,58,237,0.35)", borderRadius: 10 }}>
+                            <div style={{ fontSize: 12.5, fontWeight: 700, color: "#6d28d9", marginBottom: 6 }}>🧪 Probar envío (a TU email, no al cliente)</div>
+                            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                              <input
+                                value={testEmails[row.client_id] || ""}
+                                onChange={(e) => setTestEmails((t) => ({ ...t, [row.client_id]: e.target.value }))}
+                                placeholder="tu@email.com"
+                                style={{ ...inp, flex: 1, minWidth: 200 }}
+                              />
+                              <button onClick={() => sendTest(row)} disabled={busy === "test-" + row.client_id} style={{ ...btnPrimary, background: "#7c3aed" }}>
+                                {busy === "test-" + row.client_id ? "Enviando…" : "Enviar prueba"}
+                              </button>
+                            </div>
+                            <div style={{ fontSize: 11, color: "var(--text-dim)", marginTop: 6 }}>Te llega a ti para ver cómo queda el email + el PDF. Al cliente NO le llega.</div>
+                          </div>
+
+                          {/* Enviar REAL al cliente */}
+                          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 4 }}>
+                            <button onClick={() => sendNow(row)} disabled={busy === "send-" + row.client_id} style={{ ...btnPrimary, background: "linear-gradient(135deg,#f9a603,#d15cfe)" }}>{busy === "send-" + row.client_id ? "Enviando…" : "📤 Enviar informe REAL al cliente ahora"}</button>
                           </div>
                         </div>
                       )}

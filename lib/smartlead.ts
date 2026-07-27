@@ -100,21 +100,46 @@ export type CampaignStats = { sent: number; opens: number; replies: number; boun
 
 function num(v: any): number { const n = Number(v); return Number.isFinite(n) ? n : 0; }
 
-/** Analíticas de una campaña, normalizadas a números clave (tolerante a nombres de campo). */
+/** Busca el primer valor numérico de cualquiera de `keys` en el objeto,
+ *  incluso si está ANIDADO (la API de Smartlead a veces envuelve los totales
+ *  en subobjetos). Prioriza claves del nivel más externo. */
+function deepFind(obj: any, keys: string[]): number {
+  const want = new Set(keys.map((k) => k.toLowerCase()));
+  const queue: any[] = [obj];
+  while (queue.length) {
+    const o = queue.shift();
+    if (o == null || typeof o !== "object") continue;
+    if (Array.isArray(o)) { for (const x of o) queue.push(x); continue; }
+    for (const [k, v] of Object.entries(o)) {
+      if (want.has(k.toLowerCase()) && v != null && v !== "" && Number.isFinite(Number(v))) return Number(v);
+    }
+    for (const v of Object.values(o)) if (v && typeof v === "object") queue.push(v);
+  }
+  return 0;
+}
+
+/** Analíticas de una campaña, normalizadas a números clave (tolerante a nombres y anidamiento). */
 export async function getCampaignAnalytics(campaignId: string | number): Promise<CampaignStats> {
   const { api_key } = await getSmartleadSettings();
   if (!api_key) throw new Error("Falta la API key de Smartlead.");
   const raw = await slGet(`/campaigns/${campaignId}/analytics`, api_key);
   const d = raw?.data ?? raw ?? {};
-  const g = (obj: any, keys: string[]) => { for (const k of keys) if (obj?.[k] != null) return num(obj[k]); return 0; };
   return {
-    sent: g(d, ["sent_count", "sent", "emails_sent", "total_sent"]),
-    opens: g(d, ["unique_open_count", "open_count", "opens", "opened_count", "unique_opened"]),
-    replies: g(d, ["reply_count", "replies", "replied_count", "total_replies"]),
-    bounces: g(d, ["bounce_count", "bounces", "bounced_count"]),
-    clicks: g(d, ["click_count", "clicks", "unique_click_count"]),
-    total: g(d, ["total_count", "campaign_lead_count", "lead_count", "total_leads"]),
+    sent: deepFind(d, ["sent_count", "sent", "emails_sent", "total_sent", "sent_emails"]),
+    opens: deepFind(d, ["unique_open_count", "open_count", "opens", "opened_count", "unique_opened", "unique_opens"]),
+    replies: deepFind(d, ["reply_count", "replies", "replied_count", "total_replies", "unique_reply_count"]),
+    bounces: deepFind(d, ["bounce_count", "bounces", "bounced_count", "hard_bounce_count"]),
+    clicks: deepFind(d, ["unique_click_count", "click_count", "clicks"]),
+    total: deepFind(d, ["total_count", "campaign_lead_count", "lead_count", "total_leads", "leads_count"]),
   };
+}
+
+/** Devuelve la respuesta CRUDA de analíticas de una campaña (para diagnóstico:
+ *  si los números salen 0, esto muestra qué campos usa realmente Smartlead). */
+export async function getCampaignAnalyticsRaw(campaignId: string | number): Promise<any> {
+  const { api_key } = await getSmartleadSettings();
+  if (!api_key) throw new Error("Falta la API key de Smartlead.");
+  return slGet(`/campaigns/${campaignId}/analytics`, api_key);
 }
 
 /** Agrega las analíticas de TODAS las campañas de un cliente. */

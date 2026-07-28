@@ -146,37 +146,42 @@ export async function getCampaignAnalyticsRaw(campaignId: string | number): Prom
 // Contexto para la IA: RESPUESTAS reales de los leads en Smartlead
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** Quita HTML/citas y comprime espacios de un cuerpo de email. */
+/** Quita HTML, CSS de Office (VML), decodifica entidades, citas y comprime espacios. */
 function cleanBody(html: string): string {
   return String(html || "")
     .replace(/<style[\s\S]*?<\/style>/gi, " ")
+    .replace(/<script[\s\S]*?<\/script>/gi, " ")
+    .replace(/[a-z]+\\?:\*\s*\{[^}]*\}/gi, " ")   // reglas VML tipo  v\:* {behavior:...}
+    .replace(/\{[^}]{0,160}\}/g, " ")             // bloques css sueltos
     .replace(/<[^>]+>/g, " ")
+    // decodificar entidades numéricas (hex y decimal) — p.ej. autorespuestas en japonés
+    .replace(/&#x([0-9a-f]+);/gi, (_, h) => { try { return String.fromCodePoint(parseInt(h, 16)); } catch { return " "; } })
+    .replace(/&#(\d+);/g, (_, d) => { try { return String.fromCodePoint(parseInt(d, 10)); } catch { return " "; } })
     .replace(/&nbsp;/gi, " ")
-    .replace(/&amp;/gi, "&").replace(/&lt;/gi, "<").replace(/&gt;/gi, ">")
+    .replace(/&amp;/gi, "&").replace(/&lt;/gi, "<").replace(/&gt;/gi, ">").replace(/&quot;/gi, '"').replace(/&#39;|&apos;/gi, "'")
     .replace(/^\s*>.*$/gm, " ")          // líneas citadas
     .replace(/\s+/g, " ")
     .trim();
 }
 
-/** ¿Este lead parece haber RESPONDIDO? (tolerante a nombres de campo/anidamiento) */
-function looksReplied(lead: any): boolean {
-  const queue: any[] = [lead];
-  while (queue.length) {
-    const o = queue.shift();
-    if (o == null || typeof o !== "object") continue;
-    if (Array.isArray(o)) { for (const x of o) queue.push(x); continue; }
-    for (const [k, v] of Object.entries(o)) {
-      const key = k.toLowerCase();
-      if (/repl/.test(key)) {
-        if (typeof v === "string" && v.trim() && v !== "0") return true;   // reply_time, last_reply_time…
-        if (typeof v === "number" && v > 0) return true;                    // reply_count…
-        if (v === true) return true;                                        // is_replied…
-      }
-      if (/(category|status|sub_?status|sentiment)/.test(key) && typeof v === "string" && /repl|interest|meeting|positive/i.test(v)) return true;
-      if (v && typeof v === "object") queue.push(v);
-    }
-  }
-  return false;
+/** Extrae la dirección de email de un campo "Nombre <a@b.com>". */
+function emailAddr(s: string): string {
+  const m = String(s || "").match(/[^\s<>"]+@[^\s<>"]+/);
+  return m ? m[0].toLowerCase().replace(/[>,;.]+$/, "") : "";
+}
+
+/** ¿Es un rebote o una autorespuesta (fuera de oficina, buzón automático…)? Multilingüe. */
+function isAutoOrBounce(from: string, body: string): boolean {
+  const f = from.toLowerCase();
+  if (/mailer-daemon|postmaster|no-?reply|do-?not-?reply|donotreply|mail\s*delivery|delivery\s*subsystem|bounce/.test(f)) return true;
+  const b = body.toLowerCase();
+  return (
+    /could not be delivered|delivery (has )?failed|undeliverable|address (could not|not found|not be reached)|mail delivery failed|delivery status notification/.test(b) ||
+    /no se pudo entregar|no ha sido entregado|mensaje rechazado/.test(b) ||
+    /out of office|automatic reply|auto[-\s]?reply|automated (response|reply|message)|on vacation|away from|do not monitor|is not monitored/.test(b) ||
+    /fuera de (la )?oficina|correo (electrónico )?autom[aá]tico|respuesta autom[aá]tica|mensaje autom[aá]tico|no recibe respuestas|de vacaciones|estar[eé] ausente|me encuentro ausente/.test(b) ||
+    /自動返信|自動応答|无法投递|無法投遞|不在/.test(body)
+  );
 }
 
 /** Extrae el array de mensajes del historial (tolerante a la forma de la respuesta). */
@@ -189,15 +194,64 @@ function collectHistory(hist: any): any[] {
   return [];
 }
 
+/** De un historial, devuelve el texto de la RESPUESTA HUMANA real (from = email del
+ *  lead), excluyendo rebotes y autorespuestas. "" si no hay. */
+function humanReplyFromHistory(items: any[], leadEmail: string): string {
+  const le = String(leadEmail || "").toLowerCase();
+  const domain = le.split("@")[1] || "";
+  const replies = items.filter((i) => /repl|receiv|inbound/i.test(String(i?.type ?? i?.email_type ?? i?.direction ?? "")));
+  for (const rp of [...replies].reverse()) {   // la más reciente primero
+    const from = emailAddr(rp?.from ?? rp?.from_email ?? "");
+    const body = cleanBody(rp?.email_body ?? rp?.body ?? rp?.email_message ?? rp?.message ?? "");
+    if (!body || body.length < 10) continue;
+    const fromLead = !!le && (from === le || (!!domain && from.endsWith("@" + domain)));
+    if (!fromLead) continue;                    // los rebotes vienen de mailer-daemon@otro-dominio
+    if (isAutoOrBounce(from, body)) continue;
+    return body;
+  }
+  return "";
+}
+
+// Cache de categorías (id → sentiment) durante el proceso.
+let _catCache: { positive: Set<number>; neutral: Set<number> } | null = null;
+async function loadReplyCategories(key: string): Promise<{ positive: Set<number>; neutral: Set<number> }> {
+  if (_catCache) return _catCache;
+  try {
+    const cats = await slGet("/leads/fetch-categories", key);
+    const arr = Array.isArray(cats) ? cats : (cats?.data ?? []);
+    const positive = new Set<number>(), neutral = new Set<number>();
+    for (const c of arr) {
+      const id = Number(c?.id);
+      const s = String(c?.sentiment_type ?? "").toLowerCase();
+      const name = String(c?.name ?? "").toLowerCase();
+      if (!Number.isFinite(id)) continue;
+      if (s === "positive") positive.add(id);
+      // "Uncategorizable" = respuesta humana de sentimiento desconocido (pool neutro útil)
+      else if (/uncategoriz/.test(name)) neutral.add(id);
+    }
+    if (positive.size || neutral.size) { _catCache = { positive, neutral }; return _catCache; }
+  } catch { /* usar defaults */ }
+  _catCache = { positive: new Set([1, 2, 5]), neutral: new Set([8]) };
+  return _catCache;
+}
+
 /**
- * Devuelve fragmentos de RESPUESTAS reales de los leads del cliente en Smartlead,
- * como contexto para la IA (nunca se citan literales). Acotado para no disparar
- * cientos de llamadas: prioriza leads que respondieron y limita el presupuesto.
+ * Fragmentos de RESPUESTAS HUMANAS REALES de los leads del cliente en Smartlead,
+ * como contexto para la IA (nunca se citan literales; solo dan color al análisis).
+ *
+ * Solo considera leads con categoría POSITIVA (Interested / Meeting Request /
+ * Information Request) o "Uncategorizable" — NUNCA negativas (Not Interested / Do
+ * Not Contact), fuera-de-oficina, wrong-person ni rebotes. Además filtra rebotes y
+ * autorespuestas a nivel de mensaje. Si no hay ninguna respuesta positiva, devuelve
+ * "" y la IA redacta el análisis solo con las métricas (siempre en positivo).
+ *
+ * Coste acotado: solo abre el historial de leads con categoría útil, con presupuesto
+ * de páginas e historiales.
  */
 export async function getClientReplyContext(
   clientId: string | number,
   campaignIds?: Array<string | number>,
-  maxSnippets = 6
+  maxSnippets = 5
 ): Promise<string> {
   const { api_key } = await getSmartleadSettings();
   if (!api_key) return "";
@@ -206,30 +260,44 @@ export async function getClientReplyContext(
     const set = new Set(campaignIds.map((x) => String(x)));
     camps = camps.filter((c) => set.has(String(c.id)));
   }
+  const { positive, neutral } = await loadReplyCategories(api_key);
+  const wanted = new Set<number>([...positive, ...neutral]);
+  if (wanted.size === 0) return "";
+
   const snippets: string[] = [];
-  let leadBudget = 20; // máx. historiales a abrir en total (coste acotado)
+  let pageBudget = 15;   // máx. páginas de leads a escanear en total (100 leads/página)
+  let histBudget = 10;   // máx. historiales a abrir en total
+
   for (const c of camps) {
-    if (snippets.length >= maxSnippets || leadBudget <= 0) break;
-    let leads: any[] = [];
-    try {
-      const data = await slGet(`/campaigns/${c.id}/leads?offset=0&limit=100`, api_key);
-      const arr = Array.isArray(data) ? data : (data?.data ?? data?.leads ?? []);
-      leads = Array.isArray(arr) ? arr : [];
-    } catch { continue; }
-    // Preferir los que parecen haber respondido; si no detectamos ninguno, no gastar presupuesto a ciegas
-    const replied = leads.filter(looksReplied);
-    const pool = replied.length ? replied : [];
-    for (const l of pool) {
-      if (snippets.length >= maxSnippets || leadBudget <= 0) break;
-      const leadId = l.id ?? l.lead_id ?? l.lead?.id ?? l.lead?.lead_id ?? l.campaign_lead_map?.lead_id;
-      if (!leadId) continue;
-      leadBudget--;
+    if (snippets.length >= maxSnippets || histBudget <= 0 || pageBudget <= 0) break;
+    // 1) Recolectar candidatos con categoría útil (positiva/neutra) escaneando páginas.
+    const candidates: Array<{ leadId: string | number; email: string; positive: boolean }> = [];
+    for (let off = 0; pageBudget > 0 && candidates.length < histBudget; off += 100) {
+      pageBudget--;
+      let arr: any[] = [];
       try {
-        const hist = await slGet(`/campaigns/${c.id}/leads/${leadId}/message-history`, api_key);
-        const items = collectHistory(hist);
-        const reply = [...items].reverse().find((it) => /repl|receiv|inbound/i.test(String(it?.type ?? it?.email_type ?? it?.direction ?? "")));
-        const body = cleanBody(reply?.email_body ?? reply?.body ?? reply?.email_message ?? reply?.message ?? "");
-        if (body && body.length > 8) snippets.push(`- ${body.slice(0, 200)}`);
+        const data = await slGet(`/campaigns/${c.id}/leads?offset=${off}&limit=100`, api_key);
+        arr = Array.isArray(data) ? data : (data?.data ?? data?.leads ?? []);
+      } catch { break; }
+      if (!Array.isArray(arr) || arr.length === 0) break;
+      for (const l of arr) {
+        const cat = Number(l?.lead_category_id);
+        if (!Number.isFinite(cat) || !wanted.has(cat)) continue;
+        const leadId = l?.lead?.id ?? l?.lead_id ?? l?.id;
+        const email = l?.lead?.email ?? l?.email ?? "";
+        if (leadId) candidates.push({ leadId, email, positive: positive.has(cat) });
+      }
+    }
+    // Priorizar las categorías positivas antes que las neutras.
+    candidates.sort((a, b) => Number(b.positive) - Number(a.positive));
+    // 2) Abrir el historial de cada candidato y quedarse con la respuesta humana real.
+    for (const cand of candidates) {
+      if (snippets.length >= maxSnippets || histBudget <= 0) break;
+      histBudget--;
+      try {
+        const hist = await slGet(`/campaigns/${c.id}/leads/${cand.leadId}/message-history`, api_key);
+        const body = humanReplyFromHistory(collectHistory(hist), cand.email);
+        if (body) snippets.push(`- ${body.slice(0, 220)}`);
       } catch { /* seguir con el siguiente */ }
     }
   }

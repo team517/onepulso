@@ -15,6 +15,7 @@ import { randomUUID } from "crypto";
 import { readJson, writeJson, deleteJson, listKeys } from "./storage";
 import { getClientAnalytics, listClients, type CampaignStats } from "./smartlead";
 import { sendEmail } from "./email-send";
+import { generateText } from "./ai-providers";
 
 const CFG_PREFIX = "client-report-config/";
 
@@ -82,9 +83,43 @@ function pct(part: number, whole: number): string {
   return `${Math.round((part / whole) * 1000) / 10}%`;
 }
 
+/** La IA redacta un análisis profesional de las métricas para el cliente. */
+export async function generateReportAnalysis(clientName: string, stats: CampaignStats, campaigns: Array<{ name: string; stats: CampaignStats }>): Promise<string> {
+  const top = campaigns.slice(0, 10).map((c) => `- ${c.name}: ${c.stats.sent} env, ${c.stats.opens} aperturas, ${c.stats.replies} respuestas, ${c.stats.bounces} rebotes`).join("\n");
+  const prompt = `Cliente: ${clientName}
+
+TOTALES DEL PERÍODO:
+- Emails enviados: ${stats.sent}
+- Aperturas: ${stats.opens} (${pct(stats.opens, stats.sent)})
+- Respuestas: ${stats.replies} (${pct(stats.replies, stats.sent)})
+- Rebotes: ${stats.bounces} (${pct(stats.bounces, stats.sent)})
+
+CAMPAÑAS:
+${top || "(sin campañas)"}
+
+Escribe un análisis profesional para el cliente (3-4 párrafos cortos):
+1) Resumen del rendimiento del período.
+2) Qué está funcionando bien.
+3) Qué conviene mejorar (si el % de respuesta es bajo, si hay muchos rebotes, etc.).
+4) Recomendación concreta para el próximo período.
+Tono profesional y directo. Sin markdown, sin emojis, sin títulos. Español de España.`;
+  try {
+    const txt = await generateText({
+      system: "Eres analista senior de cold email B2B en una agencia. Redactas informes claros, honestos y accionables para el cliente final. Nada de florituras.",
+      prompt, maxTokens: 700, temperature: 0.5,
+    });
+    return (txt || "").replace(/```/g, "").trim();
+  } catch (e: any) {
+    console.warn("[client-reports] análisis IA no disponible:", e?.message);
+    // Fallback sin IA: resumen básico.
+    return `En el período se enviaron ${stats.sent.toLocaleString("es")} emails, con ${stats.opens.toLocaleString("es")} aperturas (${pct(stats.opens, stats.sent)}), ${stats.replies.toLocaleString("es")} respuestas (${pct(stats.replies, stats.sent)}) y ${stats.bounces.toLocaleString("es")} rebotes (${pct(stats.bounces, stats.sent)}).`;
+  }
+}
+
 export async function generateReportPDF(opts: {
   clientName: string;
   intro: string;
+  analysis: string;
   stats: CampaignStats;
   campaigns: Array<{ name: string; stats: CampaignStats }>;
   dateLabel: string;
@@ -96,27 +131,30 @@ export async function generateReportPDF(opts: {
     doc.on("end", () => resolve(Buffer.concat(chunks)));
     doc.on("error", reject);
 
-    const W = doc.page.width - 96; // ancho útil
+    const LEFT = 48;
+    const W = doc.page.width - 96;
     const purple = "#7c3aed", ink = "#0f172a", dim = "#64748b", line = "#e2e8f0";
+    const bottom = doc.page.height - 60;
+    const ensure = (need: number) => { if (doc.y + need > bottom) doc.addPage(); };
 
     // Cabecera con marca
-    doc.rect(48, 44, 34, 34).fill(purple);
-    doc.fillColor("#fff").fontSize(20).font("Helvetica-Bold").text("O", 48, 50, { width: 34, align: "center" });
+    doc.rect(LEFT, 44, 34, 34).fill(purple);
+    doc.fillColor("#fff").fontSize(20).font("Helvetica-Bold").text("O", LEFT, 50, { width: 34, align: "center" });
     doc.fillColor(ink).fontSize(18).font("Helvetica-Bold").text("Informe de campañas", 92, 46);
     doc.fillColor(dim).fontSize(10).font("Helvetica").text("onepulso · powered by Smartlead", 92, 68);
-    doc.moveTo(48, 92).lineTo(48 + W, 92).strokeColor(line).stroke();
+    doc.moveTo(LEFT, 92).lineTo(LEFT + W, 92).strokeColor(line).stroke();
 
-    // Cliente + fecha
-    doc.fillColor(ink).fontSize(15).font("Helvetica-Bold").text(opts.clientName, 48, 106);
-    doc.fillColor(dim).fontSize(10).font("Helvetica").text(opts.dateLabel, 48, 126);
+    doc.fillColor(ink).fontSize(15).font("Helvetica-Bold").text(opts.clientName, LEFT, 106);
+    doc.fillColor(dim).fontSize(10).font("Helvetica").text(opts.dateLabel, LEFT, 126);
 
-    // Intro
+    let cursor = 150;
     if (opts.intro?.trim()) {
-      doc.fillColor("#334155").fontSize(11).font("Helvetica").text(opts.intro.trim(), 48, 150, { width: W });
+      doc.fillColor("#334155").fontSize(11).font("Helvetica").text(opts.intro.trim(), LEFT, cursor, { width: W });
+      cursor = doc.y + 14;
     }
 
     // KPIs (4 cajas)
-    const kpiY = 200;
+    const kpiY = cursor;
     const boxW = (W - 3 * 12) / 4;
     const s = opts.stats;
     const kpis = [
@@ -126,18 +164,28 @@ export async function generateReportPDF(opts: {
       { label: "Rebotes", value: s.bounces.toLocaleString("es"), sub: pct(s.bounces, s.sent) },
     ];
     kpis.forEach((k, i) => {
-      const x = 48 + i * (boxW + 12);
+      const x = LEFT + i * (boxW + 12);
       doc.roundedRect(x, kpiY, boxW, 74, 10).fillAndStroke("#f8fafc", line);
       doc.fillColor(dim).fontSize(9).font("Helvetica").text(k.label.toUpperCase(), x + 12, kpiY + 12, { width: boxW - 24 });
-      doc.fillColor(ink).fontSize(22).font("Helvetica-Bold").text(k.value, x + 12, kpiY + 28, { width: boxW - 24 });
+      doc.fillColor(ink).fontSize(21).font("Helvetica-Bold").text(k.value, x + 12, kpiY + 28, { width: boxW - 24 });
       if (k.sub) doc.fillColor(purple).fontSize(10).font("Helvetica-Bold").text(k.sub, x + 12, kpiY + 54, { width: boxW - 24 });
     });
+    doc.y = kpiY + 74 + 24;
+
+    // Análisis (IA) — texto fluido, salta de página solo si hace falta.
+    if (opts.analysis?.trim()) {
+      doc.x = LEFT;
+      doc.fillColor(ink).fontSize(13).font("Helvetica-Bold").text("Análisis", LEFT, doc.y);
+      doc.moveDown(0.4);
+      doc.fillColor("#334155").fontSize(10.5).font("Helvetica").text(opts.analysis.trim(), LEFT, doc.y, { width: W, align: "justify", lineGap: 2 });
+      doc.y = doc.y + 18;
+    }
 
     // Tabla de campañas
-    let y = kpiY + 100;
-    doc.fillColor(ink).fontSize(13).font("Helvetica-Bold").text("Detalle por campaña", 48, y);
-    y += 24;
-    // Cabecera tabla
+    ensure(70);
+    doc.x = LEFT;
+    doc.fillColor(ink).fontSize(13).font("Helvetica-Bold").text("Detalle por campaña", LEFT, doc.y);
+    let y = doc.y + 8;
     const cols = [
       { t: "Campaña", w: W * 0.40 },
       { t: "Enviados", w: W * 0.15 },
@@ -145,18 +193,18 @@ export async function generateReportPDF(opts: {
       { t: "Respuestas", w: W * 0.15 },
       { t: "Rebotes", w: W * 0.15 },
     ];
-    let x = 48;
+    let x = LEFT;
     doc.fontSize(9).font("Helvetica-Bold").fillColor(dim);
     cols.forEach((c) => { doc.text(c.t.toUpperCase(), x, y, { width: c.w }); x += c.w; });
     y += 16;
-    doc.moveTo(48, y).lineTo(48 + W, y).strokeColor(line).stroke();
+    doc.moveTo(LEFT, y).lineTo(LEFT + W, y).strokeColor(line).stroke();
     y += 6;
 
     doc.font("Helvetica").fontSize(10);
     const rows = opts.campaigns.length ? opts.campaigns : [{ name: "(sin campañas)", stats: { sent: 0, opens: 0, replies: 0, bounces: 0, clicks: 0, total: 0 } }];
     for (const r of rows) {
-      if (y > doc.page.height - 80) { doc.addPage(); y = 60; }
-      x = 48;
+      if (y > bottom - 20) { doc.addPage(); y = 60; }
+      x = LEFT;
       const cells = [r.name, r.stats.sent.toLocaleString("es"), r.stats.opens.toLocaleString("es"), r.stats.replies.toLocaleString("es"), r.stats.bounces.toLocaleString("es")];
       cells.forEach((cell, ci) => {
         doc.fillColor(ci === 0 ? ink : "#334155").text(String(cell), x, y, { width: cols[ci].w, ellipsis: true });
@@ -168,7 +216,7 @@ export async function generateReportPDF(opts: {
     // Pie
     doc.fillColor(dim).fontSize(8).font("Helvetica").text(
       `Generado automáticamente el ${new Date().toLocaleString("es")} · onepulso`,
-      48, doc.page.height - 60, { width: W, align: "center" }
+      LEFT, doc.page.height - 40, { width: W, align: "center" }
     );
 
     doc.end();
@@ -182,7 +230,8 @@ export async function buildReportForClient(clientId: string, clientName: string,
   const { stats, campaigns } = await getClientAnalytics(clientId, campaignIds);
   const now = new Date();
   const dateLabel = `Período hasta ${now.toLocaleDateString("es", { day: "numeric", month: "long", year: "numeric" })}`;
-  return generateReportPDF({ clientName, intro, stats, campaigns, dateLabel });
+  const analysis = await generateReportAnalysis(clientName, stats, campaigns);
+  return generateReportPDF({ clientName, intro, analysis, stats, campaigns, dateLabel });
 }
 
 /** Genera el PDF y lo envía por email.

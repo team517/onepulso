@@ -157,135 +157,167 @@ export async function generateReportPDF(opts: {
   logo?: { buf: Buffer; mime: string } | null;
 }): Promise<Buffer> {
   return new Promise<Buffer>((resolve, reject) => {
-    const doc = new PDFDocument({ size: "A4", margin: 48 });
+    const doc = new PDFDocument({ size: "A4", margin: 42 });
     const chunks: Buffer[] = [];
     doc.on("data", (c: Buffer) => chunks.push(c));
     doc.on("end", () => resolve(Buffer.concat(chunks)));
     doc.on("error", reject);
 
-    const LEFT = 48;
-    const W = doc.page.width - 96;
-    const purple = "#7c3aed", ink = "#0f172a", dim = "#64748b", line = "#e2e8f0";
-    const green = "#10b981", blue = "#3b82f6";
-    const bottom = doc.page.height - 60;
-    const ensure = (need: number) => { if (doc.y + need > bottom) doc.addPage(); };
-
-    // Cabecera con LOGO (si hay) o marca "O"
-    if (opts.logo?.buf) {
-      try { doc.image(opts.logo.buf, LEFT, 42, { fit: [40, 40] }); }
-      catch { doc.rect(LEFT, 44, 34, 34).fill(purple); doc.fillColor("#fff").fontSize(20).font("Helvetica-Bold").text("O", LEFT, 50, { width: 34, align: "center" }); }
-    } else {
-      doc.rect(LEFT, 44, 34, 34).fill(purple);
-      doc.fillColor("#fff").fontSize(20).font("Helvetica-Bold").text("O", LEFT, 50, { width: 34, align: "center" });
-    }
-    doc.fillColor(ink).fontSize(18).font("Helvetica-Bold").text("Informe de campañas", 96, 46);
-    doc.fillColor(dim).fontSize(10).font("Helvetica").text("Resultados y evolución del período", 96, 68);
-    doc.moveTo(LEFT, 92).lineTo(LEFT + W, 92).strokeColor(line).stroke();
-
-    doc.fillColor(ink).fontSize(15).font("Helvetica-Bold").text(opts.clientName, LEFT, 106);
-    doc.fillColor(dim).fontSize(10).font("Helvetica").text(opts.dateLabel, LEFT, 126);
-
-    let cursor = 150;
-    if (opts.intro?.trim()) {
-      doc.fillColor("#334155").fontSize(11).font("Helvetica").text(opts.intro.trim(), LEFT, cursor, { width: W });
-      cursor = doc.y + 14;
-    }
-
-    // KPIs POSITIVOS (sin rebotes) — 4 cajas
-    const kpiY = cursor;
-    const boxW = (W - 3 * 12) / 4;
+    const PW = doc.page.width, PH = doc.page.height;
+    const LEFT = 42, W = PW - 84;
+    const ink = "#0f172a", dim = "#64748b", line = "#e6e9ef", soft = "#f4f6fa";
+    const purple = "#7c3aed", blue = "#3b82f6", green = "#10b981", teal = "#14b8a6";
+    const bottom = PH - 54;
     const s = opts.stats;
-    const kpis = [
-      { label: "Emails enviados", value: s.sent.toLocaleString("es"), sub: "alcance" },
-      { label: "Aperturas", value: s.opens.toLocaleString("es"), sub: pct(s.opens, s.sent) },
-      { label: "Respuestas", value: s.replies.toLocaleString("es"), sub: pct(s.replies, s.sent) },
-      { label: "Tasa de respuesta", value: pct(s.replies, s.sent), sub: "del total" },
-    ];
-    kpis.forEach((k, i) => {
-      const x = LEFT + i * (boxW + 12);
-      doc.roundedRect(x, kpiY, boxW, 74, 10).fillAndStroke("#f8fafc", line);
-      doc.fillColor(dim).fontSize(8.5).font("Helvetica").text(k.label.toUpperCase(), x + 10, kpiY + 12, { width: boxW - 20 });
-      doc.fillColor(ink).fontSize(20).font("Helvetica-Bold").text(k.value, x + 10, kpiY + 28, { width: boxW - 20 });
-      doc.fillColor(purple).fontSize(9.5).font("Helvetica-Bold").text(k.sub, x + 10, kpiY + 55, { width: boxW - 20 });
-    });
-    doc.y = kpiY + 74 + 26;
+    const rate = s.sent ? s.replies / s.sent : 0;
+    const openRate = s.sent ? s.opens / s.sent : 0;
 
-    // GRÁFICO: aperturas y respuestas por campaña (barras horizontales)
+    const drawDonut = (cx: number, cy: number, r: number, th: number, p01: number, color: string, centerText: string) => {
+      doc.save();
+      doc.lineWidth(th).circle(cx, cy, r).stroke("#e9ecf3");
+      const p = Math.max(0, Math.min(1, p01));
+      if (p > 0.001) {
+        const a0 = -Math.PI / 2, a1 = a0 + p * 2 * Math.PI;
+        const sx = cx + r * Math.cos(a0), sy = cy + r * Math.sin(a0);
+        const ex = cx + r * Math.cos(a1), ey = cy + r * Math.sin(a1);
+        const large = p > 0.5 ? 1 : 0;
+        doc.path(`M ${sx} ${sy} A ${r} ${r} 0 ${large} 1 ${ex} ${ey}`).lineWidth(th).lineCap("round").stroke(color);
+      }
+      doc.restore();
+      doc.fillColor(ink).font("Helvetica-Bold").fontSize(11).text(centerText, cx - r, cy - 6, { width: r * 2, align: "center" });
+    };
+
+    // ── CABECERA con banda de gradiente (full-bleed) ──
+    const grad = doc.linearGradient(0, 0, PW, 0);
+    grad.stop(0, "#6d28d9").stop(1, "#a855f7");
+    doc.rect(0, 0, PW, 110).fill(grad);
+    // Logo sobre cuadro blanco
+    doc.roundedRect(LEFT, 30, 50, 50, 12).fill("#ffffff");
+    if (opts.logo?.buf) {
+      try { doc.image(opts.logo.buf, LEFT + 5, 35, { fit: [40, 40] }); }
+      catch { doc.fillColor(purple).fontSize(26).font("Helvetica-Bold").text("O", LEFT, 42, { width: 50, align: "center" }); }
+    } else {
+      doc.fillColor(purple).fontSize(26).font("Helvetica-Bold").text("O", LEFT, 42, { width: 50, align: "center" });
+    }
+    doc.fillColor("#ffffff").fontSize(19).font("Helvetica-Bold").text("Informe de campañas", LEFT + 62, 40);
+    doc.fillColor("#ede9fe").fontSize(10).font("Helvetica").text("Resultados y evolución del período", LEFT + 62, 66);
+    // Cliente + fecha a la derecha
+    doc.fillColor("#ffffff").fontSize(13).font("Helvetica-Bold").text(opts.clientName, LEFT, 42, { width: W, align: "right" });
+    doc.fillColor("#ddd6fe").fontSize(9.5).font("Helvetica").text(opts.dateLabel, LEFT, 62, { width: W, align: "right" });
+
+    let cy = 128;
+    if (opts.intro?.trim()) {
+      doc.fillColor("#475569").fontSize(10.5).font("Helvetica").text(opts.intro.trim(), LEFT, cy, { width: W, lineGap: 1 });
+      cy = doc.y + 12;
+    }
+
+    // ── KPI cards: 3 números + 1 donut ──
+    const gap = 12, boxW = (W - 3 * gap) / 4, boxH = 82;
+    const cardsY = cy;
+    const numCards = [
+      { label: "Emails enviados", value: s.sent.toLocaleString("es"), accent: blue },
+      { label: "Aperturas", value: s.opens.toLocaleString("es"), accent: teal, extra: pct(s.opens, s.sent) },
+      { label: "Respuestas", value: s.replies.toLocaleString("es"), accent: green, extra: pct(s.replies, s.sent) },
+    ];
+    numCards.forEach((k, i) => {
+      const x = LEFT + i * (boxW + gap);
+      doc.roundedRect(x, cardsY, boxW, boxH, 12).fillAndStroke("#ffffff", line);
+      doc.roundedRect(x, cardsY, boxW, 4, 2).fill(k.accent);
+      doc.fillColor(dim).fontSize(8).font("Helvetica-Bold").text(k.label.toUpperCase(), x + 12, cardsY + 14, { width: boxW - 24 });
+      doc.fillColor(ink).fontSize(23).font("Helvetica-Bold").text(k.value, x + 12, cardsY + 30, { width: boxW - 24 });
+      if (k.extra) doc.fillColor(k.accent).fontSize(10).font("Helvetica-Bold").text(k.extra, x + 12, cardsY + 60, { width: boxW - 24 });
+    });
+    // Card donut (tasa de respuesta)
+    const dx = LEFT + 3 * (boxW + gap);
+    doc.roundedRect(dx, cardsY, boxW, boxH, 12).fillAndStroke("#ffffff", line);
+    doc.roundedRect(dx, cardsY, boxW, 4, 2).fill(purple);
+    doc.fillColor(dim).fontSize(8).font("Helvetica-Bold").text("TASA RESPUESTA", dx + 12, cardsY + 12, { width: boxW - 24 });
+    drawDonut(dx + boxW / 2, cardsY + 50, 17, 6, rate, purple, pct(s.replies, s.sent));
+    doc.y = cardsY + boxH + 22;
+
+    // ── GRÁFICO: barras por campaña (con track de fondo) ──
     const chartCamps = [...opts.campaigns].sort((a, b) => b.stats.sent - a.stats.sent).slice(0, 6);
     if (chartCamps.length > 0) {
-      ensure(40 + chartCamps.length * 34);
-      doc.x = LEFT;
+      if (doc.y + 40 + chartCamps.length * 32 > bottom) doc.addPage();
       doc.fillColor(ink).fontSize(13).font("Helvetica-Bold").text("Rendimiento por campaña", LEFT, doc.y);
-      // Leyenda
-      let ly = doc.y + 6;
-      doc.rect(LEFT, ly + 2, 9, 9).fill(blue); doc.fillColor(dim).fontSize(9).font("Helvetica").text("Aperturas", LEFT + 14, ly);
-      doc.rect(LEFT + 90, ly + 2, 9, 9).fill(green); doc.fillColor(dim).fontSize(9).text("Respuestas", LEFT + 104, ly);
-      let cy = ly + 22;
-      const labelW = W * 0.32, barMaxW = W - labelW - 60;
+      let ly = doc.y + 4;
+      doc.roundedRect(LEFT, ly + 2, 9, 9, 2).fill(teal); doc.fillColor(dim).fontSize(9).font("Helvetica").text("Aperturas", LEFT + 14, ly);
+      doc.roundedRect(LEFT + 92, ly + 2, 9, 9, 2).fill(green); doc.fillColor(dim).fontSize(9).text("Respuestas", LEFT + 106, ly);
+      let by = ly + 22;
+      const labelW = W * 0.30, barMaxW = W - labelW - 62;
       const maxVal = Math.max(1, ...chartCamps.map((c) => c.stats.opens));
       for (const c of chartCamps) {
-        if (cy > bottom - 40) { doc.addPage(); cy = 60; }
-        doc.fillColor(ink).fontSize(9).font("Helvetica").text(c.name, LEFT, cy, { width: labelW - 8, ellipsis: true, height: 12 });
-        const ow = Math.max(2, (c.stats.opens / maxVal) * barMaxW);
-        const rw = Math.max(1, (c.stats.replies / maxVal) * barMaxW);
-        doc.roundedRect(LEFT + labelW, cy, ow, 8, 3).fill(blue);
-        doc.roundedRect(LEFT + labelW, cy + 12, rw, 8, 3).fill(green);
-        doc.fillColor(dim).fontSize(8).font("Helvetica").text(`${c.stats.opens} · ${pct(c.stats.opens, c.stats.sent)}`, LEFT + labelW + ow + 4, cy - 1);
-        doc.fillColor(dim).fontSize(8).text(`${c.stats.replies} · ${pct(c.stats.replies, c.stats.sent)}`, LEFT + labelW + rw + 4, cy + 11);
-        cy += 34;
+        if (by > bottom - 34) { doc.addPage(); by = 56; }
+        doc.fillColor(ink).fontSize(9).font("Helvetica").text(c.name, LEFT, by + 3, { width: labelW - 8, ellipsis: true, height: 14 });
+        const bx = LEFT + labelW;
+        const ow = Math.max(3, (c.stats.opens / maxVal) * barMaxW);
+        const rw = Math.max(2, (c.stats.replies / maxVal) * barMaxW);
+        // track + barras
+        doc.roundedRect(bx, by, barMaxW, 8, 4).fill(soft);
+        doc.roundedRect(bx, by, ow, 8, 4).fill(teal);
+        doc.roundedRect(bx, by + 12, barMaxW, 8, 4).fill(soft);
+        doc.roundedRect(bx, by + 12, rw, 8, 4).fill(green);
+        doc.fillColor(dim).fontSize(8).font("Helvetica").text(pct(c.stats.opens, c.stats.sent), bx + barMaxW + 6, by - 1, { width: 48 });
+        doc.fillColor(dim).fontSize(8).text(pct(c.stats.replies, c.stats.sent), bx + barMaxW + 6, by + 11, { width: 48 });
+        by += 32;
       }
-      doc.y = cy + 6;
+      doc.y = by + 4;
     }
 
-    // Análisis (IA) — texto fluido positivo.
+    // ── Análisis (IA) en tarjeta con acento ──
     if (opts.analysis?.trim()) {
-      ensure(60);
-      doc.x = LEFT;
-      doc.fillColor(ink).fontSize(13).font("Helvetica-Bold").text("Análisis del período", LEFT, doc.y);
-      doc.moveDown(0.4);
-      doc.fillColor("#334155").fontSize(10.5).font("Helvetica").text(opts.analysis.trim(), LEFT, doc.y, { width: W, align: "justify", lineGap: 2 });
-      doc.y = doc.y + 18;
+      const text = opts.analysis.trim();
+      doc.fontSize(10.5).font("Helvetica");
+      const th = doc.heightOfString(text, { width: W - 34, lineGap: 2 });
+      const cardH = th + 42;
+      if (doc.y + cardH > bottom) doc.addPage();
+      const ay = doc.y;
+      doc.roundedRect(LEFT, ay, W, cardH, 10).fillAndStroke("#faf5ff", "#efe6fd");
+      doc.roundedRect(LEFT, ay, 4, cardH, 2).fill(purple);
+      doc.fillColor(purple).fontSize(12).font("Helvetica-Bold").text("Análisis del período", LEFT + 16, ay + 12);
+      doc.fillColor("#334155").fontSize(10.5).font("Helvetica").text(text, LEFT + 16, ay + 30, { width: W - 34, align: "justify", lineGap: 2 });
+      doc.y = ay + cardH + 18;
     }
 
-    // Tabla por campaña (sin rebotes)
-    ensure(70);
-    doc.x = LEFT;
+    // ── Tabla con cabecera y filas alternas ──
+    if (doc.y + 60 > bottom) doc.addPage();
     doc.fillColor(ink).fontSize(13).font("Helvetica-Bold").text("Detalle por campaña", LEFT, doc.y);
     let y = doc.y + 8;
     const cols = [
-      { t: "Campaña", w: W * 0.40 },
-      { t: "Enviados", w: W * 0.18 },
-      { t: "Aperturas", w: W * 0.21 },
-      { t: "Respuestas", w: W * 0.21 },
+      { t: "Campaña", w: W * 0.42, a: "left" as const },
+      { t: "Enviados", w: W * 0.18, a: "right" as const },
+      { t: "Aperturas", w: W * 0.20, a: "right" as const },
+      { t: "Respuestas", w: W * 0.20, a: "right" as const },
     ];
-    let x = LEFT;
-    doc.fontSize(9).font("Helvetica-Bold").fillColor(dim);
-    cols.forEach((c) => { doc.text(c.t.toUpperCase(), x, y, { width: c.w }); x += c.w; });
-    y += 16;
-    doc.moveTo(LEFT, y).lineTo(LEFT + W, y).strokeColor(line).stroke();
-    y += 6;
+    doc.roundedRect(LEFT, y, W, 22, 5).fill(soft);
+    let x = LEFT + 10;
+    doc.fontSize(8.5).font("Helvetica-Bold").fillColor(dim);
+    cols.forEach((c) => { doc.text(c.t.toUpperCase(), x, y + 7, { width: c.w - 12, align: c.a }); x += c.w; });
+    y += 24;
 
-    doc.font("Helvetica").fontSize(10);
     const rows = opts.campaigns.length ? opts.campaigns : [{ name: "(sin campañas)", stats: { sent: 0, opens: 0, replies: 0, bounces: 0, clicks: 0, total: 0 } }];
-    for (const r of rows) {
-      if (y > bottom - 20) { doc.addPage(); y = 60; }
-      x = LEFT;
+    rows.forEach((r, ri) => {
+      if (y > bottom - 22) { doc.addPage(); y = 56; }
+      if (ri % 2 === 1) doc.roundedRect(LEFT, y - 4, W, 22, 4).fill("#fafbfd");
+      x = LEFT + 10;
       const cells = [
         r.name,
         r.stats.sent.toLocaleString("es"),
-        `${r.stats.opens.toLocaleString("es")} (${pct(r.stats.opens, r.stats.sent)})`,
-        `${r.stats.replies.toLocaleString("es")} (${pct(r.stats.replies, r.stats.sent)})`,
+        `${r.stats.opens.toLocaleString("es")} · ${pct(r.stats.opens, r.stats.sent)}`,
+        `${r.stats.replies.toLocaleString("es")} · ${pct(r.stats.replies, r.stats.sent)}`,
       ];
+      doc.font("Helvetica").fontSize(9.5);
       cells.forEach((cell, ci) => {
-        doc.fillColor(ci === 0 ? ink : "#334155").text(String(cell), x, y, { width: cols[ci].w, ellipsis: true });
+        doc.fillColor(ci === 0 ? ink : "#475569").font(ci === 0 ? "Helvetica-Bold" : "Helvetica").text(String(cell), x, y, { width: cols[ci].w - 12, align: cols[ci].a, ellipsis: true });
         x += cols[ci].w;
       });
-      y += 20;
-    }
+      y += 22;
+    });
 
+    // Pie
     doc.fillColor(dim).fontSize(8).font("Helvetica").text(
       `Generado el ${new Date().toLocaleDateString("es")} · onepulso`,
-      LEFT, doc.page.height - 40, { width: W, align: "center" }
+      LEFT, PH - 36, { width: W, align: "center" }
     );
 
     doc.end();

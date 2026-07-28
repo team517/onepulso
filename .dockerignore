@@ -1,0 +1,38 @@
+# Excluye del contexto de build todo lo que NO hace falta para compilar.
+# Sin esto, "COPY . ." metía ~900 MB (node_modules 466M, .next 73M, .git 354M)
+# en cada implementación → CPU/IO desperdiciados y caché de Docker rota.
+
+# Dependencias: se reinstalan dentro de la imagen con npm ci
+node_modules
+
+# Artefactos de build: se regeneran
+.next
+out
+dist
+
+# Control de versiones e historial (enorme, no lo necesita el build)
+.git
+.gitignore
+.gitattributes
+
+# Logs y temporales
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Entornos de IDE / SO
+.vscode
+.idea
+.DS_Store
+Thumbs.db
+
+# Secretos locales (las env vars las inyecta EasyPanel en runtime)
+.env.local
+.env*.local
+
+# Basura del repo que no debe ir a la imagen
+scratchpad
+*.zip
+UNIBOX_CODIGO*
+README.md

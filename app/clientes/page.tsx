@@ -5,7 +5,7 @@ import DashboardNav from "../components/DashboardNav";
 type Cfg = {
   client_id: string; client_name: string; recipient_email: string;
   email_subject: string; email_body_html: string; pdf_intro: string;
-  enabled: boolean; interval_hours: number; campaign_ids?: string[]; last_sent_at?: string | null;
+  enabled: boolean; interval_hours: number; campaign_ids?: string[]; context_unibox_id?: string; last_sent_at?: string | null;
 };
 type Row = { client_id: string; client_name: string; email?: string; config: Cfg };
 
@@ -25,8 +25,29 @@ export default function ClientesPage() {
   const [testEmails, setTestEmails] = useState<Record<string, string>>({});
   const [campaignsByClient, setCampaignsByClient] = useState<Record<string, Array<{ id: string; name: string; status?: string }>>>({});
   const [loadingCamps, setLoadingCamps] = useState("");
+  const [logoInfo, setLogoInfo] = useState<{ has_logo: boolean } | null>(null);
+  const [uploadingLogo, setUploadingLogo] = useState(false);
+  const [uniboxes, setUniboxes] = useState<Array<{ id: string; title: string }>>([]);
 
   useEffect(() => { loadStatus(); }, []);
+
+  useEffect(() => {
+    if (!connected) return;
+    fetch("/api/clients/logo").then((r) => r.json()).then(setLogoInfo).catch(() => {});
+    fetch("/api/uniboxes").then((r) => r.json()).then((d) => setUniboxes(Array.isArray(d) ? d : (d.uniboxes || []))).catch(() => {});
+  }, [connected]);
+
+  async function uploadLogo(file: File) {
+    if (!file) return;
+    setUploadingLogo(true);
+    try {
+      const buf = await file.arrayBuffer();
+      const r = await fetch("/api/clients/logo", { method: "POST", headers: { "x-mime": file.type || "image/png" }, body: buf }).then((r) => r.json());
+      if (r.ok) { setLogoInfo({ has_logo: true }); flash("✓ Logo subido — saldrá en los informes"); }
+      else flash("⚠ " + (r.error || "No se pudo subir el logo"));
+    } catch (e: any) { flash("⚠ " + e.message); }
+    setUploadingLogo(false);
+  }
 
   // Al abrir el modal de un cliente, cargar sus campañas (para elegir cuáles incluir).
   useEffect(() => {
@@ -178,6 +199,10 @@ export default function ClientesPage() {
                   <span style={{ width: 8, height: 8, borderRadius: "50%", background: "#10b981" }} /> Smartlead conectado
                 </span>
                 <button onClick={loadClients} style={btnGhost}>↻ Refrescar</button>
+                <label style={{ ...btnGhost, cursor: "pointer", display: "inline-flex", alignItems: "center" }}>
+                  {uploadingLogo ? "Subiendo…" : logoInfo?.has_logo ? "🖼 Cambiar logo" : "🖼 Subir logo"}
+                  <input type="file" accept="image/png,image/jpeg" style={{ display: "none" }} onChange={(e) => e.target.files?.[0] && uploadLogo(e.target.files[0])} />
+                </label>
                 <button onClick={() => { setConnected(false); }} style={{ ...btnGhost, color: "#b91c1c" }}>Cambiar API key</button>
               </div>
 
@@ -281,6 +306,18 @@ export default function ClientesPage() {
                     </div>
                   );
                 })()}
+
+                {/* Unibox para contexto (opcional) */}
+                {uniboxes.length > 0 && (
+                  <div>
+                    <label style={lbl}>Unibox para contexto de la IA (opcional)</label>
+                    <select value={c.context_unibox_id || ""} onChange={(e) => edit(row.client_id, { context_unibox_id: e.target.value })} style={inp}>
+                      <option value="">— Ninguno —</option>
+                      {uniboxes.map((u) => <option key={u.id} value={u.id}>{u.title}</option>)}
+                    </select>
+                    <div style={{ fontSize: 10.5, color: "var(--text-dim)", marginTop: 4 }}>La IA leerá algunos mensajes recibidos de ese buzón para dar más contexto al análisis (en positivo).</div>
+                  </div>
+                )}
 
                 <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, cursor: "pointer" }}>
                   <input type="checkbox" checked={c.enabled} onChange={(e) => edit(row.client_id, { enabled: e.target.checked })} />

@@ -327,3 +327,94 @@ export async function getClientAnalytics(
   }
   return { stats: total, campaigns: perCampaign };
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Informe estilo "Últimas 48 horas": ventana por fechas + actividad diaria
+// ─────────────────────────────────────────────────────────────────────────────
+
+export type ReportCampaignRow = { name: string; contacted: number; sent: number; replies: number; interested: number };
+export type ClientReportData = {
+  totals: { contacted: number; sent: number; replies: number; interested: number; bounces: number; remaining: number; newContacted: number };
+  replyRate: number; // 0..1
+  perCampaign: ReportCampaignRow[];
+  daily: Array<{ label: string; sent: number; replies: number }>;
+};
+
+function ymd(d: Date): string { return d.toISOString().slice(0, 10); }
+function ddmm(d: Date): string {
+  return `${String(d.getUTCDate()).padStart(2, "0")}/${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
+}
+
+/**
+ * Datos para el informe estilo "Últimas 48 horas" de un cliente, con datos REALES
+ * de Smartlead por rango de fechas:
+ *  - ventana (últimos `windowDays` días): contactados (unique_sent), enviados,
+ *    respuestas, interesados (positive_reply_count), rebotes, restantes (drafted).
+ *  - actividad diaria de los últimos `dailyDays` días (enviados + respuestas/día).
+ * Todas las llamadas son tolerantes a fallo (por-campaña/por-día → 0).
+ */
+export async function getClientReport(
+  clientId: string | number,
+  campaignIds?: Array<string | number>,
+  opts: { windowDays?: number; dailyDays?: number } = {}
+): Promise<ClientReportData> {
+  const { api_key } = await getSmartleadSettings();
+  if (!api_key) throw new Error("Falta la API key de Smartlead.");
+  const windowDays = Math.max(1, opts.windowDays ?? 2);
+  const dailyDays = Math.max(1, opts.dailyDays ?? 7);
+
+  let camps = await listCampaigns(clientId);
+  if (campaignIds && campaignIds.length > 0) {
+    const set = new Set(campaignIds.map((x) => String(x)));
+    camps = camps.filter((c) => set.has(String(c.id)));
+  }
+
+  const today = new Date();
+  const end = ymd(today);
+  const winStart = ymd(new Date(today.getTime() - (windowDays - 1) * 86400000));
+
+  // Ventana por campaña (2 llamadas: analytics-by-date + top-level para interesados)
+  const rows = await Promise.all(camps.map(async (c) => {
+    const [byDate, top] = await Promise.all([
+      slGet(`/campaigns/${c.id}/analytics-by-date?start_date=${winStart}&end_date=${end}`, api_key).catch(() => null),
+      slGet(`/campaigns/${c.id}/top-level-analytics-by-date?start_date=${winStart}&end_date=${end}`, api_key).catch(() => null),
+    ]);
+    return {
+      id: c.id,
+      name: c.name,
+      contacted: num(byDate?.unique_sent_count ?? byDate?.sent_count ?? top?.sent_count),
+      sent: num(byDate?.sent_count ?? top?.sent_count),
+      replies: num(byDate?.reply_count ?? top?.reply_count),
+      bounces: num(byDate?.bounce_count ?? top?.bounce_count),
+      interested: num(top?.positive_reply_count),
+      remaining: num(byDate?.drafted_count),
+    };
+  }));
+
+  const totals = { contacted: 0, sent: 0, replies: 0, interested: 0, bounces: 0, remaining: 0, newContacted: 0 };
+  const perCampaign: ReportCampaignRow[] = [];
+  for (const r of rows) {
+    perCampaign.push({ name: r.name, contacted: r.contacted, sent: r.sent, replies: r.replies, interested: r.interested });
+    totals.contacted += r.contacted; totals.sent += r.sent; totals.replies += r.replies;
+    totals.bounces += r.bounces; totals.interested += r.interested; totals.remaining += r.remaining;
+  }
+  totals.newContacted = totals.contacted;
+  perCampaign.sort((a, b) => b.sent - a.sent);
+
+  // Actividad diaria (últimos dailyDays), sumando las campañas más activas.
+  const dayDates: Date[] = [];
+  for (let i = dailyDays - 1; i >= 0; i--) dayDates.push(new Date(today.getTime() - i * 86400000));
+  const dailyCampIds = [...rows].sort((a, b) => b.sent - a.sent).slice(0, 4).map((r) => r.id);
+  const daily = await Promise.all(dayDates.map(async (d) => {
+    const ds = ymd(d);
+    let sent = 0, replies = 0;
+    await Promise.all(dailyCampIds.map(async (cid) => {
+      const r = await slGet(`/campaigns/${cid}/analytics-by-date?start_date=${ds}&end_date=${ds}`, api_key).catch(() => null);
+      sent += num(r?.sent_count); replies += num(r?.reply_count);
+    }));
+    return { label: ddmm(d), sent, replies };
+  }));
+
+  const replyRate = totals.contacted ? totals.replies / totals.contacted : 0;
+  return { totals, replyRate, perCampaign, daily };
+}

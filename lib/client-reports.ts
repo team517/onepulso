@@ -1,11 +1,14 @@
 /**
  * Informes PDF por cliente (analíticas de Smartlead) + envío automático.
  *
+ * Estilo "Últimas 48 horas": cabecera violeta, tarjeta hero con tasa de respuesta,
+ * 6 KPIs (contactados, enviados, respuestas, interesados, rebotes, restantes),
+ * resumen ejecutivo + destacados (IA), y en pág. 2 actividad diaria, detalle por
+ * campaña, próximos pasos y qué mejorar (IA). Réplica del informe de OnePulso.
+ *
  * Config por cliente en kv `client-report-config/{clientId}`:
  *   recipient_email, email_subject, email_body_html, pdf_intro, enabled,
  *   interval_hours (def 48), last_sent_at, client_name.
- * Genera un PDF con pdfkit y lo envía por email (adjunto) con la cuenta
- * conectada en Seguimientos (sendEmail).
  */
 import PDFDocument from "pdfkit";
 import { promises as fs } from "fs";
@@ -13,7 +16,7 @@ import os from "os";
 import path from "path";
 import { randomUUID } from "crypto";
 import { readJson, writeJson, deleteJson, listKeys, readBlob } from "./storage";
-import { getClientAnalytics, getClientReplyContext, listClients, type CampaignStats } from "./smartlead";
+import { getClientReport, getClientReplyContext, listClients, type ClientReportData } from "./smartlead";
 import { sendEmail } from "./email-send";
 import { generateText } from "./ai-providers";
 
@@ -36,7 +39,7 @@ export type ReportConfig = {
   interval_hours: number;
   /** Campañas incluidas en el informe. Vacío/undefined = TODAS las del cliente. */
   campaign_ids?: string[];
-  /** Unibox del que la IA lee mensajes recientes para dar contexto (opcional). */
+  /** (Obsoleto) Unibox de contexto; ahora el contexto viene de Smartlead. */
   context_unibox_id?: string;
   last_sent_at?: string | null;
   updated_at: string;
@@ -47,9 +50,9 @@ function defaults(clientId: string, clientName: string): ReportConfig {
     client_id: clientId,
     client_name: clientName,
     recipient_email: "",
-    email_subject: `Informe de campañas — ${clientName}`,
-    email_body_html: `<p>Hola,</p><p>Te adjunto el informe de rendimiento de tus campañas de esta semana.</p><p>Cualquier duda, aquí estamos.</p><p>Un saludo</p>`,
-    pdf_intro: "Resumen de rendimiento de las campañas de cold email en el período.",
+    email_subject: `Informe de rendimiento — ${clientName}`,
+    email_body_html: `<p>Hola,</p><p>Te adjunto el informe de rendimiento de tus campañas de las últimas 48 horas.</p><p>Cualquier duda, aquí estamos.</p><p>Un saludo</p>`,
+    pdf_intro: "",
     enabled: false,
     interval_hours: 48,
     updated_at: new Date().toISOString(),
@@ -84,256 +87,317 @@ export async function deleteReportConfig(clientId: string): Promise<void> {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// PDF
+// Helpers de formato
 // ─────────────────────────────────────────────────────────────────────────────
-function pct(part: number, whole: number): string {
-  if (!whole) return "0%";
-  return `${Math.round((part / whole) * 1000) / 10}%`;
+function nf(n: number): string { return Number(n || 0).toLocaleString("es-ES"); }
+function ratePct(rate: number): string { return (Math.round((rate || 0) * 1000) / 10).toFixed(1) + "%"; }
+function pctOf(part: number, whole: number): string { return whole ? ratePct(part / whole) : "0.0%"; }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// IA: 4 secciones del informe (resumen, destacados, próximos pasos, mejoras)
+// ─────────────────────────────────────────────────────────────────────────────
+export type ReportSections = { summary: string; highlights: string[]; nextSteps: string[]; improvements: string[] };
+
+function fallbackSections(clientName: string, d: ClientReportData, periodLabel: string): ReportSections {
+  const t = d.totals;
+  return {
+    summary: `En ${periodLabel.toLowerCase()} hemos contactado a ${nf(t.contacted)} personas y enviado ${nf(t.sent)} correos, con ${nf(t.replies)} respuestas y una tasa de respuesta del ${ratePct(d.replyRate)}. Tenemos ${nf(t.remaining)} contactos restantes por delante, lo que nos da mucho recorrido para seguir optimizando y hacer crecer los resultados en los próximos envíos.`,
+    highlights: [
+      `Hemos contactado a ${nf(t.contacted)} personas nuevas en el periodo.`,
+      `Se han enviado ${nf(t.sent)} correos, situando la tasa de respuesta en el ${ratePct(d.replyRate)}.`,
+      `Tenemos ${nf(t.remaining)} contactos restantes por enviar, lo que nos permite iterar sin presión.`,
+    ],
+    nextSteps: [
+      "Revisar el asunto y el primer email para hacerlo más directo y personalizado.",
+      "Añadir una variante de mensaje con otro enfoque para testear cuál resuena mejor.",
+      "Incrementar el volumen de contactados para obtener datos más significativos.",
+    ],
+    improvements: [
+      "Optimizar el asunto para aumentar la apertura.",
+      "Reescribir el primer email centrándonos en un único problema con un CTA claro.",
+      "Activar un follow-up con contenido de valor para reactivar el interés.",
+    ],
+  };
 }
 
-/** La IA redacta un análisis profesional y POSITIVO de las métricas. */
-export async function generateReportAnalysis(
+/** La IA redacta las 4 secciones del informe en tono POSITIVO (estilo referencia). */
+export async function generateReportSections(
   clientName: string,
-  stats: CampaignStats,
-  campaigns: Array<{ name: string; stats: CampaignStats }>,
+  d: ClientReportData,
+  periodLabel: string,
   context?: string
-): Promise<string> {
-  // Por campaña, con sus % (las tratamos como "variantes" del período).
-  const top = campaigns.slice(0, 12).map((c) => {
-    const or = pct(c.stats.opens, c.stats.sent), rr = pct(c.stats.replies, c.stats.sent);
-    return `- ${c.name}: ${c.stats.sent} enviados · aperturas ${c.stats.opens} (${or}) · respuestas ${c.stats.replies} (${rr})`;
-  }).join("\n");
+): Promise<ReportSections> {
+  const t = d.totals;
+  const camps = d.perCampaign.slice(0, 12).map((c) =>
+    `- ${c.name}: ${nf(c.contacted)} contactados · ${nf(c.sent)} enviados · ${nf(c.replies)} respuestas (${pctOf(c.replies, c.contacted)}) · ${nf(c.interested)} interesados`
+  ).join("\n");
   const prompt = `Cliente: ${clientName}
+Periodo: ${periodLabel}
 
-TOTALES DEL PERÍODO:
-- Emails enviados: ${stats.sent}
-- Aperturas: ${stats.opens} (${pct(stats.opens, stats.sent)})
-- Respuestas: ${stats.replies} (${pct(stats.replies, stats.sent)})
+MÉTRICAS DEL PERIODO:
+- Personas contactadas: ${nf(t.contacted)} (todas nuevas en el periodo)
+- Correos enviados: ${nf(t.sent)}
+- Respuestas: ${nf(t.replies)}
+- Tasa de respuesta: ${ratePct(d.replyRate)}
+- Interesados (marcados por la IA): ${nf(t.interested)}
+- Rebotes: ${nf(t.bounces)}
+- Contactos restantes por enviar: ${nf(t.remaining)}
 
-RENDIMIENTO POR CAMPAÑA (analiza los % de cada una como si fueran variantes):
-${top || "(sin campañas)"}
-${context ? `\nCONTEXTO DE CONVERSACIONES REALES (para dar color, no cites literal):\n${context}\n` : ""}
-Escribe un análisis profesional para el cliente (3-4 párrafos cortos):
-1) Resumen del rendimiento del período, destacando lo conseguido (envíos, alcance, aperturas, respuestas).
-2) Qué campañas/% están funcionando mejor y por qué (compara sus porcentajes).
-3) Oportunidades de crecimiento para el próximo período (en clave de mejora y potencial, nunca como fallo).
+POR CAMPAÑA:
+${camps || "(sin campañas)"}
+${context ? `\nCONTEXTO DE RESPUESTAS REALES (solo para dar color, no cites literal):\n${context}\n` : ""}
+Redacta un informe para el cliente final en 4 secciones. Devuelve EXCLUSIVAMENTE un JSON válido con esta forma:
+{
+  "summary": "1 párrafo (5-7 frases) de resumen ejecutivo del periodo",
+  "highlights": ["4-5 frases de lo más destacado"],
+  "nextSteps": ["4-5 acciones concretas que vais a hacer el próximo periodo"],
+  "improvements": ["4-5 mejoras concretas del email/campaña"]
+}
 
 REGLAS ESTRICTAS:
-- SIEMPRE en tono POSITIVO y motivador. El cliente tiene que quedarse con buena sensación.
-- NO menciones NUNCA rebotes, bounces, spam, ni nada negativo. Habla solo de aperturas, respuestas, alcance, interés y oportunidades.
-- Si un número es bajo, enmárcalo como "margen de crecimiento" u "oportunidad", nunca como problema.
-- Sin markdown, sin emojis, sin títulos. Español de España. Profesional y cercano.`;
+- SIEMPRE en tono POSITIVO, motivador y profesional. El cliente debe quedar contento.
+- Si los números son bajos, enmárcalo como "margen de crecimiento" u "oportunidad", NUNCA como problema o fallo.
+- Si estamos en época de vacaciones (julio/agosto/Navidad), menciónalo como explicación natural de resultados más flojos (estacional, no de la campaña).
+- Puedes comparar con el promedio del sector (1-3% de respuesta) como referencia de recorrido.
+- Los rebotes SOLO se mencionan en positivo: si son 0 o bajos, es señal de que los datos de contacto son correctos. Nunca hables de rebotes como algo malo.
+- Usa los nombres reales de las campañas. Español de España. Sin markdown, sin emojis, sin títulos dentro de los textos.`;
+
   try {
     const txt = await generateText({
-      system: "Eres un analista de cold email B2B de una agencia que redacta informes para el cliente final. Tu tono es SIEMPRE positivo, motivador y profesional: destacas logros y oportunidades, y jamás hablas de rebotes ni de nada negativo. El cliente debe quedar contento con los resultados.",
-      prompt, maxTokens: 750, temperature: 0.55,
+      system: "Eres un analista de cold email B2B de una agencia que redacta informes para el cliente final. Tu tono es SIEMPRE positivo, motivador y profesional. Devuelves solo JSON válido, sin texto adicional.",
+      prompt, maxTokens: 1100, temperature: 0.5,
     });
-    return (txt || "").replace(/```/g, "").trim();
+    const m = (txt || "").match(/\{[\s\S]*\}/);
+    if (m) {
+      const j = JSON.parse(m[0]);
+      const arr = (v: any): string[] => Array.isArray(v) ? v.map((x) => String(x).trim()).filter(Boolean) : [];
+      const out: ReportSections = {
+        summary: String(j.summary || "").trim(),
+        highlights: arr(j.highlights),
+        nextSteps: arr(j.nextSteps),
+        improvements: arr(j.improvements),
+      };
+      const fb = fallbackSections(clientName, d, periodLabel);
+      if (!out.summary) out.summary = fb.summary;
+      if (!out.highlights.length) out.highlights = fb.highlights;
+      if (!out.nextSteps.length) out.nextSteps = fb.nextSteps;
+      if (!out.improvements.length) out.improvements = fb.improvements;
+      return out;
+    }
   } catch (e: any) {
-    console.warn("[client-reports] análisis IA no disponible:", e?.message);
-    return `En el período se enviaron ${stats.sent.toLocaleString("es")} emails, alcanzando ${stats.opens.toLocaleString("es")} aperturas (${pct(stats.opens, stats.sent)}) y generando ${stats.replies.toLocaleString("es")} respuestas (${pct(stats.replies, stats.sent)}). Un buen punto de partida con margen para seguir creciendo el próximo período.`;
+    console.warn("[client-reports] IA no disponible:", e?.message);
   }
+  return fallbackSections(clientName, d, periodLabel);
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PDF (réplica del informe "Últimas 48 horas")
+// ─────────────────────────────────────────────────────────────────────────────
+type Align = "left" | "center" | "right" | "justify";
 
 export async function generateReportPDF(opts: {
   clientName: string;
-  intro: string;
-  analysis: string;
-  stats: CampaignStats;
-  campaigns: Array<{ name: string; stats: CampaignStats }>;
+  periodLabel: string;
   dateLabel: string;
+  data: ClientReportData;
+  sections: ReportSections;
   logo?: { buf: Buffer; mime: string } | null;
 }): Promise<Buffer> {
   return new Promise<Buffer>((resolve, reject) => {
-    const doc = new PDFDocument({ size: "A4", margin: 42 });
+    const doc = new PDFDocument({ size: "A4", margin: 40, bufferPages: true });
     const chunks: Buffer[] = [];
     doc.on("data", (c: Buffer) => chunks.push(c));
     doc.on("end", () => resolve(Buffer.concat(chunks)));
     doc.on("error", reject);
 
-    const PW = doc.page.width, PH = doc.page.height;
-    const LEFT = 42, W = PW - 84;
-    const ink = "#0f172a", dim = "#64748b", line = "#e6e9ef", soft = "#f4f6fa";
-    const purple = "#7c3aed", blue = "#3b82f6", green = "#10b981", teal = "#14b8a6";
-    const bottom = PH - 54;
-    const s = opts.stats;
-    const rate = s.sent ? s.replies / s.sent : 0;
-    const openRate = s.sent ? s.opens / s.sent : 0;
+    const PW = doc.page.width, PH = doc.page.height, M = 40, W = PW - 2 * M;
+    const BOTTOM = PH - 62;
+    const INK = "#1e1e26", VIOLET = "#6e59f2", LAV = "#f2edff", GRAY = "#8b8f9e", DIM = "#9aa0ad",
+          BORDER = "#e9e9f1", TEAL = "#12b886", LINE = "#ececf3";
+    const d = opts.data, t = d.totals, s = opts.sections;
 
-    const drawDonut = (cx: number, cy: number, r: number, th: number, p01: number, color: string, centerText: string) => {
-      doc.save();
-      doc.lineWidth(th).circle(cx, cy, r).stroke("#e9ecf3");
-      const p = Math.max(0, Math.min(1, p01));
-      if (p > 0.001) {
-        const a0 = -Math.PI / 2, a1 = a0 + p * 2 * Math.PI;
-        const sx = cx + r * Math.cos(a0), sy = cy + r * Math.sin(a0);
-        const ex = cx + r * Math.cos(a1), ey = cy + r * Math.sin(a1);
-        const large = p > 0.5 ? 1 : 0;
-        doc.path(`M ${sx} ${sy} A ${r} ${r} 0 ${large} 1 ${ex} ${ey}`).lineWidth(th).lineCap("round").stroke(color);
+    const sectionTitle = (title: string) => {
+      const y = doc.y;
+      doc.roundedRect(M, y + 1, 5, 17, 2.5).fill(VIOLET);
+      doc.fillColor(INK).font("Helvetica-Bold").fontSize(14).text(title, M + 16, y, { width: W - 16 });
+      doc.y = y + 26;
+    };
+    const bullets = (items: string[], card = false) => {
+      const pad = card ? 16 : 0, bx = M + pad, tw = W - 2 * pad - 18;
+      if (card) {
+        doc.font("Helvetica").fontSize(10.5);
+        let h = 14; for (const it of items) h += doc.heightOfString(it, { width: tw, lineGap: 1.5 }) + 7;
+        if (doc.y + h > BOTTOM) doc.addPage();
+        const y = doc.y; doc.roundedRect(M, y, W, h, 12).fill(LAV); doc.y = y + 14;
       }
-      doc.restore();
-      doc.fillColor(ink).font("Helvetica-Bold").fontSize(11).text(centerText, cx - r, cy - 6, { width: r * 2, align: "center" });
+      for (const it of items) {
+        doc.font("Helvetica").fontSize(10.5);
+        const need = doc.heightOfString(it, { width: tw, lineGap: 1.5 }) + 7;
+        if (!card && doc.y + need > BOTTOM) doc.addPage();
+        const y = doc.y;
+        doc.circle(bx + 3, y + 6, 2.6).fill(VIOLET);
+        doc.fillColor("#33333d").font("Helvetica").fontSize(10.5).text(it, bx + 16, y, { width: tw, lineGap: 1.5 });
+        doc.y = doc.y + 7;
+      }
+      if (card) doc.y += 6;
+      doc.y += 4;
     };
 
-    // ── CABECERA con banda de gradiente (full-bleed) ──
-    const grad = doc.linearGradient(0, 0, PW, 0);
-    grad.stop(0, "#6d28d9").stop(1, "#a855f7");
-    doc.rect(0, 0, PW, 110).fill(grad);
-    // Logo sobre cuadro blanco
-    doc.roundedRect(LEFT, 30, 50, 50, 12).fill("#ffffff");
+    // ===================== PÁGINA 1 =====================
+    // Cabecera full-bleed
+    const bandH = 132;
+    const grad = doc.linearGradient(0, 0, PW, bandH); grad.stop(0, "#6d5bf2").stop(1, "#7c6ff5");
+    doc.rect(0, 0, PW, bandH).fill(grad);
+    doc.roundedRect(M, 28, 58, 58, 14).fill("#ffffff");
     if (opts.logo?.buf) {
-      try { doc.image(opts.logo.buf, LEFT + 5, 35, { fit: [40, 40] }); }
-      catch { doc.fillColor(purple).fontSize(26).font("Helvetica-Bold").text("O", LEFT, 42, { width: 50, align: "center" }); }
+      try { doc.image(opts.logo.buf, M + 7, 35, { fit: [44, 44] }); }
+      catch { doc.fillColor(VIOLET).font("Helvetica-Bold").fontSize(15).text((opts.clientName || "?").slice(0, 4), M, 50, { width: 58, align: "center" }); }
     } else {
-      doc.fillColor(purple).fontSize(26).font("Helvetica-Bold").text("O", LEFT, 42, { width: 50, align: "center" });
+      doc.fillColor(VIOLET).font("Helvetica-Bold").fontSize(15).text((opts.clientName || "?").slice(0, 4), M, 50, { width: 58, align: "center" });
     }
-    doc.fillColor("#ffffff").fontSize(19).font("Helvetica-Bold").text("Informe de campañas", LEFT + 62, 40);
-    doc.fillColor("#ede9fe").fontSize(10).font("Helvetica").text("Resultados y evolución del período", LEFT + 62, 66);
-    // Cliente + fecha a la derecha
-    doc.fillColor("#ffffff").fontSize(13).font("Helvetica-Bold").text(opts.clientName, LEFT, 42, { width: W, align: "right" });
-    doc.fillColor("#ddd6fe").fontSize(9.5).font("Helvetica").text(opts.dateLabel, LEFT, 62, { width: W, align: "right" });
+    doc.fillColor("#ffffff").font("Helvetica-Bold").fontSize(23).text("Informe de rendimiento", M + 74, 38);
+    doc.fillColor("#e5e0ff").font("Helvetica").fontSize(13).text(opts.clientName, M + 74, 70);
+    doc.fillColor("#cfc6fb").font("Helvetica").fontSize(10.5).text(`${opts.periodLabel}  ·  ${opts.dateLabel}`, M + 74, 90);
 
-    let cy = 128;
-    if (opts.intro?.trim()) {
-      doc.fillColor("#475569").fontSize(10.5).font("Helvetica").text(opts.intro.trim(), LEFT, cy, { width: W, lineGap: 1 });
-      cy = doc.y + 12;
-    }
+    // Hero (tasa de respuesta)
+    const heroY = bandH + 22, heroH = 86;
+    doc.roundedRect(M, heroY, W, heroH, 16).fill(LAV);
+    doc.fillColor(VIOLET).font("Helvetica-Bold").fontSize(34).text(ratePct(d.replyRate), M + 26, heroY + 24, { width: 150 });
+    doc.fillColor(INK).font("Helvetica-Bold").fontSize(14).text("Tasa de respuesta", M + 180, heroY + 24);
+    doc.fillColor(GRAY).font("Helvetica").fontSize(10.5).text(`${nf(t.replies)} respuestas de ${nf(t.contacted)} personas contactadas`, M + 180, heroY + 46);
 
-    // ── KPI cards: 3 números + 1 donut ──
-    const gap = 12, boxW = (W - 3 * gap) / 4, boxH = 82;
-    const cardsY = cy;
-    const numCards = [
-      { label: "Emails enviados", value: s.sent.toLocaleString("es"), accent: blue },
-      { label: "Aperturas", value: s.opens.toLocaleString("es"), accent: teal, extra: pct(s.opens, s.sent) },
-      { label: "Respuestas", value: s.replies.toLocaleString("es"), accent: green, extra: pct(s.replies, s.sent) },
+    // KPIs 3×2
+    const cards = [
+      { n: nf(t.contacted), l: "PERSONAS CONTACTADAS", sub: `+${nf(t.newContacted)} nuevas` },
+      { n: nf(t.sent), l: "CORREOS ENVIADOS", sub: `${nf(t.sent)} en el periodo` },
+      { n: nf(t.replies), l: "RESPUESTAS", sub: "" },
+      { n: nf(t.interested), l: "INTERESADOS", sub: "marcados por la IA" },
+      { n: nf(t.bounces), l: "REBOTES", sub: "" },
+      { n: nf(t.remaining), l: "CONTACTOS RESTANTES", sub: "" },
     ];
-    numCards.forEach((k, i) => {
-      const x = LEFT + i * (boxW + gap);
-      doc.roundedRect(x, cardsY, boxW, boxH, 12).fillAndStroke("#ffffff", line);
-      doc.roundedRect(x, cardsY, boxW, 4, 2).fill(k.accent);
-      doc.fillColor(dim).fontSize(8).font("Helvetica-Bold").text(k.label.toUpperCase(), x + 12, cardsY + 14, { width: boxW - 24 });
-      doc.fillColor(ink).fontSize(23).font("Helvetica-Bold").text(k.value, x + 12, cardsY + 30, { width: boxW - 24 });
-      if (k.extra) doc.fillColor(k.accent).fontSize(10).font("Helvetica-Bold").text(k.extra, x + 12, cardsY + 60, { width: boxW - 24 });
+    const gap = 14, cw = (W - 2 * gap) / 3, ch = 92, gy = heroY + heroH + 20;
+    cards.forEach((k, i) => {
+      const x = M + (i % 3) * (cw + gap), y = gy + Math.floor(i / 3) * (ch + gap);
+      doc.roundedRect(x, y, cw, ch, 14).fillAndStroke("#ffffff", BORDER);
+      doc.fillColor(INK).font("Helvetica-Bold").fontSize(21).text(k.n, x + 16, y + 16, { width: cw - 32 });
+      doc.fillColor(GRAY).font("Helvetica-Bold").fontSize(8).text(k.l, x + 16, y + 50, { width: cw - 24, characterSpacing: 0.4 });
+      if (k.sub) doc.fillColor(VIOLET).font("Helvetica").fontSize(9).text(k.sub, x + 16, y + 66, { width: cw - 24 });
     });
-    // Card donut (tasa de respuesta)
-    const dx = LEFT + 3 * (boxW + gap);
-    doc.roundedRect(dx, cardsY, boxW, boxH, 12).fillAndStroke("#ffffff", line);
-    doc.roundedRect(dx, cardsY, boxW, 4, 2).fill(purple);
-    doc.fillColor(dim).fontSize(8).font("Helvetica-Bold").text("TASA RESPUESTA", dx + 12, cardsY + 12, { width: boxW - 24 });
-    drawDonut(dx + boxW / 2, cardsY + 50, 17, 6, rate, purple, pct(s.replies, s.sent));
-    doc.y = cardsY + boxH + 22;
+    doc.y = gy + 2 * ch + gap + 22;
 
-    // ── GRÁFICO: barras por campaña (con track de fondo) ──
-    const chartCamps = [...opts.campaigns].sort((a, b) => b.stats.sent - a.stats.sent).slice(0, 6);
-    if (chartCamps.length > 0) {
-      if (doc.y + 40 + chartCamps.length * 32 > bottom) doc.addPage();
-      doc.fillColor(ink).fontSize(13).font("Helvetica-Bold").text("Rendimiento por campaña", LEFT, doc.y);
-      let ly = doc.y + 4;
-      doc.roundedRect(LEFT, ly + 2, 9, 9, 2).fill(teal); doc.fillColor(dim).fontSize(9).font("Helvetica").text("Aperturas", LEFT + 14, ly);
-      doc.roundedRect(LEFT + 92, ly + 2, 9, 9, 2).fill(green); doc.fillColor(dim).fontSize(9).text("Respuestas", LEFT + 106, ly);
-      let by = ly + 22;
-      const labelW = W * 0.30, barMaxW = W - labelW - 62;
-      const maxVal = Math.max(1, ...chartCamps.map((c) => c.stats.opens));
-      for (const c of chartCamps) {
-        if (by > bottom - 34) { doc.addPage(); by = 56; }
-        doc.fillColor(ink).fontSize(9).font("Helvetica").text(c.name, LEFT, by + 3, { width: labelW - 8, ellipsis: true, height: 14 });
-        const bx = LEFT + labelW;
-        const ow = Math.max(3, (c.stats.opens / maxVal) * barMaxW);
-        const rw = Math.max(2, (c.stats.replies / maxVal) * barMaxW);
-        // track + barras
-        doc.roundedRect(bx, by, barMaxW, 8, 4).fill(soft);
-        doc.roundedRect(bx, by, ow, 8, 4).fill(teal);
-        doc.roundedRect(bx, by + 12, barMaxW, 8, 4).fill(soft);
-        doc.roundedRect(bx, by + 12, rw, 8, 4).fill(green);
-        doc.fillColor(dim).fontSize(8).font("Helvetica").text(pct(c.stats.opens, c.stats.sent), bx + barMaxW + 6, by - 1, { width: 48 });
-        doc.fillColor(dim).fontSize(8).text(pct(c.stats.replies, c.stats.sent), bx + barMaxW + 6, by + 11, { width: 48 });
-        by += 32;
-      }
-      doc.y = by + 4;
+    // Resumen ejecutivo
+    sectionTitle("Resumen ejecutivo");
+    doc.fillColor("#33333d").font("Helvetica").fontSize(10.5).text(s.summary, M, doc.y, { width: W, align: "justify" as Align, lineGap: 2.5 });
+    doc.y += 16;
+    // Lo más destacado
+    sectionTitle("Lo más destacado");
+    bullets(s.highlights, false);
+
+    // ===================== PÁGINA 2 =====================
+    doc.addPage();
+    doc.y = M + 6;
+    sectionTitle("Actividad diaria");
+    drawDailyChart(d.daily, doc.y);
+
+    sectionTitle("Detalle por campaña");
+    drawTable(d.perCampaign);
+
+    sectionTitle("Próximos pasos recomendados");
+    bullets(s.nextSteps, true);
+
+    sectionTitle("Qué vamos a mejorar");
+    bullets(s.improvements, false);
+
+    // Pie + paginación en todas las páginas
+    const range = doc.bufferedPageRange();
+    for (let i = 0; i < range.count; i++) {
+      doc.switchToPage(i);
+      (doc.page as any).margins.bottom = 0;
+      const ly = PH - 52;
+      doc.moveTo(M, ly).lineTo(M + W, ly).lineWidth(1).strokeColor(LINE).stroke();
+      doc.fillColor(DIM).font("Helvetica").fontSize(8.5)
+        .text(`${opts.clientName} · Informe generado por OnePulso`, M, PH - 40, { width: W * 0.6, lineBreak: false });
+      doc.fillColor(DIM).font("Helvetica").fontSize(8.5)
+        .text(`Página ${i + 1} de ${range.count}`, M + W * 0.4, PH - 40, { width: W * 0.6, align: "right" as Align, lineBreak: false });
     }
-
-    // ── Análisis (IA) en tarjeta con acento ──
-    if (opts.analysis?.trim()) {
-      const text = opts.analysis.trim();
-      doc.fontSize(10.5).font("Helvetica");
-      const th = doc.heightOfString(text, { width: W - 34, lineGap: 2 });
-      const cardH = th + 42;
-      if (doc.y + cardH > bottom) doc.addPage();
-      const ay = doc.y;
-      doc.roundedRect(LEFT, ay, W, cardH, 10).fillAndStroke("#faf5ff", "#efe6fd");
-      doc.roundedRect(LEFT, ay, 4, cardH, 2).fill(purple);
-      doc.fillColor(purple).fontSize(12).font("Helvetica-Bold").text("Análisis del período", LEFT + 16, ay + 12);
-      doc.fillColor("#334155").fontSize(10.5).font("Helvetica").text(text, LEFT + 16, ay + 30, { width: W - 34, align: "justify", lineGap: 2 });
-      doc.y = ay + cardH + 18;
-    }
-
-    // ── Tabla con cabecera y filas alternas ──
-    if (doc.y + 60 > bottom) doc.addPage();
-    doc.fillColor(ink).fontSize(13).font("Helvetica-Bold").text("Detalle por campaña", LEFT, doc.y);
-    let y = doc.y + 8;
-    const cols = [
-      { t: "Campaña", w: W * 0.42, a: "left" as const },
-      { t: "Enviados", w: W * 0.18, a: "right" as const },
-      { t: "Aperturas", w: W * 0.20, a: "right" as const },
-      { t: "Respuestas", w: W * 0.20, a: "right" as const },
-    ];
-    doc.roundedRect(LEFT, y, W, 22, 5).fill(soft);
-    let x = LEFT + 10;
-    doc.fontSize(8.5).font("Helvetica-Bold").fillColor(dim);
-    cols.forEach((c) => { doc.text(c.t.toUpperCase(), x, y + 7, { width: c.w - 12, align: c.a }); x += c.w; });
-    y += 24;
-
-    const rows = opts.campaigns.length ? opts.campaigns : [{ name: "(sin campañas)", stats: { sent: 0, opens: 0, replies: 0, bounces: 0, clicks: 0, total: 0 } }];
-    rows.forEach((r, ri) => {
-      if (y > bottom - 22) { doc.addPage(); y = 56; }
-      if (ri % 2 === 1) doc.roundedRect(LEFT, y - 4, W, 22, 4).fill("#fafbfd");
-      x = LEFT + 10;
-      const cells = [
-        r.name,
-        r.stats.sent.toLocaleString("es"),
-        `${r.stats.opens.toLocaleString("es")} · ${pct(r.stats.opens, r.stats.sent)}`,
-        `${r.stats.replies.toLocaleString("es")} · ${pct(r.stats.replies, r.stats.sent)}`,
-      ];
-      doc.font("Helvetica").fontSize(9.5);
-      cells.forEach((cell, ci) => {
-        doc.fillColor(ci === 0 ? ink : "#475569").font(ci === 0 ? "Helvetica-Bold" : "Helvetica").text(String(cell), x, y, { width: cols[ci].w - 12, align: cols[ci].a, ellipsis: true });
-        x += cols[ci].w;
-      });
-      y += 22;
-    });
-
-    // Pie
-    doc.fillColor(dim).fontSize(8).font("Helvetica").text(
-      `Generado el ${new Date().toLocaleDateString("es")} · onepulso`,
-      LEFT, PH - 36, { width: W, align: "center" }
-    );
-
     doc.end();
+
+    function drawDailyChart(days: Array<{ label: string; sent: number; replies: number }>, top: number) {
+      const chartH = 128, base = top + chartH, left = M, right = M + W;
+      const maxV = Math.max(1, ...days.map((x) => Math.max(x.sent, x.replies)));
+      const n = Math.max(1, days.length), slot = W / n, bw = Math.min(26, slot * 0.28);
+      days.forEach((x, i) => {
+        const cx = left + slot * i + slot / 2;
+        const hS = (x.sent / maxV) * (chartH - 10), hR = (x.replies / maxV) * (chartH - 10);
+        if (x.sent > 0) doc.roundedRect(cx - bw - 2, base - hS, bw, hS, 4).fill(VIOLET);
+        if (x.replies > 0) doc.roundedRect(cx + 2, base - hR, bw, hR, 4).fill(TEAL);
+      });
+      doc.moveTo(left, base).lineTo(right, base).lineWidth(1).strokeColor(LINE).stroke();
+      days.forEach((x, i) => {
+        const cx = left + slot * i + slot / 2;
+        doc.fillColor(DIM).font("Helvetica").fontSize(9).text(x.label, cx - slot / 2, base + 8, { width: slot, align: "center" as Align });
+      });
+      let ly = base + 26;
+      doc.roundedRect(left, ly, 11, 11, 2.5).fill(VIOLET); doc.fillColor(GRAY).font("Helvetica").fontSize(9.5).text("Enviados", left + 17, ly + 1);
+      doc.roundedRect(left + 95, ly, 11, 11, 2.5).fill(TEAL); doc.fillColor(GRAY).text("Respuestas", left + 112, ly + 1);
+      doc.y = ly + 26;
+    }
+
+    function drawTable(rows: ClientReportData["perCampaign"]) {
+      const cols: Array<{ t: string; w: number; a: Align }> = [
+        { t: "Campaña", w: 0.34, a: "left" }, { t: "Contact.", w: 0.13, a: "right" },
+        { t: "Enviados", w: 0.15, a: "right" }, { t: "Resp.", w: 0.12, a: "right" },
+        { t: "Interes.", w: 0.13, a: "right" }, { t: "Tasa", w: 0.13, a: "right" },
+      ];
+      let y = doc.y;
+      doc.roundedRect(M, y, W, 26, 6).fill(VIOLET);
+      let x = M + 14; doc.font("Helvetica-Bold").fontSize(9.5).fillColor("#ffffff");
+      cols.forEach((c) => { const w = c.w * W; doc.text(c.t, x, y + 8, { width: w - (c.a === "right" ? 24 : 0), align: c.a }); x += w; });
+      y += 26;
+      const list = rows.length ? rows : [{ name: "(sin campañas)", contacted: 0, sent: 0, replies: 0, interested: 0 }];
+      list.forEach((r, ri) => {
+        if (y > BOTTOM - 24) { doc.addPage(); y = M + 6; }
+        if (ri % 2 === 1) doc.rect(M, y, W, 24).fill("#faf9ff");
+        x = M + 14;
+        const cells = [r.name, nf(r.contacted), nf(r.sent), nf(r.replies), nf(r.interested), pctOf(r.replies, r.contacted)];
+        cells.forEach((cell, ci) => {
+          const c = cols[ci], w = c.w * W;
+          doc.font("Helvetica").fontSize(9.5).fillColor(ci === 5 ? VIOLET : (ci === 0 ? INK : "#4b4b57"))
+            .text(String(cell), x, y + 8, { width: w - (c.a === "right" ? 24 : 0), align: c.a, ellipsis: true });
+          x += w;
+        });
+        y += 24;
+      });
+      doc.moveTo(M, y).lineTo(M + W, y).lineWidth(1).strokeColor(LINE).stroke();
+      doc.y = y + 18;
+    }
   });
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Generar (datos) + enviar
 // ─────────────────────────────────────────────────────────────────────────────
-export async function buildReportForClient(clientId: string, clientName: string, intro: string, campaignIds?: string[]): Promise<Buffer> {
+export async function buildReportForClient(clientId: string, clientName: string, _intro: string, campaignIds?: string[]): Promise<Buffer> {
   const cfg = await getReportConfig(clientId, clientName);
   const camps = campaignIds ?? cfg.campaign_ids;
-  const { stats, campaigns } = await getClientAnalytics(clientId, camps);
+  const intervalHours = cfg.interval_hours || 48;
+  const windowDays = Math.max(1, Math.ceil(intervalHours / 24));
+  const periodLabel = `Últimas ${intervalHours} horas`;
+
+  const data = await getClientReport(clientId, camps, { windowDays, dailyDays: 7 });
   const now = new Date();
-  const dateLabel = `Período hasta ${now.toLocaleDateString("es", { day: "numeric", month: "long", year: "numeric" })}`;
-  // Contexto para la IA: respuestas REALES de los leads en Smartlead (no del Unibox de la plataforma).
+  const dateLabel = now.toLocaleDateString("es-ES", { day: "numeric", month: "long", year: "numeric" });
   const [context, logo] = await Promise.all([
     getClientReplyContext(clientId, camps).catch(() => ""),
     getReportLogo(),
   ]);
-  const analysis = await generateReportAnalysis(clientName, stats, campaigns, context);
-  return generateReportPDF({ clientName, intro, analysis, stats, campaigns, dateLabel, logo });
+  const sections = await generateReportSections(clientName, data, periodLabel, context);
+  return generateReportPDF({ clientName, periodLabel, dateLabel, data, sections, logo });
 }
 
 /** Genera el PDF y lo envía por email.
  *  - Sin opts: al destinatario configurado (envío real) → marca last_sent_at.
- *  - opts.overrideEmail: envío de PRUEBA a ese email (p.ej. el tuyo) → NO marca
- *    last_sent_at (no cuenta como enviado al cliente). */
+ *  - opts.overrideEmail: envío de PRUEBA a ese email → NO marca last_sent_at. */
 export async function sendReportForClient(
   clientId: string,
   opts?: { overrideEmail?: string; test?: boolean }
@@ -344,14 +408,13 @@ export async function sendReportForClient(
   if (!to) throw new Error(isTest ? "Escribe un email de prueba." : "Este cliente no tiene email de destino configurado.");
   const pdf = await buildReportForClient(clientId, cfg.client_name, cfg.pdf_intro, cfg.campaign_ids);
 
-  // sendEmail adjunta por RUTA → escribimos el PDF a un temp file.
   const tmp = path.join(os.tmpdir(), `informe-${clientId}-${randomUUID()}.pdf`);
   await fs.writeFile(tmp, pdf);
   try {
     await sendEmail({
       to,
-      subject: (isTest ? "[PRUEBA] " : "") + (cfg.email_subject || `Informe de campañas — ${cfg.client_name}`),
-      body_html: (isTest ? `<p style="color:#b45309"><b>Esto es una PRUEBA</b> — así le llegará el informe al cliente.</p>` : "") + (cfg.email_body_html || `<p>Adjunto el informe de campañas.</p>`),
+      subject: (isTest ? "[PRUEBA] " : "") + (cfg.email_subject || `Informe de rendimiento — ${cfg.client_name}`),
+      body_html: (isTest ? `<p style="color:#b45309"><b>Esto es una PRUEBA</b> — así le llegará el informe al cliente.</p>` : "") + (cfg.email_body_html || `<p>Adjunto el informe de rendimiento.</p>`),
       attachments: [{ filename: `Informe-${cfg.client_name.replace(/[^\w\-]+/g, "_")}.pdf`, path: tmp }],
     });
   } finally {

@@ -1,2 +1,9 @@
 [phases.setup]
 nixPkgs = ["nodejs_20"]
+
+# Límite de heap del build ajustado al servidor (3,8 GB de RAM). Sin esto, un
+# next build puede pedir más RAM de la que hay → swap a disco → build lentísimo
+# y CPU al 100%. Con 2560 MB cabe en RAM (verificado). Aplica solo si EasyPanel
+# construye con Nixpacks; si construye con el Dockerfile, ver el ENV de allí.
+[phases.build]
+cmds = ["NODE_OPTIONS=--max-old-space-size=2560 npm run build"]

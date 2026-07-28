@@ -13,7 +13,7 @@ import os from "os";
 import path from "path";
 import { randomUUID } from "crypto";
 import { readJson, writeJson, deleteJson, listKeys, readBlob } from "./storage";
-import { getClientAnalytics, listClients, type CampaignStats } from "./smartlead";
+import { getClientAnalytics, getClientReplyContext, listClients, type CampaignStats } from "./smartlead";
 import { sendEmail } from "./email-send";
 import { generateText } from "./ai-providers";
 
@@ -41,18 +41,6 @@ export type ReportConfig = {
   last_sent_at?: string | null;
   updated_at: string;
 };
-
-/** Lee previews de mensajes RECIBIDOS recientes de un unibox → contexto para la IA. */
-async function uniboxContext(uniboxId?: string): Promise<string> {
-  if (!uniboxId) return "";
-  try {
-    const { listMessagesPage } = await import("./unibox-messages-db");
-    const { messages } = await listMessagesPage({ uniboxId, showWarmup: false, limit: 60 });
-    const inbound = (messages || []).filter((m: any) => !m.is_sent && (m.preview || "").trim()).slice(0, 6);
-    if (inbound.length === 0) return "";
-    return inbound.map((m: any) => `- ${m.subject || "(sin asunto)"}: ${String(m.preview).slice(0, 160)}`).join("\n");
-  } catch { return ""; }
-}
 
 function defaults(clientId: string, clientName: string): ReportConfig {
   return {
@@ -329,10 +317,15 @@ export async function generateReportPDF(opts: {
 // ─────────────────────────────────────────────────────────────────────────────
 export async function buildReportForClient(clientId: string, clientName: string, intro: string, campaignIds?: string[]): Promise<Buffer> {
   const cfg = await getReportConfig(clientId, clientName);
-  const { stats, campaigns } = await getClientAnalytics(clientId, campaignIds ?? cfg.campaign_ids);
+  const camps = campaignIds ?? cfg.campaign_ids;
+  const { stats, campaigns } = await getClientAnalytics(clientId, camps);
   const now = new Date();
   const dateLabel = `Período hasta ${now.toLocaleDateString("es", { day: "numeric", month: "long", year: "numeric" })}`;
-  const [context, logo] = await Promise.all([uniboxContext(cfg.context_unibox_id), getReportLogo()]);
+  // Contexto para la IA: respuestas REALES de los leads en Smartlead (no del Unibox de la plataforma).
+  const [context, logo] = await Promise.all([
+    getClientReplyContext(clientId, camps).catch(() => ""),
+    getReportLogo(),
+  ]);
   const analysis = await generateReportAnalysis(clientName, stats, campaigns, context);
   return generateReportPDF({ clientName, intro, analysis, stats, campaigns, dateLabel, logo });
 }

@@ -142,6 +142,100 @@ export async function getCampaignAnalyticsRaw(campaignId: string | number): Prom
   return slGet(`/campaigns/${campaignId}/analytics`, api_key);
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Contexto para la IA: RESPUESTAS reales de los leads en Smartlead
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Quita HTML/citas y comprime espacios de un cuerpo de email. */
+function cleanBody(html: string): string {
+  return String(html || "")
+    .replace(/<style[\s\S]*?<\/style>/gi, " ")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&").replace(/&lt;/gi, "<").replace(/&gt;/gi, ">")
+    .replace(/^\s*>.*$/gm, " ")          // líneas citadas
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/** ¿Este lead parece haber RESPONDIDO? (tolerante a nombres de campo/anidamiento) */
+function looksReplied(lead: any): boolean {
+  const queue: any[] = [lead];
+  while (queue.length) {
+    const o = queue.shift();
+    if (o == null || typeof o !== "object") continue;
+    if (Array.isArray(o)) { for (const x of o) queue.push(x); continue; }
+    for (const [k, v] of Object.entries(o)) {
+      const key = k.toLowerCase();
+      if (/repl/.test(key)) {
+        if (typeof v === "string" && v.trim() && v !== "0") return true;   // reply_time, last_reply_time…
+        if (typeof v === "number" && v > 0) return true;                    // reply_count…
+        if (v === true) return true;                                        // is_replied…
+      }
+      if (/(category|status|sub_?status|sentiment)/.test(key) && typeof v === "string" && /repl|interest|meeting|positive/i.test(v)) return true;
+      if (v && typeof v === "object") queue.push(v);
+    }
+  }
+  return false;
+}
+
+/** Extrae el array de mensajes del historial (tolerante a la forma de la respuesta). */
+function collectHistory(hist: any): any[] {
+  const cand = hist?.history ?? hist?.data ?? hist?.messages ?? hist;
+  if (Array.isArray(cand)) return cand;
+  if (cand && typeof cand === "object") {
+    for (const v of Object.values(cand)) if (Array.isArray(v)) return v;
+  }
+  return [];
+}
+
+/**
+ * Devuelve fragmentos de RESPUESTAS reales de los leads del cliente en Smartlead,
+ * como contexto para la IA (nunca se citan literales). Acotado para no disparar
+ * cientos de llamadas: prioriza leads que respondieron y limita el presupuesto.
+ */
+export async function getClientReplyContext(
+  clientId: string | number,
+  campaignIds?: Array<string | number>,
+  maxSnippets = 6
+): Promise<string> {
+  const { api_key } = await getSmartleadSettings();
+  if (!api_key) return "";
+  let camps = await listCampaigns(clientId);
+  if (campaignIds && campaignIds.length > 0) {
+    const set = new Set(campaignIds.map((x) => String(x)));
+    camps = camps.filter((c) => set.has(String(c.id)));
+  }
+  const snippets: string[] = [];
+  let leadBudget = 20; // máx. historiales a abrir en total (coste acotado)
+  for (const c of camps) {
+    if (snippets.length >= maxSnippets || leadBudget <= 0) break;
+    let leads: any[] = [];
+    try {
+      const data = await slGet(`/campaigns/${c.id}/leads?offset=0&limit=100`, api_key);
+      const arr = Array.isArray(data) ? data : (data?.data ?? data?.leads ?? []);
+      leads = Array.isArray(arr) ? arr : [];
+    } catch { continue; }
+    // Preferir los que parecen haber respondido; si no detectamos ninguno, no gastar presupuesto a ciegas
+    const replied = leads.filter(looksReplied);
+    const pool = replied.length ? replied : [];
+    for (const l of pool) {
+      if (snippets.length >= maxSnippets || leadBudget <= 0) break;
+      const leadId = l.id ?? l.lead_id ?? l.lead?.id ?? l.lead?.lead_id ?? l.campaign_lead_map?.lead_id;
+      if (!leadId) continue;
+      leadBudget--;
+      try {
+        const hist = await slGet(`/campaigns/${c.id}/leads/${leadId}/message-history`, api_key);
+        const items = collectHistory(hist);
+        const reply = [...items].reverse().find((it) => /repl|receiv|inbound/i.test(String(it?.type ?? it?.email_type ?? it?.direction ?? "")));
+        const body = cleanBody(reply?.email_body ?? reply?.body ?? reply?.email_message ?? reply?.message ?? "");
+        if (body && body.length > 8) snippets.push(`- ${body.slice(0, 200)}`);
+      } catch { /* seguir con el siguiente */ }
+    }
+  }
+  return snippets.slice(0, maxSnippets).join("\n");
+}
+
 /** Agrega las analíticas de las campañas de un cliente.
  *  Si se pasa `campaignIds` (no vacío), SOLO esas campañas; si no, todas. */
 export async function getClientAnalytics(

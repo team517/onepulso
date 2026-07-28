@@ -27,14 +27,12 @@ export default function ClientesPage() {
   const [loadingCamps, setLoadingCamps] = useState("");
   const [logoInfo, setLogoInfo] = useState<{ has_logo: boolean } | null>(null);
   const [uploadingLogo, setUploadingLogo] = useState(false);
-  const [uniboxes, setUniboxes] = useState<Array<{ id: string; title: string }>>([]);
 
   useEffect(() => { loadStatus(); }, []);
 
   useEffect(() => {
     if (!connected) return;
     fetch("/api/clients/logo").then((r) => r.json()).then(setLogoInfo).catch(() => {});
-    fetch("/api/uniboxes").then((r) => r.json()).then((d) => setUniboxes(Array.isArray(d) ? d : (d.uniboxes || []))).catch(() => {});
   }, [connected]);
 
   async function uploadLogo(file: File) {
@@ -307,17 +305,10 @@ export default function ClientesPage() {
                   );
                 })()}
 
-                {/* Unibox para contexto (opcional) */}
-                {uniboxes.length > 0 && (
-                  <div>
-                    <label style={lbl}>Unibox para contexto de la IA (opcional)</label>
-                    <select value={c.context_unibox_id || ""} onChange={(e) => edit(row.client_id, { context_unibox_id: e.target.value })} style={inp}>
-                      <option value="">— Ninguno —</option>
-                      {uniboxes.map((u) => <option key={u.id} value={u.id}>{u.title}</option>)}
-                    </select>
-                    <div style={{ fontSize: 10.5, color: "var(--text-dim)", marginTop: 4 }}>La IA leerá algunos mensajes recibidos de ese buzón para dar más contexto al análisis (en positivo).</div>
-                  </div>
-                )}
+                {/* Contexto de la IA: respuestas reales desde Smartlead */}
+                <div style={{ fontSize: 10.5, color: "var(--text-dim)", background: "var(--bg-subtle, #f8fafc)", border: "1px solid var(--border, #e6e9ef)", borderRadius: 8, padding: "8px 10px" }}>
+                  🤖 La IA toma contexto de las <b>respuestas reales de los leads en Smartlead</b> (de las campañas seleccionadas) para enriquecer el análisis, siempre en tono positivo. No necesitas configurar nada.
+                </div>
 
                 <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, cursor: "pointer" }}>
                   <input type="checkbox" checked={c.enabled} onChange={(e) => edit(row.client_id, { enabled: e.target.checked })} />

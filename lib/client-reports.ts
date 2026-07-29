@@ -511,14 +511,10 @@ export async function sendReportForClient(
   const baseBody = cfg.email_body_html || `<p>Hola,</p><p>Te comparto el informe de rendimiento de tus campañas de las últimas 48 horas.</p><p>Cualquier duda, aquí estamos.</p><p>Un saludo</p>`;
   const variedBody = await varyMessageHtml(baseBody, cfg.client_name);
 
-  // Botón + enlace de descarga del PDF (en vez de adjunto — más fiable).
-  const linkBlock =
-    `<div style="margin:24px 0;font-family:Arial,Helvetica,sans-serif">` +
-    `<a href="${link}" style="display:inline-block;background:#6e59f2;color:#ffffff;text-decoration:none;padding:13px 24px;border-radius:10px;font-weight:700;font-size:14px">📄 Ver / descargar informe (PDF)</a>` +
-    `</div>` +
-    `<p style="font-family:Arial,Helvetica,sans-serif;font-size:12px;color:#8b8f9e;margin:0">Si el botón no funciona, copia este enlace en tu navegador:<br><a href="${link}" style="color:#6e59f2">${link}</a></p>`;
+  // Enlace de descarga del PDF (texto/enlace limpio, sin botón).
+  const linkBlock = `<p style="font-family:Arial,Helvetica,sans-serif;font-size:14px;margin:18px 0"><a href="${link}" style="color:#6e59f2;font-weight:600">Ver el informe de resultados (PDF)</a></p>`;
 
-  const testBanner = isTest ? `<p style="color:#b45309;font-family:Arial,sans-serif"><b>Esto es una PRUEBA</b> — así le llegará el informe al cliente.</p>` : "";
+  const testBanner = isTest ? `<p style="font-family:Arial,Helvetica,sans-serif;font-size:12px;color:#94a3b8;margin:0 0 12px">Vista de prueba · al cliente le llega igual, sin esta línea.</p>` : "";
   const body_html = testBanner + variedBody + linkBlock;
 
   let ok = false;

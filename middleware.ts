@@ -41,6 +41,13 @@ export function middleware(req: NextRequest) {
     return NextResponse.next();
   }
 
+  // Descarga PÚBLICA del informe PDF por enlace (capability URL con id aleatorio).
+  // El cliente abre el enlace desde su email SIN estar logueado → no debe ir a /login.
+  // Solo esta subruta es pública; el resto de /api/clients sigue protegido.
+  if (/^\/api\/clients\/[^/]+\/report-file\//.test(pathname)) {
+    return NextResponse.next();
+  }
+
   const token = req.cookies.get("onepulso_session")?.value;
 
   if (!token || token !== SESSION_TOKEN) {

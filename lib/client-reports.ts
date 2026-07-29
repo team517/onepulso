@@ -190,6 +190,17 @@ async function varyMessageHtml(baseHtml: string, clientName: string): Promise<st
 function ratePct(rate: number): string { return (Math.round((rate || 0) * 1000) / 10).toFixed(1) + "%"; }
 function pctOf(part: number, whole: number): string { return whole ? ratePct(part / whole) : "0.0%"; }
 
+/** Envía un correo de informe usando la cuenta SMTP dedicada si está conectada;
+ *  si no, la cuenta de Seguimientos. Lanza error si falla (para registrarlo). */
+async function deliverReportEmail(to: string, subject: string, html: string): Promise<void> {
+  const smtp = await getReportSmtp();
+  if (isReportSmtpConfigured(smtp)) {
+    await sendViaReportSmtp(smtp, { to, subject, html });
+  } else {
+    await sendEmail({ to, subject, body_html: html });
+  }
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // IA: 4 secciones del informe (resumen, destacados, próximos pasos, mejoras)
 // ─────────────────────────────────────────────────────────────────────────────
@@ -538,20 +549,12 @@ export async function sendReportForClient(
 
   let ok = false;
   let error: string | undefined;
-  let via = "seguimientos";
   try {
-    // Cuenta SMTP dedicada de informes si está conectada; si no, la de Seguimientos.
-    const smtp = await getReportSmtp();
-    if (isReportSmtpConfigured(smtp)) {
-      via = "smtp";
-      await sendViaReportSmtp(smtp, { to, subject, html: body_html });
-    } else {
-      await sendEmail({ to, subject, body_html });
-    }
+    await deliverReportEmail(to, subject, body_html);
     ok = true;
   } catch (e: any) {
     error = e?.message || String(e);
-    console.error(`[client-reports] envío ${clientId} → ${to} (${via}) FALLÓ:`, error);
+    console.error(`[client-reports] envío ${clientId} → ${to} FALLÓ:`, error);
   }
 
   // Registro del envío (éxito o fallo) — SIEMPRE queda constancia.
@@ -567,19 +570,28 @@ export async function sendReportForClient(
 /** Llamado por el scheduler: envía el informe de 48h a los clientes activados
  *  cuyo intervalo venció. SOLO de lunes a jueves: el fin de semana no se envía
  *  nada y el viernes se reserva para el informe SEMANAL (`runWeeklyReports`). */
+const REPORT_HOUR = 11;          // hora de envío de informes (Europe/Madrid)
+const REPORT_MAX_PER_TICK = 5;   // máx. informes por tick → no todos de golpe
+
 export async function runDueReports(): Promise<{ sent: number; errors: number }> {
-  const { weekday } = madridNow();
+  const { weekday, hour, minute } = madridNow();
   // 5=viernes, 6=sábado, 0=domingo → no se envía el informe de 48h.
   if (weekday === 5 || weekday === 6 || weekday === 0) return { sent: 0, errors: 0 };
+  // Solo en la franja de las 11:00 (hasta 13:59, por si el scheduler estuvo caído).
+  if (hour < REPORT_HOUR || hour > REPORT_HOUR + 2) return { sent: 0, errors: 0 };
 
   const cfgs = await listReportConfigs();
   const now = Date.now();
-  let sent = 0, errors = 0;
+  let sent = 0, errors = 0, done = 0;
   for (const c of cfgs) {
+    if (done >= REPORT_MAX_PER_TICK) break;              // reparte en varios ticks
     if (!c.enabled || !c.recipient_email) continue;
     const last = c.last_sent_at ? new Date(c.last_sent_at).getTime() : 0;
     const intervalMs = (c.interval_hours || 48) * 3600_000;
     if (now - last < intervalMs) continue;
+    // Escalonado: en la hora 11 cada cliente espera a su minuto; luego ya no.
+    if (hour === REPORT_HOUR && minute < slotForClient(c.client_id)) continue;
+    done++;
     try { await sendReportForClient(c.client_id); sent++; }
     catch (e: any) { errors++; console.error(`[client-reports] ${c.client_id} fallo:`, e?.message || e); }
   }
@@ -592,14 +604,17 @@ export async function runDueReports(): Promise<{ sent: number; errors: number }>
 export async function runWeeklyReports(): Promise<{ sent: number; errors: number }> {
   const { weekday, hour, minute, date } = madridNow();
   if (weekday !== 5) return { sent: 0, errors: 0 };   // solo viernes
-  if (hour < 17 || hour > 22) return { sent: 0, errors: 0 }; // ventana 17:00–22:59
+  // Misma franja que el resto de informes: 11:00 (hasta 14:59 por si hubo downtime).
+  if (hour < REPORT_HOUR || hour > REPORT_HOUR + 3) return { sent: 0, errors: 0 };
 
   const cfgs = await listReportConfigs();
-  let sent = 0, errors = 0;
+  let sent = 0, errors = 0, done = 0;
   for (const c of cfgs) {
+    if (done >= REPORT_MAX_PER_TICK) break;
     if (!c.enabled || !c.recipient_email) continue;
-    if (c.last_weekly_date === date) continue;                       // ya enviado este viernes
-    if (hour === 17 && minute < slotForClient(c.client_id)) continue; // escalonado en la hora 17
+    if (c.last_weekly_date === date) continue;                              // ya enviado este viernes
+    if (hour === REPORT_HOUR && minute < slotForClient(c.client_id)) continue; // escalonado en la hora 11
+    done++;
     try {
       await sendReportForClient(c.client_id, { weekly: true });
       sent++;
@@ -637,6 +652,24 @@ async function generateInterestedAlertHtml(clientName: string, count: number): P
   return base;
 }
 
+/** Envía a `toEmail` un EJEMPLO del aviso de interesados (para previsualizarlo).
+ *  Usa los interesados reales de hoy; si hoy no hay, muestra un ejemplo con 2. */
+export async function sendAlertPreview(clientId: string, toEmail: string): Promise<{ ok: boolean; to: string }> {
+  const cfg = await getReportConfig(clientId);
+  const to = (toEmail || "").trim();
+  if (!to) throw new Error("Escribe un email de prueba.");
+  let count = 0;
+  try { count = (await getClientPositiveOnDate(clientId, cfg.campaign_ids, madridNow().date)).interested; } catch {}
+  const sample = count > 0 ? count : 2;
+  const note = count > 0
+    ? ""
+    : `<p style="font-family:Arial,Helvetica,sans-serif;font-size:12px;color:#94a3b8;margin:0 0 12px">Vista de prueba · hoy no hay interesados reales, te mostramos un ejemplo con ${sample}.</p>`;
+  const html = await generateInterestedAlertHtml(cfg.client_name, sample);
+  const subject = "[PRUEBA] " + (sample === 1 ? "Tienes una respuesta de un interesado" : `Tienes ${nf(sample)} respuestas de interesados`);
+  await deliverReportEmail(to, subject, note + html);
+  return { ok: true, to };
+}
+
 /**
  * Chequeo DIARIO a las 18:00 (Europe/Madrid), escalonado por cliente para que los
  * envíos no se solapen. Para cada cliente con el informe ACTIVADO:
@@ -664,11 +697,8 @@ export async function runDailyInterestedAlerts(): Promise<{ checked: number; sen
       await saveReportConfig(c.client_id, { last_alert_date: date }); // un chequeo/día pase lo que pase
       if (interested > 0) {
         const html = await generateInterestedAlertHtml(c.client_name, interested);
-        await sendEmail({
-          to: c.recipient_email,
-          subject: interested === 1 ? "Tienes una respuesta de un interesado" : `Tienes ${nf(interested)} respuestas de interesados`,
-          body_html: html,
-        });
+        const subject = interested === 1 ? "Tienes una respuesta de un interesado" : `Tienes ${nf(interested)} respuestas de interesados`;
+        await deliverReportEmail(c.recipient_email, subject, html);
         sent++;
         console.log(`[client-reports] alerta interesados → ${c.client_name} (${interested})`);
       }

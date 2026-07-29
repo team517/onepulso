@@ -184,6 +184,21 @@ export default function ClientesPage() {
     setBusy("");
   }
 
+  async function sendAlertTest(row: Row) {
+    const email = (testEmails[row.client_id] || "").trim();
+    if (!email) { alert("Escribe tu email para la prueba."); return; }
+    setBusy("testalert-" + row.client_id);
+    try {
+      const r = await fetch(`/api/clients/${row.client_id}/send`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ test_email: email, alert: true }),
+      }).then((r) => r.json());
+      if (r.ok) flash(`✓ Ejemplo de aviso de interesado enviado a ${r.to}`);
+      else flash("⚠ " + (r.error || "Error en el ejemplo"));
+    } catch (e: any) { flash("⚠ " + e.message); }
+    setBusy("");
+  }
+
   async function loadLog(clientId: string) {
     try {
       const r = await fetch(`/api/clients/${clientId}/log`).then((r) => r.json());
@@ -408,8 +423,9 @@ export default function ClientesPage() {
                     <input value={testEmails[row.client_id] || ""} onChange={(e) => setTestEmails((t) => ({ ...t, [row.client_id]: e.target.value }))} placeholder="tu@email.com" style={{ ...inp, flex: 1, minWidth: 160 }} />
                     <button onClick={() => sendTest(row, false)} disabled={busy.endsWith(row.client_id) && busy.startsWith("test")} style={{ ...btnPrimary, background: "#7c3aed" }}>{busy === "test-" + row.client_id ? "Enviando…" : "Prueba 48h"}</button>
                     <button onClick={() => sendTest(row, true)} disabled={busy.endsWith(row.client_id) && busy.startsWith("test")} style={{ ...btnPrimary, background: "#4f46e5" }}>{busy === "testw-" + row.client_id ? "Enviando…" : "Prueba semanal"}</button>
+                    <button onClick={() => sendAlertTest(row)} disabled={busy.endsWith(row.client_id) && busy.startsWith("test")} style={{ ...btnGhost }}>{busy === "testalert-" + row.client_id ? "Enviando…" : "🔔 Ejemplo aviso interesado"}</button>
                   </div>
-                  <div style={{ fontSize: 11, color: "var(--text-dim)", marginTop: 6 }}>Te llega a ti para ver cómo queda. Al cliente NO le llega. La <b>semanal</b> es el resumen que se enviará los viernes.</div>
+                  <div style={{ fontSize: 11, color: "var(--text-dim)", marginTop: 6 }}>Te llega a ti para ver cómo queda. Al cliente NO le llega. La <b>semanal</b> es el resumen de los viernes; el <b>aviso de interesado</b> es el correo diario de las 18:00 cuando hay respuestas.</div>
                 </div>
 
                 {/* Enviar REAL */}

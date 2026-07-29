@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { sendReportForClient } from "@/lib/client-reports";
+import { sendReportForClient, sendAlertPreview } from "@/lib/client-reports";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
@@ -10,6 +10,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const body = await req.json().catch(() => ({}));
   const testEmail = String(body?.test_email ?? "").trim();
   const weekly = body?.weekly === true;
+  const alert = body?.alert === true;
   // URL pública real para el enlace del PDF: detrás del proxy de EasyPanel el
   // origin interno es "localhost:80"; usamos el host REENVIADO por el proxy.
   const h = req.headers;
@@ -17,6 +18,11 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const fwdProto = h.get("x-forwarded-proto") || "https";
   const baseUrl = fwdHost && !/^(localhost|127\.|0\.0\.0\.0)/.test(fwdHost) ? `${fwdProto}://${fwdHost}` : undefined;
   try {
+    if (alert) {
+      // Ejemplo del aviso de interesados (siempre a tu email de prueba).
+      const r = await sendAlertPreview(id, testEmail);
+      return NextResponse.json(r);
+    }
     const r = testEmail
       ? await sendReportForClient(id, { overrideEmail: testEmail, test: true, baseUrl, weekly })
       : await sendReportForClient(id, { baseUrl, weekly });

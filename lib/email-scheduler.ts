@@ -155,6 +155,17 @@ export async function tick() {
     }
   }
 
+  // 0.d Alerta DIARIA de interesados a las 18:00 (Europe/Madrid), escalonada por
+  // cliente. La función se auto-limita a la franja 18:00–21:59 y a un chequeo/día,
+  // así que llamarla cada tick es barato (fuera de esa franja retorna al instante).
+  try {
+    const { runDailyInterestedAlerts } = await import("./client-reports");
+    const a = await runDailyInterestedAlerts();
+    if (a.sent > 0 || a.errors > 0) console.log(`[email-scheduler] alertas interesados: ${a.sent} enviadas, ${a.errors} errores (${a.checked} revisados)`);
+  } catch (e: any) {
+    console.error("[email-scheduler] daily interested alerts error:", e.message);
+  }
+
   // 1. Enviar follow-ups vencidos
   const dueResults = await sendDueFollowups();
 

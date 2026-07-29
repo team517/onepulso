@@ -16,7 +16,7 @@ import os from "os";
 import path from "path";
 import { randomUUID } from "crypto";
 import { readJson, writeJson, deleteJson, listKeys, readBlob } from "./storage";
-import { getClientReport, getClientReplyContext, listClients, type ClientReportData } from "./smartlead";
+import { getClientReport, getClientReplyContext, getClientPositiveOnDate, listClients, type ClientReportData } from "./smartlead";
 import { sendEmail } from "./email-send";
 import { generateText } from "./ai-providers";
 
@@ -42,6 +42,9 @@ export type ReportConfig = {
   /** (Obsoleto) Unibox de contexto; ahora el contexto viene de Smartlead. */
   context_unibox_id?: string;
   last_sent_at?: string | null;
+  /** Última fecha (YYYY-MM-DD, hora España) en que se hizo el chequeo diario de
+   *  interesados a las 18:00 (para no repetir ni reenviar el mismo día). */
+  last_alert_date?: string;
   updated_at: string;
 };
 
@@ -87,9 +90,45 @@ export async function deleteReportConfig(clientId: string): Promise<void> {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Helpers de formato
+// Helpers de formato / tiempo
 // ─────────────────────────────────────────────────────────────────────────────
 function nf(n: number): string { return Number(n || 0).toLocaleString("es-ES"); }
+
+/** Hora actual en España (Europe/Madrid): {hour, minute, date "YYYY-MM-DD"}. */
+function madridNow(): { hour: number; minute: number; date: string } {
+  const parts = new Intl.DateTimeFormat("es-ES", {
+    timeZone: "Europe/Madrid", hour: "2-digit", minute: "2-digit", hour12: false,
+    year: "numeric", month: "2-digit", day: "2-digit",
+  }).formatToParts(new Date());
+  const get = (t: string) => parts.find((p) => p.type === t)?.value ?? "";
+  const hour = parseInt(get("hour"), 10) % 24; // "24" → 0
+  return { hour, minute: parseInt(get("minute"), 10), date: `${get("year")}-${get("month")}-${get("day")}` };
+}
+
+/** Minuto [0..59] fijo por cliente para escalonar los envíos (no se solapan). */
+function slotForClient(id: string): number {
+  let h = 0; for (const ch of id) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+  return h % 60;
+}
+
+/** Reescribe un mensaje HTML con OTRAS palabras (mismo significado y tono) para
+ *  que cada envío no sea idéntico. Fallback: el mensaje base tal cual. */
+async function varyMessageHtml(baseHtml: string, clientName: string): Promise<string> {
+  const base = (baseHtml || "").trim();
+  if (!base) return base;
+  try {
+    const txt = await generateText({
+      system: "Reescribes mensajes de email de una agencia a su cliente. Mantienes EXACTAMENTE el mismo significado, tono cercano y longitud parecida, pero con otras palabras y estructura. Devuelves solo HTML simple con etiquetas <p>. Nada más.",
+      prompt: `Cliente: ${clientName}. Reescribe este mensaje con otras palabras (misma idea, mismo tono, español de España, sin añadir asunto ni firma extra, sin emojis):\n\n${base}`,
+      maxTokens: 400, temperature: 0.85,
+    });
+    const out = (txt || "").replace(/```html?/gi, "").replace(/```/g, "").trim();
+    if (out && /<p|[a-zA-ZáéíóúñÁÉÍÓÚÑ]{6,}/.test(out)) return out.includes("<p") ? out : `<p>${out}</p>`;
+  } catch (e: any) {
+    console.warn("[client-reports] variación de mensaje no disponible:", e?.message);
+  }
+  return base;
+}
 function ratePct(rate: number): string { return (Math.round((rate || 0) * 1000) / 10).toFixed(1) + "%"; }
 function pctOf(part: number, whole: number): string { return whole ? ratePct(part / whole) : "0.0%"; }
 
@@ -408,13 +447,17 @@ export async function sendReportForClient(
   if (!to) throw new Error(isTest ? "Escribe un email de prueba." : "Este cliente no tiene email de destino configurado.");
   const pdf = await buildReportForClient(clientId, cfg.client_name, cfg.pdf_intro, cfg.campaign_ids);
 
+  // El mensaje al cliente se reescribe con IA en cada envío (no siempre igual).
+  const baseBody = cfg.email_body_html || `<p>Hola,</p><p>Te adjunto el informe de rendimiento de tus campañas de las últimas 48 horas.</p><p>Cualquier duda, aquí estamos.</p><p>Un saludo</p>`;
+  const variedBody = await varyMessageHtml(baseBody, cfg.client_name);
+
   const tmp = path.join(os.tmpdir(), `informe-${clientId}-${randomUUID()}.pdf`);
   await fs.writeFile(tmp, pdf);
   try {
     await sendEmail({
       to,
       subject: (isTest ? "[PRUEBA] " : "") + (cfg.email_subject || `Informe de rendimiento — ${cfg.client_name}`),
-      body_html: (isTest ? `<p style="color:#b45309"><b>Esto es una PRUEBA</b> — así le llegará el informe al cliente.</p>` : "") + (cfg.email_body_html || `<p>Adjunto el informe de rendimiento.</p>`),
+      body_html: (isTest ? `<p style="color:#b45309"><b>Esto es una PRUEBA</b> — así le llegará el informe al cliente.</p>` : "") + variedBody,
       attachments: [{ filename: `Informe-${cfg.client_name.replace(/[^\w\-]+/g, "_")}.pdf`, path: tmp }],
     });
   } finally {
@@ -438,6 +481,72 @@ export async function runDueReports(): Promise<{ sent: number; errors: number }>
     catch (e: any) { errors++; console.error(`[client-reports] ${c.client_id} fallo:`, e?.message || e); }
   }
   return { sent, errors };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Alerta diaria de interesados (18:00 España, escalonada por cliente)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Email breve y positivo avisando al cliente de que HOY hay interesados/preguntas.
+ *  Redactado por IA (varía cada vez); fallback determinista. */
+async function generateInterestedAlertHtml(clientName: string, count: number): Promise<string> {
+  const plural = count === 1;
+  const base = `<p>Hola,</p><p>¡Buenas noticias! Hoy ${plural ? "una persona ha respondido con interés" : `${nf(count)} personas han respondido con interés`} a tu campaña. Ya lo estamos revisando para darle continuidad cuanto antes.</p><p>Te mantenemos al día.</p><p>Un saludo</p>`;
+  try {
+    const txt = await generateText({
+      system: "Escribes emails MUY breves, cercanos y positivos de una agencia de cold email a su cliente. Devuelves solo HTML simple con <p>. Sin asunto, sin emojis, sin markdown.",
+      prompt: `Escribe un email muy breve (2-3 frases, con otras palabras cada vez) avisando al cliente ${clientName} de que HOY ha habido ${count} respuesta(s) de personas interesadas o con preguntas en su campaña de cold email. Tono positivo y natural. No inventes más números ni detalles concretos. Español de España.`,
+      maxTokens: 260, temperature: 0.9,
+    });
+    const out = (txt || "").replace(/```html?/gi, "").replace(/```/g, "").trim();
+    if (out && out.includes("<p")) return out;
+    if (out) return `<p>${out}</p>`;
+  } catch (e: any) {
+    console.warn("[client-reports] alerta IA no disponible:", e?.message);
+  }
+  return base;
+}
+
+/**
+ * Chequeo DIARIO a las 18:00 (Europe/Madrid), escalonado por cliente para que los
+ * envíos no se solapen. Para cada cliente con el informe ACTIVADO:
+ *  - mira SOLO las respuestas de interesados/preguntas de HOY (Smartlead);
+ *  - si hay al menos 1 → le envía un correo simple avisando;
+ *  - si no hay ninguna hoy → no envía nada.
+ * Se hace un único chequeo por día y cliente (marca last_alert_date).
+ */
+export async function runDailyInterestedAlerts(): Promise<{ checked: number; sent: number; errors: number }> {
+  const { hour, minute, date } = madridNow();
+  // Ventana 18:00–21:59 (tolera downtime del scheduler); el escalonado real es en la hora 18.
+  if (hour < 18 || hour > 21) return { checked: 0, sent: 0, errors: 0 };
+
+  const cfgs = await listReportConfigs();
+  let checked = 0, sent = 0, errors = 0;
+  for (const c of cfgs) {
+    if (!c.enabled || !c.recipient_email) continue;   // solo clientes con informe activado
+    if (c.last_alert_date === date) continue;          // ya revisado hoy
+    // Escalonado: en la hora 18 cada cliente espera a su minuto; a partir de las 19 ya no espera.
+    if (hour === 18 && minute < slotForClient(c.client_id)) continue;
+    checked++;
+    try {
+      const { interested } = await getClientPositiveOnDate(c.client_id, c.campaign_ids, date);
+      await saveReportConfig(c.client_id, { last_alert_date: date }); // un chequeo/día pase lo que pase
+      if (interested > 0) {
+        const html = await generateInterestedAlertHtml(c.client_name, interested);
+        await sendEmail({
+          to: c.recipient_email,
+          subject: interested === 1 ? "Tienes una respuesta de un interesado" : `Tienes ${nf(interested)} respuestas de interesados`,
+          body_html: html,
+        });
+        sent++;
+        console.log(`[client-reports] alerta interesados → ${c.client_name} (${interested})`);
+      }
+    } catch (e: any) {
+      errors++;
+      console.error(`[client-reports] alerta ${c.client_id} fallo:`, e?.message || e);
+    }
+  }
+  return { checked, sent, errors };
 }
 
 /** Lista de clientes de Smartlead + su config de informe (para la UI). */

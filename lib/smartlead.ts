@@ -418,3 +418,27 @@ export async function getClientReport(
   const replyRate = totals.contacted ? totals.replies / totals.contacted : 0;
   return { totals, replyRate, perCampaign, daily };
 }
+
+/** Interesados (positive_reply_count) y respuestas de un cliente en UNA fecha
+ *  concreta (YYYY-MM-DD). "Interesados" incluye Interested / Meeting Request /
+ *  Information Request (gente con preguntas) — todo lo positivo marcado por la IA. */
+export async function getClientPositiveOnDate(
+  clientId: string | number,
+  campaignIds: Array<string | number> | undefined,
+  dateStr: string
+): Promise<{ interested: number; replies: number }> {
+  const { api_key } = await getSmartleadSettings();
+  if (!api_key) return { interested: 0, replies: 0 };
+  let camps = await listCampaigns(clientId);
+  if (campaignIds && campaignIds.length > 0) {
+    const set = new Set(campaignIds.map((x) => String(x)));
+    camps = camps.filter((c) => set.has(String(c.id)));
+  }
+  let interested = 0, replies = 0;
+  await Promise.all(camps.map(async (c) => {
+    const t = await slGet(`/campaigns/${c.id}/top-level-analytics-by-date?start_date=${dateStr}&end_date=${dateStr}`, api_key).catch(() => null);
+    interested += num(t?.positive_reply_count);
+    replies += num(t?.reply_count);
+  }));
+  return { interested, replies };
+}

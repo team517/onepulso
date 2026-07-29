@@ -15,6 +15,7 @@ import { randomUUID } from "crypto";
 import { readJson, writeJson, deleteJson, listKeys, readBlob, writeBlob } from "./storage";
 import { getClientReport, getClientReplyContext, getClientPositiveOnDate, listClients, type ClientReportData } from "./smartlead";
 import { sendEmail } from "./email-send";
+import { getReportSmtp, isReportSmtpConfigured, sendViaReportSmtp } from "./report-smtp";
 import { generateText } from "./ai-providers";
 
 const LOGO_KEY = "report-logo";
@@ -517,12 +518,20 @@ export async function sendReportForClient(
 
   let ok = false;
   let error: string | undefined;
+  let via = "seguimientos";
   try {
-    await sendEmail({ to, subject, body_html });
+    // Cuenta SMTP dedicada de informes si está conectada; si no, la de Seguimientos.
+    const smtp = await getReportSmtp();
+    if (isReportSmtpConfigured(smtp)) {
+      via = "smtp";
+      await sendViaReportSmtp(smtp, { to, subject, html: body_html });
+    } else {
+      await sendEmail({ to, subject, body_html });
+    }
     ok = true;
   } catch (e: any) {
     error = e?.message || String(e);
-    console.error(`[client-reports] envío ${clientId} → ${to} FALLÓ:`, error);
+    console.error(`[client-reports] envío ${clientId} → ${to} (${via}) FALLÓ:`, error);
   }
 
   // Registro del envío (éxito o fallo) — SIEMPRE queda constancia.

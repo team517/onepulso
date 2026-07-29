@@ -28,13 +28,40 @@ export default function ClientesPage() {
   const [loadingCamps, setLoadingCamps] = useState("");
   const [logoInfo, setLogoInfo] = useState<{ has_logo: boolean } | null>(null);
   const [uploadingLogo, setUploadingLogo] = useState(false);
+  const [smtp, setSmtp] = useState<any>(null);          // estado GET
+  const [smtpForm, setSmtpForm] = useState<any>({ host: "", port: 587, user: "", pass: "", from_email: "", from_name: "" });
+  const [smtpOpen, setSmtpOpen] = useState(false);
+  const [smtpBusy, setSmtpBusy] = useState(false);
+  const [smtpMsg, setSmtpMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
   useEffect(() => { loadStatus(); }, []);
 
   useEffect(() => {
     if (!connected) return;
     fetch("/api/clients/logo").then((r) => r.json()).then(setLogoInfo).catch(() => {});
+    fetch("/api/clients/smtp").then((r) => r.json()).then((s) => {
+      setSmtp(s);
+      setSmtpForm((f: any) => ({ ...f, host: s.host || "", port: s.port || 587, user: s.user || "", from_email: s.from_email || "", from_name: s.from_name || "", pass: "" }));
+    }).catch(() => {});
   }, [connected]);
+
+  async function saveSmtp() {
+    setSmtpBusy(true); setSmtpMsg(null);
+    try {
+      const r = await fetch("/api/clients/smtp", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(smtpForm),
+      }).then((r) => r.json());
+      if (r.ok) {
+        setSmtpMsg({ ok: true, text: "✓ Conectado y verificado. Los informes se enviarán por esta cuenta." });
+        setSmtp({ ...smtp, connected: true, host: smtpForm.host, user: smtpForm.user, from_email: r.from_email });
+        setSmtpForm((f: any) => ({ ...f, pass: "" }));
+      } else {
+        setSmtpMsg({ ok: false, text: "⚠ " + (r.error || "No se pudo conectar. Revisa host, puerto, usuario y contraseña.") });
+      }
+    } catch (e: any) { setSmtpMsg({ ok: false, text: "⚠ " + e.message }); }
+    setSmtpBusy(false);
+  }
 
   async function uploadLogo(file: File) {
     if (!file) return;
@@ -213,6 +240,33 @@ export default function ClientesPage() {
                   <input type="file" accept="image/png,image/jpeg" style={{ display: "none" }} onChange={(e) => e.target.files?.[0] && uploadLogo(e.target.files[0])} />
                 </label>
                 <button onClick={() => { setConnected(false); }} style={{ ...btnGhost, color: "#b91c1c" }}>Cambiar API key</button>
+              </div>
+
+              {/* Cuenta de envío (SMTP) para los informes */}
+              <div style={{ marginBottom: 16, border: "1px solid var(--border, #e2e8f0)", borderRadius: 12, overflow: "hidden" }}>
+                <button onClick={() => setSmtpOpen((v) => !v)} style={{ width: "100%", display: "flex", alignItems: "center", gap: 8, padding: "11px 14px", background: "var(--bg-elev-2, #f7f8fb)", border: "none", cursor: "pointer", fontFamily: "inherit", fontSize: 13.5 }}>
+                  <span style={{ width: 8, height: 8, borderRadius: "50%", background: smtp?.connected ? "#10b981" : "#cbd5e1", flexShrink: 0 }} />
+                  <span style={{ fontWeight: 700 }}>Cuenta de envío (SMTP)</span>
+                  <span style={{ fontSize: 12, color: "var(--text-dim)" }}>{smtp?.connected ? `· conectada (${smtp.from_email || smtp.user})` : "· sin conectar — los informes no se enviarán"}</span>
+                  <span style={{ marginLeft: "auto", color: "var(--text-dim)" }}>{smtpOpen ? "▲" : "▼"}</span>
+                </button>
+                {smtpOpen && (
+                  <div style={{ padding: 14, display: "grid", gap: 10, background: "var(--bg-elev, #fff)" }}>
+                    <div style={{ fontSize: 12, color: "var(--text-dim)" }}>Introduce los datos SMTP del correo desde el que quieres enviar los informes (p.ej. IONOS: <code>smtp.ionos.es</code> puerto 587; Gmail: <code>smtp.gmail.com</code> 465 con contraseña de aplicación).</div>
+                    <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: 8 }}>
+                      <div><label style={lbl}>Servidor SMTP (host)</label><input value={smtpForm.host} onChange={(e) => setSmtpForm((f: any) => ({ ...f, host: e.target.value }))} placeholder="smtp.ionos.es" style={inp} /></div>
+                      <div><label style={lbl}>Puerto</label><input value={smtpForm.port} onChange={(e) => setSmtpForm((f: any) => ({ ...f, port: Number(e.target.value) || 587 }))} placeholder="587" style={inp} /></div>
+                    </div>
+                    <div><label style={lbl}>Usuario</label><input value={smtpForm.user} onChange={(e) => setSmtpForm((f: any) => ({ ...f, user: e.target.value }))} placeholder="informes@tudominio.com" style={inp} /></div>
+                    <div><label style={lbl}>Contraseña {smtp?.has_pass ? "(deja vacío para no cambiarla)" : ""}</label><input type="password" value={smtpForm.pass} onChange={(e) => setSmtpForm((f: any) => ({ ...f, pass: e.target.value }))} placeholder="••••••••" style={inp} autoComplete="new-password" /></div>
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                      <div><label style={lbl}>Email remitente (opcional)</label><input value={smtpForm.from_email} onChange={(e) => setSmtpForm((f: any) => ({ ...f, from_email: e.target.value }))} placeholder="= usuario" style={inp} /></div>
+                      <div><label style={lbl}>Nombre remitente (opcional)</label><input value={smtpForm.from_name} onChange={(e) => setSmtpForm((f: any) => ({ ...f, from_name: e.target.value }))} placeholder="OnePulso Informes" style={inp} /></div>
+                    </div>
+                    {smtpMsg && <div style={{ fontSize: 12.5, padding: "8px 12px", borderRadius: 8, background: smtpMsg.ok ? "rgba(16,185,129,0.1)" : "rgba(239,68,68,0.08)", color: smtpMsg.ok ? "#047857" : "#b91c1c", border: `1px solid ${smtpMsg.ok ? "rgba(16,185,129,0.3)" : "rgba(239,68,68,0.25)"}` }}>{smtpMsg.text}</div>}
+                    <div><button onClick={saveSmtp} disabled={smtpBusy} style={btnPrimary}>{smtpBusy ? "Probando conexión…" : "Probar y guardar"}</button></div>
+                  </div>
+                )}
               </div>
 
               {error && <div style={{ marginBottom: 14, padding: "8px 14px", background: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.25)", borderRadius: 8, fontSize: 13, color: "#b91c1c" }}>⚠ {error}</div>}

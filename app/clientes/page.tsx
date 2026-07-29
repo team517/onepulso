@@ -443,19 +443,26 @@ export default function ClientesPage() {
                     if (!list.length) return <div style={{ fontSize: 12, color: "var(--text-dim)" }}>Aún no se ha enviado ningún informe.</div>;
                     return (
                       <div style={{ display: "flex", flexDirection: "column", gap: 6, maxHeight: 220, overflowY: "auto" }}>
-                        {list.map((e: any) => (
-                          <div key={e.reportId} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 10px", border: "1px solid var(--border, #e6e9ef)", borderRadius: 8, background: "var(--bg, #fff)" }}>
-                            <span title={e.ok ? "Enviado" : "Falló"} style={{ fontSize: 13 }}>{e.ok ? "✅" : "❌"}</span>
-                            <div style={{ minWidth: 0, flex: 1 }}>
-                              <div style={{ fontSize: 12.5, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                                {new Date(e.at).toLocaleString("es-ES", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}
-                                {e.test ? " · prueba" : ""} · {e.to}
+                        {list.map((e: any, i: number) => {
+                          const kindIcon = e.kind === "alert" ? "🔔" : e.kind === "weekly" ? "📅" : "📄";
+                          const kindLabel = e.kind === "alert" ? "aviso interesado" : e.kind === "weekly" ? "resumen semanal" : "informe 48h";
+                          return (
+                            <div key={(e.reportId || "e") + "-" + i} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 10px", border: "1px solid var(--border, #e6e9ef)", borderRadius: 8, background: "var(--bg, #fff)" }}>
+                              <span title={e.ok ? "Enviado" : "Falló"} style={{ fontSize: 13 }}>{e.ok ? "✅" : "❌"}</span>
+                              <div style={{ minWidth: 0, flex: 1 }}>
+                                <div style={{ fontSize: 12.5, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                  {kindIcon} {kindLabel}
+                                  {e.test ? " · prueba" : ""}
+                                </div>
+                                <div style={{ fontSize: 11, color: "var(--text-dim)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                  {new Date(e.at).toLocaleString("es-ES", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })} · {e.to}
+                                </div>
+                                {!e.ok && e.error && <div style={{ fontSize: 11, color: "#dc2626", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{e.error}</div>}
                               </div>
-                              {!e.ok && e.error && <div style={{ fontSize: 11, color: "#dc2626", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{e.error}</div>}
+                              {e.link && <a href={e.link} target="_blank" rel="noreferrer" style={{ ...btnGhost, padding: "4px 10px", fontSize: 11, textDecoration: "none", flexShrink: 0 }}>📄 PDF</a>}
                             </div>
-                            <a href={e.link} target="_blank" rel="noreferrer" style={{ ...btnGhost, padding: "4px 10px", fontSize: 11, textDecoration: "none", flexShrink: 0 }}>📄 PDF</a>
-                          </div>
-                        ))}
+                          );
+                        })}
                       </div>
                     );
                   })()}

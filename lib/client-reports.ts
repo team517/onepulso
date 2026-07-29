@@ -104,7 +104,8 @@ export type ReportLogEntry = {
   test: boolean;
   ok: boolean;
   error?: string;
-  link: string;
+  link?: string;         // enlace al PDF (informes); vacío en avisos
+  kind?: "report" | "weekly" | "alert"; // tipo de envío
 };
 
 /** ¿Es una URL local/no pública (no sirve para el enlace del cliente)? */
@@ -560,6 +561,7 @@ export async function sendReportForClient(
   // Registro del envío (éxito o fallo) — SIEMPRE queda constancia.
   await appendReportLog(clientId, {
     reportId, at: new Date().toISOString(), to, subject, bytes: pdf.length, test: isTest, ok, error, link,
+    kind: weekly ? "weekly" : "report",
   }).catch((e) => console.warn("[client-reports] no se pudo registrar el envío:", e?.message));
 
   if (!ok) throw new Error(error || "No se pudo enviar el informe.");
@@ -635,13 +637,14 @@ export async function runWeeklyReports(): Promise<{ sent: number; errors: number
 /** Email breve y positivo avisando al cliente de que HOY hay interesados/preguntas.
  *  Redactado por IA (varía cada vez); fallback determinista. */
 async function generateInterestedAlertHtml(clientName: string, count: number): Promise<string> {
-  const plural = count === 1;
-  const base = `<p>Hola,</p><p>¡Buenas noticias! Hoy ${plural ? "una persona ha respondido con interés" : `${nf(count)} personas han respondido con interés`} a tu campaña. Ya lo estamos revisando para darle continuidad cuanto antes.</p><p>Te mantenemos al día.</p><p>Un saludo</p>`;
+  const uno = count === 1;
+  const quien = uno ? "una persona ha respondido" : `${nf(count)} personas han respondido`;
+  const base = `<p>Hola,</p><p>Te escribimos para avisarte de una buena novedad: hoy ${quien} con interés a tu campaña de emails. Es una señal muy positiva de que tu propuesta está conectando con la audiencia.</p><p>Simplemente queríamos que lo tuvieras presente. Ya nos irás contando cómo evoluciona.</p><p>Un saludo,<br>El equipo de OnePulso</p>`;
   try {
     const txt = await generateText({
-      system: "Escribes emails MUY breves, cercanos y positivos de una agencia de cold email a su cliente. Devuelves solo HTML simple con <p>. Sin asunto, sin emojis, sin markdown.",
-      prompt: `Escribe un email muy breve (2-3 frases, con otras palabras cada vez) avisando al cliente ${clientName} de que HOY ha habido ${count} respuesta(s) de personas interesadas o con preguntas en su campaña de cold email. Tono positivo y natural. No inventes más números ni detalles concretos. Español de España.`,
-      maxTokens: 260, temperature: 0.9,
+      system: "Escribes emails de AVISO de una agencia de cold email a su cliente. Tu único objetivo es INFORMAR de una novedad de forma cercana, educada y positiva. MUY IMPORTANTE: NO prometáis ni menciones ninguna acción por vuestra parte (nada de 'lo revisamos', 'te contamos el siguiente paso', 'lo gestionamos', 'le damos continuidad'); vosotros solo avisáis, no hacéis nada más. Longitud media: 3-4 frases (ni telegrama ni parrafada). HTML simple con etiquetas <p>. Sin asunto, sin emojis, sin markdown. Español de España. Varía la redacción y las palabras cada vez.",
+      prompt: `Escribe un email para el cliente ${clientName} informándole de que HOY ${count} persona(s) han respondido con interés o con preguntas a su campaña de cold email. Felicítale por la buena señal y anímale, pero SOLO informas de la novedad (no prometas nada por vuestra parte). No inventes más números ni detalles concretos. Termina con un saludo cordial.`,
+      maxTokens: 320, temperature: 0.95,
     });
     const out = (txt || "").replace(/```html?/gi, "").replace(/```/g, "").trim();
     if (out && out.includes("<p")) return out;
@@ -698,9 +701,15 @@ export async function runDailyInterestedAlerts(): Promise<{ checked: number; sen
       if (interested > 0) {
         const html = await generateInterestedAlertHtml(c.client_name, interested);
         const subject = interested === 1 ? "Tienes una respuesta de un interesado" : `Tienes ${nf(interested)} respuestas de interesados`;
-        await deliverReportEmail(c.recipient_email, subject, html);
-        sent++;
-        console.log(`[client-reports] alerta interesados → ${c.client_name} (${interested})`);
+        let aok = false, aerr: string | undefined;
+        try { await deliverReportEmail(c.recipient_email, subject, html); aok = true; sent++; }
+        catch (e: any) { aerr = e?.message || String(e); errors++; }
+        // El aviso también queda en el registro del cliente.
+        await appendReportLog(c.client_id, {
+          reportId: `alert-${date}`, at: new Date().toISOString(), to: c.recipient_email,
+          subject, bytes: 0, test: false, ok: aok, error: aerr, kind: "alert",
+        }).catch(() => {});
+        if (aok) console.log(`[client-reports] alerta interesados → ${c.client_name} (${interested})`);
       }
     } catch (e: any) {
       errors++;

@@ -167,17 +167,17 @@ export default function ClientesPage() {
     setBusy("");
   }
 
-  async function sendTest(row: Row) {
+  async function sendTest(row: Row, weekly = false) {
     const email = (testEmails[row.client_id] || "").trim();
     if (!email) { alert("Escribe tu email para la prueba."); return; }
-    setBusy("test-" + row.client_id);
+    setBusy((weekly ? "testw-" : "test-") + row.client_id);
     try {
       await saveConfig(row); // usar los últimos textos/intro en la prueba
       const r = await fetch(`/api/clients/${row.client_id}/send`, {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ test_email: email }),
+        body: JSON.stringify({ test_email: email, weekly }),
       }).then((r) => r.json());
-      if (r.ok) flash(`✓ Prueba enviada a ${r.to} — mira cómo queda`);
+      if (r.ok) flash(`✓ Prueba ${weekly ? "semanal " : ""}enviada a ${r.to} — mira cómo queda`);
       else flash("⚠ " + (r.error || "Error en la prueba"));
       loadLog(row.client_id);
     } catch (e: any) { flash("⚠ " + e.message); loadLog(row.client_id); }
@@ -396,18 +396,20 @@ export default function ClientesPage() {
 
                 <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                   <button onClick={() => saveConfig(row)} disabled={busy === "save-" + row.client_id} style={btnPrimary}>{busy === "save-" + row.client_id ? "Guardando…" : "Guardar"}</button>
-                  <a href={`/api/clients/${row.client_id}/pdf`} target="_blank" rel="noreferrer" style={{ ...btnGhost, textDecoration: "none", display: "inline-flex", alignItems: "center" }}>👁 Ver PDF</a>
-                  <a href={`/api/clients/${row.client_id}/pdf?download=1`} style={{ ...btnGhost, textDecoration: "none", display: "inline-flex", alignItems: "center" }}>⬇ Descargar PDF</a>
+                  <a href={`/api/clients/${row.client_id}/pdf`} target="_blank" rel="noreferrer" style={{ ...btnGhost, textDecoration: "none", display: "inline-flex", alignItems: "center" }}>👁 Ver PDF (48h)</a>
+                  <a href={`/api/clients/${row.client_id}/pdf?weekly=1`} target="_blank" rel="noreferrer" style={{ ...btnGhost, textDecoration: "none", display: "inline-flex", alignItems: "center" }}>📅 Ver PDF semanal</a>
+                  <a href={`/api/clients/${row.client_id}/pdf?download=1`} style={{ ...btnGhost, textDecoration: "none", display: "inline-flex", alignItems: "center" }}>⬇ Descargar</a>
                 </div>
 
                 {/* Probar envío a TU email */}
                 <div style={{ padding: 12, background: "rgba(124,58,237,0.06)", border: "1px dashed rgba(124,58,237,0.35)", borderRadius: 10 }}>
                   <div style={{ fontSize: 12.5, fontWeight: 700, color: "#6d28d9", marginBottom: 6 }}>🧪 Probar envío (a TU email, no al cliente)</div>
                   <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                    <input value={testEmails[row.client_id] || ""} onChange={(e) => setTestEmails((t) => ({ ...t, [row.client_id]: e.target.value }))} placeholder="tu@email.com" style={{ ...inp, flex: 1, minWidth: 180 }} />
-                    <button onClick={() => sendTest(row)} disabled={busy === "test-" + row.client_id} style={{ ...btnPrimary, background: "#7c3aed" }}>{busy === "test-" + row.client_id ? "Enviando…" : "Enviar prueba"}</button>
+                    <input value={testEmails[row.client_id] || ""} onChange={(e) => setTestEmails((t) => ({ ...t, [row.client_id]: e.target.value }))} placeholder="tu@email.com" style={{ ...inp, flex: 1, minWidth: 160 }} />
+                    <button onClick={() => sendTest(row, false)} disabled={busy.endsWith(row.client_id) && busy.startsWith("test")} style={{ ...btnPrimary, background: "#7c3aed" }}>{busy === "test-" + row.client_id ? "Enviando…" : "Prueba 48h"}</button>
+                    <button onClick={() => sendTest(row, true)} disabled={busy.endsWith(row.client_id) && busy.startsWith("test")} style={{ ...btnPrimary, background: "#4f46e5" }}>{busy === "testw-" + row.client_id ? "Enviando…" : "Prueba semanal"}</button>
                   </div>
-                  <div style={{ fontSize: 11, color: "var(--text-dim)", marginTop: 6 }}>Te llega a ti para ver cómo queda. Al cliente NO le llega.</div>
+                  <div style={{ fontSize: 11, color: "var(--text-dim)", marginTop: 6 }}>Te llega a ti para ver cómo queda. Al cliente NO le llega. La <b>semanal</b> es el resumen que se enviará los viernes.</div>
                 </div>
 
                 {/* Enviar REAL */}

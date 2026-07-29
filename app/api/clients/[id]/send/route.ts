@@ -9,6 +9,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const { id } = await params;
   const body = await req.json().catch(() => ({}));
   const testEmail = String(body?.test_email ?? "").trim();
+  const weekly = body?.weekly === true;
   // URL pública real para el enlace del PDF: detrás del proxy de EasyPanel el
   // origin interno es "localhost:80"; usamos el host REENVIADO por el proxy.
   const h = req.headers;
@@ -17,8 +18,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const baseUrl = fwdHost && !/^(localhost|127\.|0\.0\.0\.0)/.test(fwdHost) ? `${fwdProto}://${fwdHost}` : undefined;
   try {
     const r = testEmail
-      ? await sendReportForClient(id, { overrideEmail: testEmail, test: true, baseUrl })
-      : await sendReportForClient(id, { baseUrl });
+      ? await sendReportForClient(id, { overrideEmail: testEmail, test: true, baseUrl, weekly })
+      : await sendReportForClient(id, { baseUrl, weekly });
     return NextResponse.json(r);
   } catch (e: any) {
     return NextResponse.json({ error: e?.message || String(e) }, { status: 500 });

@@ -166,6 +166,16 @@ export async function tick() {
     console.error("[email-scheduler] daily interested alerts error:", e.message);
   }
 
+  // 0.e Informe SEMANAL de clientes los VIERNES por la tarde (Europe/Madrid).
+  // Se auto-limita al viernes 17:00–22:59 y a un envío/cliente ese día.
+  try {
+    const { runWeeklyReports } = await import("./client-reports");
+    const w = await runWeeklyReports();
+    if (w.sent > 0 || w.errors > 0) console.log(`[email-scheduler] informes semanales: ${w.sent} enviados, ${w.errors} errores`);
+  } catch (e: any) {
+    console.error("[email-scheduler] weekly reports error:", e.message);
+  }
+
   // 1. Enviar follow-ups vencidos
   const dueResults = await sendDueFollowups();
 

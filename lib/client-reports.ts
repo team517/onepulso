@@ -43,6 +43,8 @@ export type ReportConfig = {
   /** Última fecha (YYYY-MM-DD, hora España) en que se hizo el chequeo diario de
    *  interesados a las 18:00 (para no repetir ni reenviar el mismo día). */
   last_alert_date?: string;
+  /** Último viernes (YYYY-MM-DD, hora España) en que se envió el informe semanal. */
+  last_weekly_date?: string;
   updated_at: string;
 };
 
@@ -147,15 +149,18 @@ async function appendReportLog(clientId: string, entry: ReportLogEntry): Promise
 // ─────────────────────────────────────────────────────────────────────────────
 function nf(n: number): string { return Number(n || 0).toLocaleString("es-ES"); }
 
-/** Hora actual en España (Europe/Madrid): {hour, minute, date "YYYY-MM-DD"}. */
-function madridNow(): { hour: number; minute: number; date: string } {
+/** Hora actual en España (Europe/Madrid): {hour, minute, date, weekday}.
+ *  weekday: 0=domingo, 1=lunes … 5=viernes, 6=sábado. */
+function madridNow(): { hour: number; minute: number; date: string; weekday: number } {
   const parts = new Intl.DateTimeFormat("es-ES", {
     timeZone: "Europe/Madrid", hour: "2-digit", minute: "2-digit", hour12: false,
     year: "numeric", month: "2-digit", day: "2-digit",
   }).formatToParts(new Date());
   const get = (t: string) => parts.find((p) => p.type === t)?.value ?? "";
+  const y = parseInt(get("year"), 10), mo = parseInt(get("month"), 10), d = parseInt(get("day"), 10);
   const hour = parseInt(get("hour"), 10) % 24; // "24" → 0
-  return { hour, minute: parseInt(get("minute"), 10), date: `${get("year")}-${get("month")}-${get("day")}` };
+  const weekday = new Date(Date.UTC(y, mo - 1, d)).getUTCDay(); // día de la semana de esa fecha
+  return { hour, minute: parseInt(get("minute"), 10), date: `${get("year")}-${get("month")}-${get("day")}`, weekday };
 }
 
 /** Minuto [0..59] fijo por cliente para escalonar los envíos (no se solapan). */
@@ -469,12 +474,18 @@ export async function generateReportPDF(opts: {
 // ─────────────────────────────────────────────────────────────────────────────
 // Generar (datos) + enviar
 // ─────────────────────────────────────────────────────────────────────────────
-export async function buildReportForClient(clientId: string, clientName: string, _intro: string, campaignIds?: string[]): Promise<Buffer> {
+export async function buildReportForClient(
+  clientId: string,
+  clientName: string,
+  _intro: string,
+  campaignIds?: string[],
+  opts?: { windowDays?: number; periodLabel?: string }
+): Promise<Buffer> {
   const cfg = await getReportConfig(clientId, clientName);
   const camps = campaignIds ?? cfg.campaign_ids;
   const intervalHours = cfg.interval_hours || 48;
-  const windowDays = Math.max(1, Math.ceil(intervalHours / 24));
-  const periodLabel = `Últimas ${intervalHours} horas`;
+  const windowDays = opts?.windowDays ?? Math.max(1, Math.ceil(intervalHours / 24));
+  const periodLabel = opts?.periodLabel ?? `Últimas ${intervalHours} horas`;
 
   const data = await getClientReport(clientId, camps, { windowDays, dailyDays: 7 });
   const now = new Date();
@@ -493,19 +504,27 @@ export async function buildReportForClient(clientId: string, clientName: string,
  *  - opts.overrideEmail: envío de PRUEBA a ese email → NO marca last_sent_at. */
 export async function sendReportForClient(
   clientId: string,
-  opts?: { overrideEmail?: string; test?: boolean; baseUrl?: string }
+  opts?: { overrideEmail?: string; test?: boolean; baseUrl?: string; weekly?: boolean }
 ): Promise<{ ok: boolean; to: string; bytes: number; test: boolean; link: string; reportId: string }> {
   const cfg = await getReportConfig(clientId);
   const isTest = !!(opts?.test || opts?.overrideEmail);
+  const weekly = !!opts?.weekly;
   const to = (opts?.overrideEmail || cfg.recipient_email || "").trim();
   if (!to) throw new Error(isTest ? "Escribe un email de prueba." : "Este cliente no tiene email de destino configurado.");
 
-  const pdf = await buildReportForClient(clientId, cfg.client_name, cfg.pdf_intro, cfg.campaign_ids);
+  // El informe semanal (viernes) usa ventana de 7 días; el normal, 48h.
+  const pdf = await buildReportForClient(
+    clientId, cfg.client_name, cfg.pdf_intro, cfg.campaign_ids,
+    weekly ? { windowDays: 7, periodLabel: "Resumen de la semana" } : undefined
+  );
 
   // Guardar el PDF y construir el enlace público de descarga.
   const reportId = await storeReportPdf(clientId, pdf);
   const link = `${reportBaseUrl(opts?.baseUrl)}/api/clients/${clientId}/report-file/${reportId}`;
-  const subject = (isTest ? "[PRUEBA] " : "") + (cfg.email_subject || `Informe de rendimiento — ${cfg.client_name}`);
+  const subjectBase = weekly
+    ? `Resumen semanal — ${cfg.client_name}`
+    : (cfg.email_subject || `Informe de rendimiento — ${cfg.client_name}`);
+  const subject = (isTest ? "[PRUEBA] " : "") + subjectBase;
 
   // El mensaje al cliente se reescribe con IA en cada envío (no siempre igual).
   const baseBody = cfg.email_body_html || `<p>Hola,</p><p>Te comparto el informe de rendimiento de tus campañas de las últimas 48 horas.</p><p>Cualquier duda, aquí estamos.</p><p>Un saludo</p>`;
@@ -545,8 +564,14 @@ export async function sendReportForClient(
   return { ok: true, to, bytes: pdf.length, test: isTest, link, reportId };
 }
 
-/** Llamado por el scheduler: envía a los clientes activados cuyo intervalo venció. */
+/** Llamado por el scheduler: envía el informe de 48h a los clientes activados
+ *  cuyo intervalo venció. SOLO de lunes a jueves: el fin de semana no se envía
+ *  nada y el viernes se reserva para el informe SEMANAL (`runWeeklyReports`). */
 export async function runDueReports(): Promise<{ sent: number; errors: number }> {
+  const { weekday } = madridNow();
+  // 5=viernes, 6=sábado, 0=domingo → no se envía el informe de 48h.
+  if (weekday === 5 || weekday === 6 || weekday === 0) return { sent: 0, errors: 0 };
+
   const cfgs = await listReportConfigs();
   const now = Date.now();
   let sent = 0, errors = 0;
@@ -557,6 +582,33 @@ export async function runDueReports(): Promise<{ sent: number; errors: number }>
     if (now - last < intervalMs) continue;
     try { await sendReportForClient(c.client_id); sent++; }
     catch (e: any) { errors++; console.error(`[client-reports] ${c.client_id} fallo:`, e?.message || e); }
+  }
+  return { sent, errors };
+}
+
+/** Informe SEMANAL: los VIERNES (España), a partir de las 17:00, envía a cada
+ *  cliente activado un resumen de la semana (PDF de 7 días con gráficos + acciones
+ *  a mejorar). Un único envío por viernes y cliente, escalonado para no solaparse. */
+export async function runWeeklyReports(): Promise<{ sent: number; errors: number }> {
+  const { weekday, hour, minute, date } = madridNow();
+  if (weekday !== 5) return { sent: 0, errors: 0 };   // solo viernes
+  if (hour < 17 || hour > 22) return { sent: 0, errors: 0 }; // ventana 17:00–22:59
+
+  const cfgs = await listReportConfigs();
+  let sent = 0, errors = 0;
+  for (const c of cfgs) {
+    if (!c.enabled || !c.recipient_email) continue;
+    if (c.last_weekly_date === date) continue;                       // ya enviado este viernes
+    if (hour === 17 && minute < slotForClient(c.client_id)) continue; // escalonado en la hora 17
+    try {
+      await sendReportForClient(c.client_id, { weekly: true });
+      sent++;
+    } catch (e: any) {
+      errors++;
+      console.error(`[client-reports] semanal ${c.client_id} fallo:`, e?.message || e);
+    }
+    // Un intento por viernes (éxito o fallo queda en el historial).
+    await saveReportConfig(c.client_id, { last_weekly_date: date }).catch(() => {});
   }
   return { sent, errors };
 }
@@ -594,7 +646,8 @@ async function generateInterestedAlertHtml(clientName: string, count: number): P
  * Se hace un único chequeo por día y cliente (marca last_alert_date).
  */
 export async function runDailyInterestedAlerts(): Promise<{ checked: number; sent: number; errors: number }> {
-  const { hour, minute, date } = madridNow();
+  const { hour, minute, date, weekday } = madridNow();
+  if (weekday === 0 || weekday === 6) return { checked: 0, sent: 0, errors: 0 }; // fin de semana: silencio
   // Ventana 18:00–21:59 (tolera downtime del scheduler); el escalonado real es en la hora 18.
   if (hour < 18 || hour > 21) return { checked: 0, sent: 0, errors: 0 };
 

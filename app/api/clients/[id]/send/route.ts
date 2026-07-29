@@ -9,10 +9,11 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const { id } = await params;
   const body = await req.json().catch(() => ({}));
   const testEmail = String(body?.test_email ?? "").trim();
+  const baseUrl = req.nextUrl.origin; // para construir el enlace público del PDF
   try {
     const r = testEmail
-      ? await sendReportForClient(id, { overrideEmail: testEmail, test: true })
-      : await sendReportForClient(id);
+      ? await sendReportForClient(id, { overrideEmail: testEmail, test: true, baseUrl })
+      : await sendReportForClient(id, { baseUrl });
     return NextResponse.json(r);
   } catch (e: any) {
     return NextResponse.json({ error: e?.message || String(e) }, { status: 500 });

@@ -11,11 +11,8 @@
  *   interval_hours (def 48), last_sent_at, client_name.
  */
 import PDFDocument from "pdfkit";
-import { promises as fs } from "fs";
-import os from "os";
-import path from "path";
 import { randomUUID } from "crypto";
-import { readJson, writeJson, deleteJson, listKeys, readBlob } from "./storage";
+import { readJson, writeJson, deleteJson, listKeys, readBlob, writeBlob } from "./storage";
 import { getClientReport, getClientReplyContext, getClientPositiveOnDate, listClients, type ClientReportData } from "./smartlead";
 import { sendEmail } from "./email-send";
 import { generateText } from "./ai-providers";
@@ -87,6 +84,56 @@ export async function listReportConfigs(): Promise<ReportConfig[]> {
 
 export async function deleteReportConfig(clientId: string): Promise<void> {
   await deleteJson(`${CFG_PREFIX}${clientId}`);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PDF almacenado (enlace público) + registro de envíos
+// ─────────────────────────────────────────────────────────────────────────────
+const PDF_PREFIX = "report-pdf/";   // blob:  report-pdf/{clientId}/{reportId}
+const LOG_PREFIX = "client-report-log/";
+
+export type ReportLogEntry = {
+  reportId: string;
+  at: string;            // ISO
+  to: string;
+  subject: string;
+  bytes: number;
+  test: boolean;
+  ok: boolean;
+  error?: string;
+  link: string;
+};
+
+/** Base URL pública para construir el enlace del PDF (env o host de EasyPanel). */
+function reportBaseUrl(explicit?: string): string {
+  const raw = (explicit && explicit.trim())
+    || process.env.APP_BASE_URL
+    || process.env.NEXT_PUBLIC_APP_URL
+    || "https://backend-onepulso-onepulsorailway.25kofp.easypanel.host";
+  return raw.replace(/\/+$/, "");
+}
+
+/** Guarda el PDF como blob y devuelve su id (para el enlace público). */
+export async function storeReportPdf(clientId: string, pdf: Buffer): Promise<string> {
+  const reportId = randomUUID();
+  await writeBlob(`${PDF_PREFIX}${clientId}/${reportId}`, pdf, "application/pdf");
+  return reportId;
+}
+
+/** Lee el PDF guardado (para la ruta pública de descarga). */
+export async function getReportPdfBlob(clientId: string, reportId: string): Promise<{ data: Buffer; mime: string } | null> {
+  if (!/^[\w-]+$/.test(reportId)) return null;
+  return (await readBlob(`${PDF_PREFIX}${clientId}/${reportId}`).catch(() => null)) || null;
+}
+
+/** Historial de informes enviados de un cliente (más reciente primero). */
+export async function getReportLog(clientId: string): Promise<ReportLogEntry[]> {
+  return (await readJson<ReportLogEntry[]>(`${LOG_PREFIX}${clientId}`)) ?? [];
+}
+async function appendReportLog(clientId: string, entry: ReportLogEntry): Promise<void> {
+  const log = await getReportLog(clientId);
+  log.unshift(entry);
+  await writeJson(`${LOG_PREFIX}${clientId}`, log.slice(0, 60)); // conserva los últimos 60
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -434,37 +481,58 @@ export async function buildReportForClient(clientId: string, clientName: string,
   return generateReportPDF({ clientName, periodLabel, dateLabel, data, sections, logo });
 }
 
-/** Genera el PDF y lo envía por email.
+/** Genera el PDF, lo GUARDA (enlace público) y envía el correo con un LINK de
+ *  descarga (no adjunto). Registra SIEMPRE el intento (éxito o fallo) en el historial.
  *  - Sin opts: al destinatario configurado (envío real) → marca last_sent_at.
  *  - opts.overrideEmail: envío de PRUEBA a ese email → NO marca last_sent_at. */
 export async function sendReportForClient(
   clientId: string,
-  opts?: { overrideEmail?: string; test?: boolean }
-): Promise<{ ok: boolean; to: string; bytes: number; test: boolean }> {
+  opts?: { overrideEmail?: string; test?: boolean; baseUrl?: string }
+): Promise<{ ok: boolean; to: string; bytes: number; test: boolean; link: string; reportId: string }> {
   const cfg = await getReportConfig(clientId);
   const isTest = !!(opts?.test || opts?.overrideEmail);
   const to = (opts?.overrideEmail || cfg.recipient_email || "").trim();
   if (!to) throw new Error(isTest ? "Escribe un email de prueba." : "Este cliente no tiene email de destino configurado.");
+
   const pdf = await buildReportForClient(clientId, cfg.client_name, cfg.pdf_intro, cfg.campaign_ids);
 
+  // Guardar el PDF y construir el enlace público de descarga.
+  const reportId = await storeReportPdf(clientId, pdf);
+  const link = `${reportBaseUrl(opts?.baseUrl)}/api/clients/${clientId}/report-file/${reportId}`;
+  const subject = (isTest ? "[PRUEBA] " : "") + (cfg.email_subject || `Informe de rendimiento — ${cfg.client_name}`);
+
   // El mensaje al cliente se reescribe con IA en cada envío (no siempre igual).
-  const baseBody = cfg.email_body_html || `<p>Hola,</p><p>Te adjunto el informe de rendimiento de tus campañas de las últimas 48 horas.</p><p>Cualquier duda, aquí estamos.</p><p>Un saludo</p>`;
+  const baseBody = cfg.email_body_html || `<p>Hola,</p><p>Te comparto el informe de rendimiento de tus campañas de las últimas 48 horas.</p><p>Cualquier duda, aquí estamos.</p><p>Un saludo</p>`;
   const variedBody = await varyMessageHtml(baseBody, cfg.client_name);
 
-  const tmp = path.join(os.tmpdir(), `informe-${clientId}-${randomUUID()}.pdf`);
-  await fs.writeFile(tmp, pdf);
+  // Botón + enlace de descarga del PDF (en vez de adjunto — más fiable).
+  const linkBlock =
+    `<div style="margin:24px 0;font-family:Arial,Helvetica,sans-serif">` +
+    `<a href="${link}" style="display:inline-block;background:#6e59f2;color:#ffffff;text-decoration:none;padding:13px 24px;border-radius:10px;font-weight:700;font-size:14px">📄 Ver / descargar informe (PDF)</a>` +
+    `</div>` +
+    `<p style="font-family:Arial,Helvetica,sans-serif;font-size:12px;color:#8b8f9e;margin:0">Si el botón no funciona, copia este enlace en tu navegador:<br><a href="${link}" style="color:#6e59f2">${link}</a></p>`;
+
+  const testBanner = isTest ? `<p style="color:#b45309;font-family:Arial,sans-serif"><b>Esto es una PRUEBA</b> — así le llegará el informe al cliente.</p>` : "";
+  const body_html = testBanner + variedBody + linkBlock;
+
+  let ok = false;
+  let error: string | undefined;
   try {
-    await sendEmail({
-      to,
-      subject: (isTest ? "[PRUEBA] " : "") + (cfg.email_subject || `Informe de rendimiento — ${cfg.client_name}`),
-      body_html: (isTest ? `<p style="color:#b45309"><b>Esto es una PRUEBA</b> — así le llegará el informe al cliente.</p>` : "") + variedBody,
-      attachments: [{ filename: `Informe-${cfg.client_name.replace(/[^\w\-]+/g, "_")}.pdf`, path: tmp }],
-    });
-  } finally {
-    fs.unlink(tmp).catch(() => {});
+    await sendEmail({ to, subject, body_html });
+    ok = true;
+  } catch (e: any) {
+    error = e?.message || String(e);
+    console.error(`[client-reports] envío ${clientId} → ${to} FALLÓ:`, error);
   }
+
+  // Registro del envío (éxito o fallo) — SIEMPRE queda constancia.
+  await appendReportLog(clientId, {
+    reportId, at: new Date().toISOString(), to, subject, bytes: pdf.length, test: isTest, ok, error, link,
+  }).catch((e) => console.warn("[client-reports] no se pudo registrar el envío:", e?.message));
+
+  if (!ok) throw new Error(error || "No se pudo enviar el informe.");
   if (!isTest) await saveReportConfig(clientId, { last_sent_at: new Date().toISOString() });
-  return { ok: true, to, bytes: pdf.length, test: isTest };
+  return { ok: true, to, bytes: pdf.length, test: isTest, link, reportId };
 }
 
 /** Llamado por el scheduler: envía a los clientes activados cuyo intervalo venció. */

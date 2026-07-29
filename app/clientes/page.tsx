@@ -23,6 +23,7 @@ export default function ClientesPage() {
   const [busy, setBusy] = useState("");
   const [feedback, setFeedback] = useState("");
   const [testEmails, setTestEmails] = useState<Record<string, string>>({});
+  const [logs, setLogs] = useState<Record<string, any[]>>({});
   const [campaignsByClient, setCampaignsByClient] = useState<Record<string, Array<{ id: string; name: string; status?: string }>>>({});
   const [loadingCamps, setLoadingCamps] = useState("");
   const [logoInfo, setLogoInfo] = useState<{ has_logo: boolean } | null>(null);
@@ -131,7 +132,8 @@ export default function ClientesPage() {
       if (r.ok) flash(`✓ Informe enviado a ${r.to}`);
       else flash("⚠ " + (r.error || "Error enviando"));
       loadClients();
-    } catch (e: any) { flash("⚠ " + e.message); }
+      loadLog(row.client_id);
+    } catch (e: any) { flash("⚠ " + e.message); loadLog(row.client_id); }
     setBusy("");
   }
 
@@ -147,9 +149,18 @@ export default function ClientesPage() {
       }).then((r) => r.json());
       if (r.ok) flash(`✓ Prueba enviada a ${r.to} — mira cómo queda`);
       else flash("⚠ " + (r.error || "Error en la prueba"));
-    } catch (e: any) { flash("⚠ " + e.message); }
+      loadLog(row.client_id);
+    } catch (e: any) { flash("⚠ " + e.message); loadLog(row.client_id); }
     setBusy("");
   }
+
+  async function loadLog(clientId: string) {
+    try {
+      const r = await fetch(`/api/clients/${clientId}/log`).then((r) => r.json());
+      setLogs((prev) => ({ ...prev, [clientId]: Array.isArray(r.log) ? r.log : [] }));
+    } catch { /* ignora */ }
+  }
+  useEffect(() => { if (openId) loadLog(openId); }, [openId]);
 
   function flash(m: string) { setFeedback(m); setTimeout(() => setFeedback(""), 5000); }
 
@@ -333,6 +344,36 @@ export default function ClientesPage() {
 
                 {/* Enviar REAL */}
                 <button onClick={() => sendNow(row)} disabled={busy === "send-" + row.client_id} style={{ ...btnPrimary, background: "linear-gradient(135deg,#f9a603,#d15cfe)", width: "100%" }}>{busy === "send-" + row.client_id ? "Enviando…" : "📤 Enviar informe REAL al cliente ahora"}</button>
+
+                {/* Historial de envíos */}
+                <div style={{ marginTop: 4 }}>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
+                    <label style={{ ...lbl, marginBottom: 0 }}>Historial de envíos</label>
+                    <button onClick={() => loadLog(row.client_id)} style={{ ...btnGhost, padding: "3px 10px", fontSize: 11 }}>↻ Actualizar</button>
+                  </div>
+                  {(() => {
+                    const list = logs[row.client_id];
+                    if (!list) return <div style={{ fontSize: 12, color: "var(--text-dim)" }}>Cargando…</div>;
+                    if (!list.length) return <div style={{ fontSize: 12, color: "var(--text-dim)" }}>Aún no se ha enviado ningún informe.</div>;
+                    return (
+                      <div style={{ display: "flex", flexDirection: "column", gap: 6, maxHeight: 220, overflowY: "auto" }}>
+                        {list.map((e: any) => (
+                          <div key={e.reportId} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 10px", border: "1px solid var(--border, #e6e9ef)", borderRadius: 8, background: "var(--bg, #fff)" }}>
+                            <span title={e.ok ? "Enviado" : "Falló"} style={{ fontSize: 13 }}>{e.ok ? "✅" : "❌"}</span>
+                            <div style={{ minWidth: 0, flex: 1 }}>
+                              <div style={{ fontSize: 12.5, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                {new Date(e.at).toLocaleString("es-ES", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}
+                                {e.test ? " · prueba" : ""} · {e.to}
+                              </div>
+                              {!e.ok && e.error && <div style={{ fontSize: 11, color: "#dc2626", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{e.error}</div>}
+                            </div>
+                            <a href={e.link} target="_blank" rel="noreferrer" style={{ ...btnGhost, padding: "4px 10px", fontSize: 11, textDecoration: "none", flexShrink: 0 }}>📄 PDF</a>
+                          </div>
+                        ))}
+                      </div>
+                    );
+                  })()}
+                </div>
               </div>
             </div>
           </div>

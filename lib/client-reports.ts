@@ -105,13 +105,18 @@ export type ReportLogEntry = {
   link: string;
 };
 
-/** Base URL pública para construir el enlace del PDF (env o host de EasyPanel). */
+/** ¿Es una URL local/no pública (no sirve para el enlace del cliente)? */
+function isLocalUrl(u?: string): boolean {
+  return !!u && /(^https?:\/\/)?(localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\])(:\d+)?/i.test(u);
+}
+
+/** Base URL pública para construir el enlace del PDF. Nunca devuelve localhost:
+ *  usa el host reenviado (si es público) → env → host de EasyPanel. */
 function reportBaseUrl(explicit?: string): string {
-  const raw = (explicit && explicit.trim())
-    || process.env.APP_BASE_URL
-    || process.env.NEXT_PUBLIC_APP_URL
-    || "https://backend-onepulso-onepulsorailway.25kofp.easypanel.host";
-  return raw.replace(/\/+$/, "");
+  const candidates = [explicit, process.env.APP_BASE_URL, process.env.NEXT_PUBLIC_APP_URL];
+  const good = candidates.find((c) => c && c.trim() && !isLocalUrl(c));
+  const raw = good || "https://backend-onepulso-onepulsorailway.25kofp.easypanel.host";
+  return raw.trim().replace(/\/+$/, "");
 }
 
 /** Guarda el PDF como blob y devuelve su id (para el enlace público). */

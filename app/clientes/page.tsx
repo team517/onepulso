@@ -57,7 +57,10 @@ export default function ClientesPage() {
         setSmtp({ ...smtp, connected: true, host: smtpForm.host, user: smtpForm.user, from_email: r.from_email });
         setSmtpForm((f: any) => ({ ...f, pass: "" }));
       } else {
-        setSmtpMsg({ ok: false, text: "⚠ " + (r.error || "No se pudo conectar. Revisa host, puerto, usuario y contraseña.") });
+        const isGmail = /gmail\.com/i.test(smtpForm.host || "");
+        const looksAuth = /invalid|accepted|authentication|535|credential|login|password/i.test(r.error || "");
+        const gmailTip = isGmail && looksAuth ? " → En Gmail debes usar una Contraseña de aplicación (no la normal): myaccount.google.com/apppasswords." : "";
+        setSmtpMsg({ ok: false, text: "⚠ " + (r.error || "No se pudo conectar. Revisa host, puerto, usuario y contraseña.") + gmailTip });
       }
     } catch (e: any) { setSmtpMsg({ ok: false, text: "⚠ " + e.message }); }
     setSmtpBusy(false);
@@ -252,7 +255,18 @@ export default function ClientesPage() {
                 </button>
                 {smtpOpen && (
                   <div style={{ padding: 14, display: "grid", gap: 10, background: "var(--bg-elev, #fff)" }}>
-                    <div style={{ fontSize: 12, color: "var(--text-dim)" }}>Introduce los datos SMTP del correo desde el que quieres enviar los informes (p.ej. IONOS: <code>smtp.ionos.es</code> puerto 587; Gmail: <code>smtp.gmail.com</code> 465 con contraseña de aplicación).</div>
+                    <div style={{ fontSize: 12, color: "var(--text-dim)" }}>Introduce los datos SMTP del correo desde el que quieres enviar los informes, o pulsa un proveedor para autorrellenarlos:</div>
+                    <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
+                      <button type="button" onClick={() => setSmtpForm((f: any) => ({ ...f, host: "smtp.gmail.com", port: 465 }))} style={{ ...btnGhost, padding: "5px 12px", fontSize: 12 }}>📧 Gmail</button>
+                      <button type="button" onClick={() => setSmtpForm((f: any) => ({ ...f, host: "smtp.ionos.es", port: 587 }))} style={{ ...btnGhost, padding: "5px 12px", fontSize: 12 }}>IONOS</button>
+                      <button type="button" onClick={() => setSmtpForm((f: any) => ({ ...f, host: "smtp-mail.outlook.com", port: 587 }))} style={{ ...btnGhost, padding: "5px 12px", fontSize: 12 }}>Outlook</button>
+                    </div>
+                    {/gmail\.com/i.test(smtpForm.host) && (
+                      <div style={{ fontSize: 12, padding: "10px 12px", background: "rgba(234,67,53,0.06)", border: "1px solid rgba(234,67,53,0.22)", borderRadius: 8, color: "#a4231a", lineHeight: 1.5 }}>
+                        <b>Para Gmail necesitas una «Contraseña de aplicación»</b>, no tu contraseña normal.<br />
+                        1) Activa la <b>Verificación en 2 pasos</b> en tu cuenta Google. 2) Crea la contraseña en <a href="https://myaccount.google.com/apppasswords" target="_blank" rel="noreferrer" style={{ color: "#6e59f2", fontWeight: 600 }}>myaccount.google.com/apppasswords</a>. 3) Pega aquí esos <b>16 caracteres</b> (con o sin espacios). En <b>Usuario</b> pon tu dirección completa <code>@gmail.com</code>.
+                      </div>
+                    )}
                     <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: 8 }}>
                       <div><label style={lbl}>Servidor SMTP (host)</label><input value={smtpForm.host} onChange={(e) => setSmtpForm((f: any) => ({ ...f, host: e.target.value }))} placeholder="smtp.ionos.es" style={inp} /></div>
                       <div><label style={lbl}>Puerto</label><input value={smtpForm.port} onChange={(e) => setSmtpForm((f: any) => ({ ...f, port: Number(e.target.value) || 587 }))} placeholder="587" style={inp} /></div>

@@ -508,6 +508,34 @@ export default function ClientInboxPage() {
     return false;
   }, [myEmailsSet]);
 
+  // ENVIADOS OPTIMISTAS: al enviar, el mensaje se muestra al INSTANTE en
+  // "Enviados", sin depender de que el guardado en BD o el sync del proveedor
+  // (IONOS no copia a Sent) cuadren. Se limpian cuando la BD ya los tiene
+  // (mismo message-id) o tras un TTL de seguridad.
+  const [pendingSent, setPendingSent] = useState<any[]>([]);
+  const messagesMerged = useMemo(() => {
+    if (!pendingSent.length) return messages;
+    const norm = (s: string) => (s || "").trim().replace(/^<+|>+$/g, "").toLowerCase();
+    const have = new Set(messages.map((m: any) => norm(m.messageId)).filter(Boolean));
+    const extra = pendingSent.filter((p) => !(norm(p.messageId) && have.has(norm(p.messageId))));
+    return extra.length ? [...extra, ...messages] : messages;
+  }, [messages, pendingSent]);
+  useEffect(() => {
+    if (!pendingSent.length) return;
+    const norm = (s: string) => (s || "").trim().replace(/^<+|>+$/g, "").toLowerCase();
+    const have = new Set(messages.map((m: any) => norm(m.messageId)).filter(Boolean));
+    const now = Date.now();
+    setPendingSent((prev) => {
+      const next = prev.filter((p) => {
+        const mid = norm(p.messageId);
+        if (mid && have.has(mid)) return false;      // ya persistido en BD
+        if (now - (p.__ts || 0) > 30000) return false; // TTL: la recarga ya debería tenerlo
+        return true;
+      });
+      return next.length === prev.length ? prev : next;
+    });
+  }, [messages]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Pre-calcular outbound/inbound UNA sola vez para todos los mensajes.
   // CARPETAS EXCLUSIVAS: si un mensaje tiene folder_id (movido a carpeta
   // custom), NO aparece en "Todos" / "Recibidos" / "Enviados". Solo
@@ -517,14 +545,14 @@ export default function ClientInboxPage() {
     const sent: any[] = [];
     const recv: any[] = [];
     const unfiled: any[] = [];
-    for (const m of messages) {
+    for (const m of messagesMerged) {
       // Mensajes movidos a carpeta custom NO entran en las bandejas globales
       if ((m as any).folder_id) continue;
       unfiled.push(m);
       if (isOutboundMsg(m)) sent.push(m); else recv.push(m);
     }
     return { sentMessages: sent, receivedMessages: recv, unfiledMessages: unfiled };
-  }, [messages, isOutboundMsg]);
+  }, [messagesMerged, isOutboundMsg]);
 
   const baseList = useMemo(() => {
     if (folderFilter === "sent") return sentMessages;
@@ -1175,13 +1203,14 @@ export default function ClientInboxPage() {
           accounts={accounts}
           initial={composeData}
           onClose={() => setComposeOpen(false)}
-          onSent={() => {
+          onSent={(sentMsg?: any) => {
             setComposeOpen(false);
+            // Mostrar el enviado AL INSTANTE en "Enviados" (optimista), aunque el
+            // guardado en BD o el sync del proveedor tarden o fallen.
+            if (sentMsg) setPendingSent((prev) => [{ ...sentMsg, __ts: Date.now() }, ...prev]);
             loadMessages();
             loadReminders();
-            // Segundo refresh tras 5s: a veces el Sent folder de Gmail tarda
-            // unos segundos en indexar el mensaje. Doble loadMessages garantiza
-            // que el mensaje recién enviado aparezca en "Enviados".
+            // Segundo refresh tras 5s: a veces el Sent folder tarda en indexar.
             setTimeout(() => loadMessages(), 5000);
             setLastSyncTs(Date.now());
           }}
@@ -1369,6 +1398,36 @@ function ComposeModal({ uniboxId, accounts, initial, onClose, onSent }: any) {
         throw new Error(errMsg + hint);
       }
 
+      // Construir el mensaje ENVIADO para mostrarlo al instante en "Enviados".
+      const acc = accounts.find((a: any) => a.id === accountId);
+      const accEmail = acc?.email || "";
+      const dispName = [acc?.first_name, acc?.last_name].filter(Boolean).join(" ") || accEmail;
+      const htmlBody = editorRef.current?.innerHTML || "";
+      const textPreview = htmlBody.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().slice(0, 180);
+      let fsubject = subject || "(sin asunto)";
+      if (initial.inReplyTo && !/^re:\s*/i.test(fsubject)) fsubject = `Re: ${fsubject}`;
+      const sentMsg = {
+        uid: -Date.now(),
+        accountId,
+        messageId: d?.messageId || "",
+        inReplyTo: initial.inReplyTo || "",
+        references: initial.references ? String(initial.references).split(/\s+/).filter(Boolean) : [],
+        from: dispName ? `${dispName} <${accEmail}>` : accEmail,
+        fromName: dispName,
+        fromAddress: accEmail,
+        to,
+        toAddress: to,
+        subject: fsubject,
+        date: new Date().toISOString(),
+        preview: textPreview,
+        unread: false,
+        is_warmup: false,
+        is_sent: true,
+        folder_id: null,
+        has_attachments: files.length > 0,
+        has_body: true,
+      };
+
       // Si el usuario activó el reminder, lo programamos POST-send.
       if (reminderEnabled && d.messageId && to.trim()) {
         try {
@@ -1391,7 +1450,7 @@ function ComposeModal({ uniboxId, accounts, initial, onClose, onSent }: any) {
           console.warn("[unibox] No se pudo programar reminder:", e);
         }
       }
-      onSent();
+      onSent(sentMsg);
     } catch (e: any) {
       alert("Error: " + e.message);
     } finally {

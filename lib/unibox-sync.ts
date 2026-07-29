@@ -419,7 +419,6 @@ export async function syncAccountSent(uniboxId: string, accountId: string): Prom
           if (msg.uid && msg.uid > maxUidSentSeen) maxUidSentSeen = msg.uid;
           continue;
         }
-        const warmup = isWarmupMessage({ subject, text: "", html: "", from: fromAddr });
         const wrap = (s: string): string => {
           const t = String(s || "").trim();
           if (!t) return "";
@@ -444,7 +443,7 @@ export async function syncAccountSent(uniboxId: string, accountId: string): Prom
           text: "",
           html: "",
           unread: false,
-          is_warmup: warmup,
+          is_warmup: false, // los ENVIADOS nunca son warmup: no deben ocultarse de "Enviados"
           attachments: [],
         } as any);
         (fresh[fresh.length - 1] as any).is_sent = true;

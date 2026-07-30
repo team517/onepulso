@@ -750,24 +750,41 @@ export async function runClientAgent(
   message: string,
   mode: "prompt" | "atencion"
 ): Promise<{ answer: string }> {
-  const cfg = await getReportConfig(clientId);
-  const [data, replies] = await Promise.all([
-    getClientReport(clientId, cfg.campaign_ids, { cumulative: true, dailyDays: 7 }).catch(() => null),
-    getClientReplyContext(clientId, cfg.campaign_ids).catch(() => ""),
-  ]);
+  const isAll = !clientId || clientId === "all";
+  let ctx = "";
+  let clientName = "el cliente";
 
-  let ctx = `Cliente: ${cfg.client_name}`;
-  if (data) {
-    const t = data.totals;
-    const perC = data.perCampaign.slice(0, 8).map((c) => `- ${c.name}: ${nf(c.sent)} enviados, ${nf(c.replies)} respuestas (${pctOf(c.replies, c.contacted)}), ${nf(c.interested)} interesados`).join("\n");
-    const recent = data.daily.slice(-5).filter((x) => x.sent || x.replies).map((x) => `${x.label}: ${x.sent} env., ${x.replies} resp.`).join(" · ") || "poca actividad reciente";
-    ctx += `\nMÉTRICAS (acumulado Smartlead): contactados ${nf(t.contacted)}, enviados ${nf(t.sent)}, respuestas ${nf(t.replies)} (${ratePct(data.replyRate)}), interesados ${nf(t.interested)}, contactos restantes ${nf(t.remaining)}.\nÚltimos días: ${recent}\nPor campaña:\n${perC}`;
+  if (isAll) {
+    // Modo cartera: resumen del estado actual de TODOS los clientes.
+    const clients = await listClients().catch(() => []);
+    const summaries = await Promise.all(clients.slice(0, 15).map(async (cl) => {
+      const d = await getClientReport(String(cl.id), undefined, { cumulative: true, dailyDays: 7 }).catch(() => null);
+      if (!d) return `- ${cl.name}: (sin datos)`;
+      const t = d.totals;
+      return `- ${cl.name}: contactados ${nf(t.contacted)}, enviados ${nf(t.sent)}, respuestas ${nf(t.replies)} (${ratePct(d.replyRate)}), interesados ${nf(t.interested)}, restantes ${nf(t.remaining)}`;
+    }));
+    clientName = "toda la cartera de clientes";
+    ctx = `CARTERA DE CLIENTES (Smartlead) — estado actual acumulado:\n${summaries.join("\n") || "(sin clientes)"}`;
+  } else {
+    const cfg = await getReportConfig(clientId);
+    clientName = cfg.client_name;
+    const [data, replies] = await Promise.all([
+      getClientReport(clientId, cfg.campaign_ids, { cumulative: true, dailyDays: 7 }).catch(() => null),
+      getClientReplyContext(clientId, cfg.campaign_ids).catch(() => ""),
+    ]);
+    ctx = `Cliente: ${cfg.client_name}`;
+    if (data) {
+      const t = data.totals;
+      const perC = data.perCampaign.slice(0, 8).map((c) => `- ${c.name}: ${nf(c.sent)} enviados, ${nf(c.replies)} respuestas (${pctOf(c.replies, c.contacted)}), ${nf(c.interested)} interesados`).join("\n");
+      const recent = data.daily.slice(-5).filter((x) => x.sent || x.replies).map((x) => `${x.label}: ${x.sent} env., ${x.replies} resp.`).join(" · ") || "poca actividad reciente";
+      ctx += `\nMÉTRICAS (acumulado Smartlead): contactados ${nf(t.contacted)}, enviados ${nf(t.sent)}, respuestas ${nf(t.replies)} (${ratePct(data.replyRate)}), interesados ${nf(t.interested)}, contactos restantes ${nf(t.remaining)}.\nÚltimos días: ${recent}\nPor campaña:\n${perC}`;
+    }
+    if (replies) ctx += `\n\nRESPUESTAS REALES DE INTERESADOS (unibox de Smartlead):\n${replies}`;
   }
-  if (replies) ctx += `\n\nRESPUESTAS REALES DE INTERESADOS (unibox de Smartlead):\n${replies}`;
 
   const system = mode === "atencion"
-    ? `Eres el gestor de cuentas y atención al cliente de la agencia de cold email OnePulso para el cliente "${cfg.client_name}". Ayudas a comunicarte con él de forma profesional, cercana y positiva: responder sus dudas, explicarle resultados, proponer siguientes pasos y redactar mensajes listos para enviar. Usa sus datos reales. NUNCA menciones rebotes ni nada negativo; enmárcalo todo en positivo, oportunidades y recorrido. Español de España.`
-    : `Eres el asistente de la agencia OnePulso para el cliente "${cfg.client_name}". Tienes sus datos reales de Smartlead. Responde a lo que te pida el usuario de forma útil, concreta y accionable. Español de España.`;
+    ? `Eres el gestor de cuentas y atención al cliente de la agencia de cold email OnePulso (trabajas sobre ${clientName}). Ayudas a comunicarte con el cliente de forma profesional, cercana y positiva: responder dudas, explicar resultados, proponer siguientes pasos y redactar mensajes listos para enviar. Usa los datos reales. NUNCA menciones rebotes ni nada negativo; enmárcalo todo en positivo, oportunidades y recorrido. Español de España.`
+    : `Eres el asistente de la agencia OnePulso (trabajas sobre ${clientName}). Tienes los datos reales de Smartlead. Responde a lo que te pida el usuario de forma útil, concreta y accionable. Español de España.`;
 
   const answer = await generateText({
     system: `${system}\n\nDATOS DEL CLIENTE:\n${ctx}`,

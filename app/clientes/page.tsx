@@ -25,6 +25,7 @@ export default function ClientesPage() {
   const [testEmails, setTestEmails] = useState<Record<string, string>>({});
   const [logs, setLogs] = useState<Record<string, any[]>>({});
   const [agentMode, setAgentMode] = useState<"prompt" | "atencion">("prompt");
+  const [agentClient, setAgentClient] = useState("all");
   const [agentMsg, setAgentMsg] = useState("");
   const [agentBusy, setAgentBusy] = useState(false);
   const [agentAnswer, setAgentAnswer] = useState("");
@@ -209,13 +210,13 @@ export default function ClientesPage() {
       setLogs((prev) => ({ ...prev, [clientId]: Array.isArray(r.log) ? r.log : [] }));
     } catch { /* ignora */ }
   }
-  useEffect(() => { if (openId) loadLog(openId); setAgentAnswer(""); setAgentMsg(""); }, [openId]);
+  useEffect(() => { if (openId) loadLog(openId); }, [openId]);
 
-  async function runAgent(row: Row) {
+  async function runAgent() {
     if (!agentMsg.trim()) return;
     setAgentBusy(true); setAgentAnswer("");
     try {
-      const r = await fetch(`/api/clients/${row.client_id}/agent`, {
+      const r = await fetch(`/api/clients/${agentClient || "all"}/agent`, {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ message: agentMsg, mode: agentMode }),
       }).then((r) => r.json());
@@ -313,6 +314,37 @@ export default function ClientesPage() {
                     </div>
                     {smtpMsg && <div style={{ fontSize: 12.5, padding: "8px 12px", borderRadius: 8, background: smtpMsg.ok ? "rgba(16,185,129,0.1)" : "rgba(239,68,68,0.08)", color: smtpMsg.ok ? "#047857" : "#b91c1c", border: `1px solid ${smtpMsg.ok ? "rgba(16,185,129,0.3)" : "rgba(239,68,68,0.25)"}` }}>{smtpMsg.text}</div>}
                     <div><button onClick={saveSmtp} disabled={smtpBusy} style={btnPrimary}>{smtpBusy ? "Probando conexión…" : "Probar y guardar"}</button></div>
+                  </div>
+                )}
+              </div>
+
+              {/* Asistente IA global (toda la cartera o un cliente) */}
+              <div style={{ marginBottom: 16, padding: 14, background: "rgba(110,89,242,0.05)", border: "1px solid rgba(110,89,242,0.28)", borderRadius: 12 }}>
+                <div style={{ fontSize: 13, fontWeight: 800, color: "#6e59f2", marginBottom: 10 }}>🤖 Asistente IA</div>
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 8 }}>
+                  <div style={{ display: "flex", gap: 6 }}>
+                    {([["prompt", "💬 Prompt"], ["atencion", "🎧 Atención cliente"]] as const).map(([m, label]) => (
+                      <button key={m} onClick={() => setAgentMode(m)} style={{ padding: "6px 14px", borderRadius: 999, border: "1px solid", cursor: "pointer", fontFamily: "inherit", fontSize: 12.5, fontWeight: 600, background: agentMode === m ? "#6e59f2" : "var(--bg-elev-2,#f4f6fa)", color: agentMode === m ? "#fff" : "var(--text,#1e1e26)", borderColor: agentMode === m ? "#6e59f2" : "var(--border,#e6e9ef)" }}>{label}</button>
+                    ))}
+                  </div>
+                  <select value={agentClient} onChange={(e) => setAgentClient(e.target.value)} style={{ ...inp, flex: 1, minWidth: 170, width: "auto" }}>
+                    <option value="all">Todos los clientes</option>
+                    {clients.map((c) => <option key={c.client_id} value={c.client_id}>{c.client_name}</option>)}
+                  </select>
+                </div>
+                <textarea value={agentMsg} onChange={(e) => setAgentMsg(e.target.value)} rows={2}
+                  placeholder={agentMode === "atencion" ? "P.ej. redáctame un mensaje para el cliente explicándole cómo va la campaña" : "P.ej. ¿qué cliente va mejor y qué mejorar? / resume los interesados"}
+                  style={{ ...inp, resize: "vertical" }} />
+                <div style={{ display: "flex", gap: 8, marginTop: 8, alignItems: "center", flexWrap: "wrap" }}>
+                  <button onClick={runAgent} disabled={agentBusy || !agentMsg.trim()} style={btnPrimary}>{agentBusy ? "Pensando…" : "Ejecutar"}</button>
+                  <span style={{ fontSize: 11, color: "var(--text-dim)" }}>Trabaja con los datos reales de Smartlead ({agentClient === "all" ? "toda la cartera" : "el cliente elegido"}). {agentMode === "atencion" ? "Modo atención (positivo, sin negativos)." : ""}</span>
+                </div>
+                {agentAnswer && (
+                  <div style={{ marginTop: 10, padding: 12, background: "var(--bg,#fff)", border: "1px solid var(--border,#e6e9ef)", borderRadius: 8, fontSize: 13, whiteSpace: "pre-wrap", lineHeight: 1.5 }}>
+                    {agentAnswer}
+                    <div style={{ marginTop: 8, textAlign: "right" }}>
+                      <button onClick={() => navigator.clipboard?.writeText(agentAnswer)} style={{ ...btnGhost, padding: "4px 10px", fontSize: 11 }}>Copiar</button>
+                    </div>
                   </div>
                 )}
               </div>
@@ -445,31 +477,6 @@ export default function ClientesPage() {
                     <button onClick={() => sendAlertTest(row)} disabled={busy.endsWith(row.client_id) && busy.startsWith("test")} style={{ ...btnGhost }}>{busy === "testalert-" + row.client_id ? "Enviando…" : "🔔 Ejemplo aviso interesado"}</button>
                   </div>
                   <div style={{ fontSize: 11, color: "var(--text-dim)", marginTop: 6 }}>Te llega a ti para ver cómo queda. Al cliente NO le llega. La <b>semanal</b> es el resumen de los viernes; el <b>aviso de interesado</b> es el correo diario de las 18:00 cuando hay respuestas.</div>
-                </div>
-
-                {/* Asistente IA del cliente */}
-                <div style={{ padding: 12, background: "rgba(110,89,242,0.05)", border: "1px solid rgba(110,89,242,0.28)", borderRadius: 10 }}>
-                  <div style={{ fontSize: 12.5, fontWeight: 700, color: "#6e59f2", marginBottom: 8 }}>🤖 Asistente IA (con los datos reales de este cliente)</div>
-                  <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
-                    {([["prompt", "💬 Prompt"], ["atencion", "🎧 Atención cliente"]] as const).map(([m, label]) => (
-                      <button key={m} onClick={() => setAgentMode(m)} style={{ padding: "6px 14px", borderRadius: 999, border: "1px solid", cursor: "pointer", fontFamily: "inherit", fontSize: 12.5, fontWeight: 600, background: agentMode === m ? "#6e59f2" : "var(--bg-elev-2,#f4f6fa)", color: agentMode === m ? "#fff" : "var(--text,#1e1e26)", borderColor: agentMode === m ? "#6e59f2" : "var(--border,#e6e9ef)" }}>{label}</button>
-                    ))}
-                  </div>
-                  <textarea value={agentMsg} onChange={(e) => setAgentMsg(e.target.value)} rows={2}
-                    placeholder={agentMode === "atencion" ? "P.ej. redáctame un mensaje para el cliente explicándole cómo va la campaña" : "P.ej. analiza este cliente y dime qué mejorar / resume las respuestas de interesados"}
-                    style={{ ...inp, resize: "vertical" }} />
-                  <div style={{ display: "flex", gap: 8, marginTop: 8, alignItems: "center" }}>
-                    <button onClick={() => runAgent(row)} disabled={agentBusy || !agentMsg.trim()} style={btnPrimary}>{agentBusy ? "Pensando…" : "Ejecutar"}</button>
-                    <span style={{ fontSize: 11, color: "var(--text-dim)" }}>{agentMode === "atencion" ? "Modo atención al cliente (tono positivo, sin negativos)." : "Modo libre: pídele lo que quieras sobre este cliente."}</span>
-                  </div>
-                  {agentAnswer && (
-                    <div style={{ marginTop: 10, padding: 12, background: "var(--bg,#fff)", border: "1px solid var(--border,#e6e9ef)", borderRadius: 8, fontSize: 13, whiteSpace: "pre-wrap", lineHeight: 1.5 }}>
-                      {agentAnswer}
-                      <div style={{ marginTop: 8, textAlign: "right" }}>
-                        <button onClick={() => navigator.clipboard?.writeText(agentAnswer)} style={{ ...btnGhost, padding: "4px 10px", fontSize: 11 }}>Copiar</button>
-                      </div>
-                    </div>
-                  )}
                 </div>
 
                 {/* Historial de envíos */}

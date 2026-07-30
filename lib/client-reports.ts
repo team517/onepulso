@@ -735,6 +735,49 @@ export async function runDailyInterestedAlerts(): Promise<{ checked: number; sen
   return { checked, sent, errors };
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Asistente IA por cliente (dentro de Clientes)
+// ─────────────────────────────────────────────────────────────────────────────
+/**
+ * Ejecuta el asistente de un cliente con sus DATOS REALES de Smartlead (métricas
+ * acumuladas + respuestas de interesados). Dos modos:
+ *  - "prompt": asistente libre, responde a lo que pidas sobre el cliente.
+ *  - "atencion": gestor de cuentas / atención al cliente (redacta y comunica en
+ *    positivo, sin mencionar rebotes).
+ */
+export async function runClientAgent(
+  clientId: string,
+  message: string,
+  mode: "prompt" | "atencion"
+): Promise<{ answer: string }> {
+  const cfg = await getReportConfig(clientId);
+  const [data, replies] = await Promise.all([
+    getClientReport(clientId, cfg.campaign_ids, { cumulative: true, dailyDays: 7 }).catch(() => null),
+    getClientReplyContext(clientId, cfg.campaign_ids).catch(() => ""),
+  ]);
+
+  let ctx = `Cliente: ${cfg.client_name}`;
+  if (data) {
+    const t = data.totals;
+    const perC = data.perCampaign.slice(0, 8).map((c) => `- ${c.name}: ${nf(c.sent)} enviados, ${nf(c.replies)} respuestas (${pctOf(c.replies, c.contacted)}), ${nf(c.interested)} interesados`).join("\n");
+    const recent = data.daily.slice(-5).filter((x) => x.sent || x.replies).map((x) => `${x.label}: ${x.sent} env., ${x.replies} resp.`).join(" · ") || "poca actividad reciente";
+    ctx += `\nMÉTRICAS (acumulado Smartlead): contactados ${nf(t.contacted)}, enviados ${nf(t.sent)}, respuestas ${nf(t.replies)} (${ratePct(data.replyRate)}), interesados ${nf(t.interested)}, contactos restantes ${nf(t.remaining)}.\nÚltimos días: ${recent}\nPor campaña:\n${perC}`;
+  }
+  if (replies) ctx += `\n\nRESPUESTAS REALES DE INTERESADOS (unibox de Smartlead):\n${replies}`;
+
+  const system = mode === "atencion"
+    ? `Eres el gestor de cuentas y atención al cliente de la agencia de cold email OnePulso para el cliente "${cfg.client_name}". Ayudas a comunicarte con él de forma profesional, cercana y positiva: responder sus dudas, explicarle resultados, proponer siguientes pasos y redactar mensajes listos para enviar. Usa sus datos reales. NUNCA menciones rebotes ni nada negativo; enmárcalo todo en positivo, oportunidades y recorrido. Español de España.`
+    : `Eres el asistente de la agencia OnePulso para el cliente "${cfg.client_name}". Tienes sus datos reales de Smartlead. Responde a lo que te pida el usuario de forma útil, concreta y accionable. Español de España.`;
+
+  const answer = await generateText({
+    system: `${system}\n\nDATOS DEL CLIENTE:\n${ctx}`,
+    prompt: message,
+    maxTokens: 1200,
+    temperature: 0.7,
+  });
+  return { answer: (answer || "").trim() || "(sin respuesta)" };
+}
+
 /** Lista de clientes de Smartlead + su config de informe (para la UI). */
 export async function listClientsWithConfig(): Promise<Array<{ client_id: string; client_name: string; email?: string; config: ReportConfig }>> {
   const clients = await listClients();

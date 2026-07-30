@@ -410,7 +410,6 @@ export default function ClientesPage() {
                 </label>
 
                 <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                  <button onClick={() => saveConfig(row)} disabled={busy === "save-" + row.client_id} style={btnPrimary}>{busy === "save-" + row.client_id ? "Guardando…" : "Guardar"}</button>
                   <a href={`/api/clients/${row.client_id}/pdf`} target="_blank" rel="noreferrer" style={{ ...btnGhost, textDecoration: "none", display: "inline-flex", alignItems: "center" }}>👁 Ver PDF (48h)</a>
                   <a href={`/api/clients/${row.client_id}/pdf?weekly=1`} target="_blank" rel="noreferrer" style={{ ...btnGhost, textDecoration: "none", display: "inline-flex", alignItems: "center" }}>📅 Ver PDF semanal</a>
                   <a href={`/api/clients/${row.client_id}/pdf?download=1`} style={{ ...btnGhost, textDecoration: "none", display: "inline-flex", alignItems: "center" }}>⬇ Descargar</a>
@@ -427,9 +426,6 @@ export default function ClientesPage() {
                   </div>
                   <div style={{ fontSize: 11, color: "var(--text-dim)", marginTop: 6 }}>Te llega a ti para ver cómo queda. Al cliente NO le llega. La <b>semanal</b> es el resumen de los viernes; el <b>aviso de interesado</b> es el correo diario de las 18:00 cuando hay respuestas.</div>
                 </div>
-
-                {/* Enviar REAL */}
-                <button onClick={() => sendNow(row)} disabled={busy === "send-" + row.client_id} style={{ ...btnPrimary, background: "linear-gradient(135deg,#f9a603,#d15cfe)", width: "100%" }}>{busy === "send-" + row.client_id ? "Enviando…" : "📤 Enviar informe REAL al cliente ahora"}</button>
 
                 {/* Historial de envíos */}
                 <div style={{ marginTop: 4 }}>
@@ -468,6 +464,10 @@ export default function ClientesPage() {
                   })()}
                 </div>
               </div>
+              <div style={modalFooter}>
+                <button onClick={() => saveConfig(row)} disabled={busy === "save-" + row.client_id} style={{ ...btnPrimary, flex: 1 }}>{busy === "save-" + row.client_id ? "Guardando…" : "💾 Guardar"}</button>
+                <button onClick={() => sendNow(row)} disabled={busy === "send-" + row.client_id} style={{ ...btnPrimary, flex: 2, background: "linear-gradient(135deg,#f9a603,#d15cfe)" }}>{busy === "send-" + row.client_id ? "Enviando…" : "📤 Enviar al cliente"}</button>
+              </div>
             </div>
           </div>
         );
@@ -482,6 +482,7 @@ const lbl: React.CSSProperties = { display: "block", fontSize: 11.5, fontWeight:
 const btnPrimary: React.CSSProperties = { padding: "9px 16px", background: "var(--accent, #6366f1)", color: "#fff", border: "none", borderRadius: 8, fontWeight: 700, fontSize: 13.5, cursor: "pointer", fontFamily: "inherit" };
 const btnGhost: React.CSSProperties = { padding: "8px 14px", background: "var(--bg-elev-2, #eef1f5)", color: "var(--text, #0f172a)", border: "1px solid var(--border, #d9dee6)", borderRadius: 8, fontWeight: 600, fontSize: 12.5, cursor: "pointer", fontFamily: "inherit" };
 const modalBackdrop: React.CSSProperties = { position: "fixed", inset: 0, background: "rgba(15,23,42,0.55)", backdropFilter: "blur(3px)", display: "flex", alignItems: "center", justifyContent: "center", padding: 20, zIndex: 1000 };
-const modalCard: React.CSSProperties = { width: "100%", maxWidth: 560, maxHeight: "88vh", display: "flex", flexDirection: "column", background: "var(--bg-elev, #fff)", border: "1px solid var(--border, #e2e8f0)", borderRadius: 16, boxShadow: "0 20px 60px rgba(15,23,42,0.35)", overflow: "hidden" };
+const modalCard: React.CSSProperties = { width: "100%", maxWidth: 560, maxHeight: "92vh", display: "flex", flexDirection: "column", background: "var(--bg-elev, #fff)", border: "1px solid var(--border, #e2e8f0)", borderRadius: 16, boxShadow: "0 20px 60px rgba(15,23,42,0.35)", overflow: "hidden" };
 const modalHeader: React.CSSProperties = { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, padding: "14px 18px", borderBottom: "1px solid var(--border, #e2e8f0)", flexShrink: 0 };
-const modalBody: React.CSSProperties = { padding: "16px 18px", overflowY: "auto", display: "grid", gap: 12 };
+const modalBody: React.CSSProperties = { padding: "16px 18px", overflowY: "auto", display: "grid", gap: 11, flex: 1, minHeight: 0 };
+const modalFooter: React.CSSProperties = { display: "flex", gap: 8, padding: "12px 18px", borderTop: "1px solid var(--border, #e2e8f0)", background: "var(--bg-elev, #fff)", flexShrink: 0 };

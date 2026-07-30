@@ -491,15 +491,17 @@ export async function buildReportForClient(
   clientName: string,
   _intro: string,
   campaignIds?: string[],
-  opts?: { windowDays?: number; periodLabel?: string }
+  opts?: { windowDays?: number; periodLabel?: string; cumulative?: boolean }
 ): Promise<Buffer> {
   const cfg = await getReportConfig(clientId, clientName);
   const camps = campaignIds ?? cfg.campaign_ids;
-  const intervalHours = cfg.interval_hours || 48;
-  const windowDays = opts?.windowDays ?? Math.max(1, Math.ceil(intervalHours / 24));
-  const periodLabel = opts?.periodLabel ?? `Últimas ${intervalHours} horas`;
+  // Informe normal = ACUMULADO (estado actual, "de lo que llevamos"); el semanal
+  // pasa windowDays:7 (ventana de la semana).
+  const cumulative = opts?.cumulative ?? !opts?.windowDays;
+  const windowDays = opts?.windowDays ?? 2;
+  const periodLabel = opts?.periodLabel ?? (cumulative ? "Resultados hasta hoy" : `Últimas ${cfg.interval_hours || 48} horas`);
 
-  const data = await getClientReport(clientId, camps, { windowDays, dailyDays: 7 });
+  const data = await getClientReport(clientId, camps, { windowDays, dailyDays: 7, cumulative });
   const now = new Date();
   const dateLabel = now.toLocaleDateString("es-ES", { day: "numeric", month: "long", year: "numeric" });
   const [context, logo] = await Promise.all([

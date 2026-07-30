@@ -356,12 +356,13 @@ function ddmm(d: Date): string {
 export async function getClientReport(
   clientId: string | number,
   campaignIds?: Array<string | number>,
-  opts: { windowDays?: number; dailyDays?: number } = {}
+  opts: { windowDays?: number; dailyDays?: number; cumulative?: boolean } = {}
 ): Promise<ClientReportData> {
   const { api_key } = await getSmartleadSettings();
   if (!api_key) throw new Error("Falta la API key de Smartlead.");
   const windowDays = Math.max(1, opts.windowDays ?? 2);
   const dailyDays = Math.max(1, opts.dailyDays ?? 7);
+  const cumulative = !!opts.cumulative; // true = estado actual acumulado (todo hasta hoy)
 
   let camps = await listCampaigns(clientId);
   if (campaignIds && campaignIds.length > 0) {
@@ -373,8 +374,25 @@ export async function getClientReport(
   const end = ymd(today);
   const winStart = ymd(new Date(today.getTime() - (windowDays - 1) * 86400000));
 
-  // Ventana por campaña (2 llamadas: analytics-by-date + top-level para interesados)
+  // Por campaña. ACUMULADO: /analytics (totales de todo hasta hoy) + top-level
+  // (rango amplio) para interesados. VENTANA: analytics-by-date del periodo.
   const rows = await Promise.all(camps.map(async (c) => {
+    if (cumulative) {
+      const [cum, top] = await Promise.all([
+        slGet(`/campaigns/${c.id}/analytics`, api_key).catch(() => null),
+        slGet(`/campaigns/${c.id}/top-level-analytics-by-date?start_date=2020-01-01&end_date=${end}`, api_key).catch(() => null),
+      ]);
+      return {
+        id: c.id,
+        name: c.name,
+        contacted: num(cum?.unique_sent_count ?? cum?.sent_count ?? top?.sent_count),
+        sent: num(cum?.sent_count ?? top?.sent_count),
+        replies: num(cum?.reply_count ?? top?.reply_count),
+        bounces: num(cum?.bounce_count ?? top?.bounce_count),
+        interested: num(top?.positive_reply_count),
+        remaining: num(cum?.drafted_count),
+      };
+    }
     const [byDate, top] = await Promise.all([
       slGet(`/campaigns/${c.id}/analytics-by-date?start_date=${winStart}&end_date=${end}`, api_key).catch(() => null),
       slGet(`/campaigns/${c.id}/top-level-analytics-by-date?start_date=${winStart}&end_date=${end}`, api_key).catch(() => null),
@@ -398,7 +416,6 @@ export async function getClientReport(
     totals.contacted += r.contacted; totals.sent += r.sent; totals.replies += r.replies;
     totals.bounces += r.bounces; totals.interested += r.interested; totals.remaining += r.remaining;
   }
-  totals.newContacted = totals.contacted;
   perCampaign.sort((a, b) => b.sent - a.sent);
 
   // Actividad diaria (últimos dailyDays), sumando las campañas más activas.
@@ -414,6 +431,9 @@ export async function getClientReport(
     }));
     return { label: ddmm(d), sent, replies };
   }));
+
+  // "Nuevas": en acumulado = lo enviado en los últimos 2 días; en ventana = los contactados del periodo.
+  totals.newContacted = cumulative ? daily.slice(-2).reduce((s, d) => s + d.sent, 0) : totals.contacted;
 
   const replyRate = totals.contacted ? totals.replies / totals.contacted : 0;
   return { totals, replyRate, perCampaign, daily };

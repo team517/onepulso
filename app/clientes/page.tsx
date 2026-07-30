@@ -412,7 +412,7 @@ export default function ClientesPage() {
                 </label>
 
                 <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                  <a href={`/api/clients/${row.client_id}/pdf`} target="_blank" rel="noreferrer" style={{ ...btnGhost, textDecoration: "none", display: "inline-flex", alignItems: "center" }}>👁 Ver PDF (48h)</a>
+                  <a href={`/api/clients/${row.client_id}/pdf`} target="_blank" rel="noreferrer" style={{ ...btnGhost, textDecoration: "none", display: "inline-flex", alignItems: "center" }}>👁 Ver PDF (informe)</a>
                   <a href={`/api/clients/${row.client_id}/pdf?weekly=1`} target="_blank" rel="noreferrer" style={{ ...btnGhost, textDecoration: "none", display: "inline-flex", alignItems: "center" }}>📅 Ver PDF semanal</a>
                   <a href={`/api/clients/${row.client_id}/pdf?download=1`} style={{ ...btnGhost, textDecoration: "none", display: "inline-flex", alignItems: "center" }}>⬇ Descargar</a>
                 </div>
@@ -422,7 +422,7 @@ export default function ClientesPage() {
                   <div style={{ fontSize: 12.5, fontWeight: 700, color: "#6d28d9", marginBottom: 6 }}>🧪 Probar envío (a TU email, no al cliente)</div>
                   <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                     <input value={testEmails[row.client_id] || ""} onChange={(e) => setTestEmails((t) => ({ ...t, [row.client_id]: e.target.value }))} placeholder="tu@email.com" style={{ ...inp, flex: 1, minWidth: 160 }} />
-                    <button onClick={() => sendTest(row, false)} disabled={busy.endsWith(row.client_id) && busy.startsWith("test")} style={{ ...btnPrimary, background: "#7c3aed" }}>{busy === "test-" + row.client_id ? "Enviando…" : "Prueba 48h"}</button>
+                    <button onClick={() => sendTest(row, false)} disabled={busy.endsWith(row.client_id) && busy.startsWith("test")} style={{ ...btnPrimary, background: "#7c3aed" }}>{busy === "test-" + row.client_id ? "Enviando…" : "Prueba informe"}</button>
                     <button onClick={() => sendTest(row, true)} disabled={busy.endsWith(row.client_id) && busy.startsWith("test")} style={{ ...btnPrimary, background: "#4f46e5" }}>{busy === "testw-" + row.client_id ? "Enviando…" : "Prueba semanal"}</button>
                     <button onClick={() => sendAlertTest(row)} disabled={busy.endsWith(row.client_id) && busy.startsWith("test")} style={{ ...btnGhost }}>{busy === "testalert-" + row.client_id ? "Enviando…" : "🔔 Ejemplo aviso interesado"}</button>
                   </div>

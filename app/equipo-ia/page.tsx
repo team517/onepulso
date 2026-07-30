@@ -1,13 +1,15 @@
 "use client";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import DashboardNav from "../components/DashboardNav";
 
 type Doc = { id: string; name: string; chars: number };
 type Agent = {
   id: string; name: string; role: string; emoji?: string; provider: "claude" | "deepseek";
   instructions: string; memory: string; docs: Doc[]; connections: string[];
+  resources?: string[]; x?: number; y?: number;
 };
 type Preset = { role: string; emoji: string; instructions: string };
+type ResDef = { key: string; label: string; emoji: string };
 type Client = { client_id: string; client_name: string };
 type Msg = { from: string; to: string; text: string };
 
@@ -16,8 +18,14 @@ const empty = (): Partial<Agent> => ({ name: "", role: "", emoji: "🤖", provid
 export default function EquipoIAPage() {
   const [agents, setAgents] = useState<Agent[]>([]);
   const [roles, setRoles] = useState<Preset[]>([]);
+  const [resourceDefs, setResourceDefs] = useState<ResDef[]>([]);
   const [clients, setClients] = useState<Client[]>([]);
   const [loading, setLoading] = useState(true);
+  const [positions, setPositions] = useState<Record<string, { x: number; y: number }>>({});
+  const svgRef = useRef<SVGSVGElement | null>(null);
+  const dragRef = useRef<{ id: string; moved: boolean } | null>(null);
+  const posRef = useRef(positions);
+  useEffect(() => { posRef.current = positions; }, [positions]);
 
   // Editor
   const [editing, setEditing] = useState<Partial<Agent> | null>(null);
@@ -39,7 +47,7 @@ export default function EquipoIAPage() {
     setLoading(true);
     try {
       const d = await fetch("/api/ai-team/agents").then((r) => r.json());
-      setAgents(d.agents || []); setRoles(d.roles || []);
+      setAgents(d.agents || []); setRoles(d.roles || []); setResourceDefs(d.resources || []);
       if (!leadId && d.agents?.[0]) setLeadId(d.agents[0].id);
     } catch {}
     fetch("/api/clients/list").then((r) => r.json()).then((d) => setClients(Array.isArray(d) ? d : (d.clients || []))).catch(() => {});
@@ -91,6 +99,13 @@ export default function EquipoIAPage() {
       return { ...e!, connections: [...set] };
     });
   }
+  function toggleRes(key: string) {
+    setEditing((e) => {
+      const set = new Set(e!.resources || []);
+      set.has(key) ? set.delete(key) : set.add(key);
+      return { ...e!, resources: [...set] };
+    });
+  }
 
   async function runChat() {
     if (!leadId || !message.trim()) return;
@@ -103,10 +118,12 @@ export default function EquipoIAPage() {
     setRunning(false);
   }
 
-  // ── Layout del esquema (niveles por conexiones) ──
-  const layout = useMemo(() => {
-    const W = 900, NODE_W = 150, NODE_H = 62, VGAP = 110;
-    if (!agents.length) return { W, H: 120, nodes: [] as any[], edges: [] as any[] };
+  const W = 900, NODE_W = 150, NODE_H = 62;
+
+  // Auto-posiciones por niveles (fallback si un agente no tiene posición guardada).
+  const autoPositions = useMemo(() => {
+    const VGAP = 110, pos: Record<string, { x: number; y: number }> = {};
+    if (!agents.length) return pos;
     const indeg: Record<string, number> = {};
     agents.forEach((a) => { indeg[a.id] = 0; });
     agents.forEach((a) => a.connections.forEach((c) => { if (indeg[c] != null) indeg[c]++; }));
@@ -116,30 +133,62 @@ export default function EquipoIAPage() {
     queue.forEach((id) => (level[id] = 0));
     let guard = 0;
     while (queue.length && guard++ < 500) {
-      const id = queue.shift()!;
-      const a = nameById[id];
-      if (!a) continue;
-      for (const c of a.connections) {
-        if (level[c] == null || level[c] < level[id] + 1) { level[c] = level[id] + 1; queue.push(c); }
-      }
+      const id = queue.shift()!; const a = nameById[id]; if (!a) continue;
+      for (const c of a.connections) if (level[c] == null || level[c] < level[id] + 1) { level[c] = level[id] + 1; queue.push(c); }
     }
     agents.forEach((a) => { if (level[a.id] == null) level[a.id] = 0; });
     const byLevel: Record<number, string[]> = {};
     agents.forEach((a) => { (byLevel[level[a.id]] ||= []).push(a.id); });
-    const maxLevel = Math.max(...Object.keys(byLevel).map(Number));
-    const pos: Record<string, { x: number; y: number }> = {};
-    for (let L = 0; L <= maxLevel; L++) {
-      const row = byLevel[L] || [];
-      row.forEach((id, i) => {
-        const x = ((i + 1) / (row.length + 1)) * W;
-        pos[id] = { x, y: 40 + L * VGAP };
-      });
-    }
-    const nodes = agents.map((a) => ({ a, x: pos[a.id].x, y: pos[a.id].y }));
-    const edges: any[] = [];
-    agents.forEach((a) => a.connections.forEach((c) => { if (pos[c]) edges.push({ from: pos[a.id], to: pos[c] }); }));
-    return { W, H: 40 + (maxLevel + 1) * VGAP + NODE_H, nodes, edges, NODE_W, NODE_H };
+    const maxLevel = Math.max(0, ...Object.keys(byLevel).map(Number));
+    for (let L = 0; L <= maxLevel; L++) (byLevel[L] || []).forEach((id, i, row) => { pos[id] = { x: ((i + 1) / (row.length + 1)) * W, y: 60 + L * VGAP }; });
+    return pos;
   }, [agents, nameById]);
+
+  // Combina posiciones guardadas (x/y del agente) con las automáticas.
+  useEffect(() => {
+    setPositions((prev) => {
+      const next: Record<string, { x: number; y: number }> = {};
+      for (const a of agents) {
+        if (typeof a.x === "number" && typeof a.y === "number") next[a.id] = { x: a.x, y: a.y };
+        else next[a.id] = prev[a.id] || autoPositions[a.id] || { x: W / 2, y: 60 };
+      }
+      return next;
+    });
+  }, [agents, autoPositions]);
+
+  // Arrastre de nodos (persiste x/y al soltar). Click sin mover = editar.
+  function svgPoint(e: MouseEvent) {
+    const svg = svgRef.current; if (!svg) return null;
+    const pt = svg.createSVGPoint(); pt.x = e.clientX; pt.y = e.clientY;
+    const ctm = svg.getScreenCTM(); if (!ctm) return null;
+    const l = pt.matrixTransform(ctm.inverse()); return { x: l.x, y: l.y };
+  }
+  useEffect(() => {
+    function move(e: MouseEvent) {
+      const d = dragRef.current; if (!d) return;
+      const p = svgPoint(e); if (!p) return;
+      d.moved = true;
+      const x = Math.max(NODE_W / 2, Math.min(W - NODE_W / 2, p.x)), y = Math.max(NODE_H / 2, p.y);
+      setPositions((prev) => ({ ...prev, [d.id]: { x, y } }));
+    }
+    function up() {
+      const d = dragRef.current; dragRef.current = null; if (!d) return;
+      const a = agents.find((x) => x.id === d.id); if (!a) return;
+      if (d.moved) {
+        const p = posRef.current[d.id];
+        if (p) fetch("/api/ai-team/agents", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...a, x: Math.round(p.x), y: Math.round(p.y) }) }).catch(() => {});
+      } else setEditing(a);
+    }
+    window.addEventListener("mousemove", move); window.addEventListener("mouseup", up);
+    return () => { window.removeEventListener("mousemove", move); window.removeEventListener("mouseup", up); };
+  }, [agents]);
+
+  // Nodos de sección (recursos usados) + su altura.
+  const usedResources = useMemo(() => resourceDefs.filter((r) => agents.some((a) => (a.resources || []).includes(r.key))), [resourceDefs, agents]);
+  const maxAgentY = Math.max(60, ...Object.values(positions).map((p) => p.y));
+  const resY = maxAgentY + 120;
+  const svgH = (usedResources.length ? resY : maxAgentY) + 60;
+  const resPos = (i: number, n: number) => ({ x: ((i + 1) / (n + 1)) * W, y: resY });
 
   return (
     <div className="dash-shell">
@@ -164,26 +213,41 @@ export default function EquipoIAPage() {
                   <div style={{ color: "var(--text-dim)", fontSize: 13, padding: "10px 0" }}>Aún no hay agentes. Crea el primero (p.ej. un CEO) y luego añade especialistas y conéctalos.</div>
                 ) : (
                   <div style={{ overflowX: "auto" }}>
-                    <svg viewBox={`0 0 ${layout.W} ${layout.H}`} style={{ width: "100%", minWidth: 520, height: "auto" }}>
+                    <svg ref={svgRef} viewBox={`0 0 ${W} ${svgH}`} style={{ width: "100%", minWidth: 520, height: "auto", userSelect: "none" }}>
                       <defs>
                         <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
                           <path d="M 0 0 L 10 5 L 0 10 z" fill="#a5b4fc" />
                         </marker>
                       </defs>
-                      {layout.edges.map((e: any, i: number) => (
-                        <line key={i} x1={e.from.x} y1={e.from.y + (layout.NODE_H || 62) / 2} x2={e.to.x} y2={e.to.y - (layout.NODE_H || 62) / 2} stroke="#c7d2fe" strokeWidth={2} markerEnd="url(#arrow)" />
-                      ))}
-                      {layout.nodes.map((n: any) => (
-                        <g key={n.a.id} style={{ cursor: "pointer" }} onClick={() => setEditing(n.a)}>
-                          <rect x={n.x - (layout.NODE_W || 150) / 2} y={n.y - (layout.NODE_H || 62) / 2} width={layout.NODE_W || 150} height={layout.NODE_H || 62} rx={12} fill="#ffffff" stroke="#6e59f2" strokeWidth={1.5} />
-                          <text x={n.x} y={n.y - 6} textAnchor="middle" fontSize={16}>{n.a.emoji || "🤖"} <tspan fontSize={12} fontWeight={700} fill="#1e1e26">{n.a.name}</tspan></text>
-                          <text x={n.x} y={n.y + 13} textAnchor="middle" fontSize={10} fill="#8b8f9e">{n.a.role}</text>
+                      {/* Aristas agente → agente */}
+                      {agents.flatMap((a) => (a.connections || []).map((c) => {
+                        const p = positions[a.id], q = positions[c]; if (!p || !q) return null;
+                        return <line key={a.id + c} x1={p.x} y1={p.y + NODE_H / 2} x2={q.x} y2={q.y - NODE_H / 2} stroke="#c7d2fe" strokeWidth={2} markerEnd="url(#arrow)" />;
+                      }))}
+                      {/* Aristas agente → sección (recursos) */}
+                      {usedResources.flatMap((r, i) => agents.filter((a) => (a.resources || []).includes(r.key)).map((a) => {
+                        const p = positions[a.id]; if (!p) return null; const rp = resPos(i, usedResources.length);
+                        return <line key={r.key + a.id} x1={p.x} y1={p.y + NODE_H / 2} x2={rp.x} y2={rp.y - 22} stroke="#7fd8c4" strokeWidth={2} strokeDasharray="5 4" />;
+                      }))}
+                      {/* Nodos de sección */}
+                      {usedResources.map((r, i) => { const rp = resPos(i, usedResources.length); return (
+                        <g key={r.key}>
+                          <rect x={rp.x - 90} y={rp.y - 22} width={180} height={44} rx={10} fill="#ecfdf7" stroke="#12b886" strokeWidth={1.4} strokeDasharray="5 4" />
+                          <text x={rp.x} y={rp.y + 4} textAnchor="middle" fontSize={11} fontWeight={700} fill="#0f766e">{r.emoji} {r.label}</text>
                         </g>
-                      ))}
+                      ); })}
+                      {/* Nodos de agente (arrastrables) */}
+                      {agents.map((a) => { const p = positions[a.id]; if (!p) return null; return (
+                        <g key={a.id} style={{ cursor: "grab" }} onMouseDown={(e) => { e.preventDefault(); dragRef.current = { id: a.id, moved: false }; }}>
+                          <rect x={p.x - NODE_W / 2} y={p.y - NODE_H / 2} width={NODE_W} height={NODE_H} rx={12} fill="#ffffff" stroke="#6e59f2" strokeWidth={1.5} />
+                          <text x={p.x} y={p.y - 6} textAnchor="middle" fontSize={16}>{a.emoji || "🤖"} <tspan fontSize={12} fontWeight={700} fill="#1e1e26">{a.name}</tspan></text>
+                          <text x={p.x} y={p.y + 13} textAnchor="middle" fontSize={10} fill="#8b8f9e">{a.role}</text>
+                        </g>
+                      ); })}
                     </svg>
                   </div>
                 )}
-                <div style={{ fontSize: 11, color: "var(--text-dim)", marginTop: 6 }}>Las flechas indican a quién puede consultar cada agente. Haz clic en un agente para editarlo.</div>
+                <div style={{ fontSize: 11, color: "var(--text-dim)", marginTop: 6 }}>Flechas moradas = a quién consulta cada agente · líneas verdes = secciones de la plataforma que gestiona. <b>Arrastra</b> los agentes para colocarlos (p.ej. el CEO arriba). Clic en un agente para editarlo.</div>
               </div>
 
               {/* Consola */}
@@ -299,6 +363,18 @@ export default function EquipoIAPage() {
                   })}
                   {agents.filter((a) => a.id !== editing.id).length === 0 && <div style={{ fontSize: 12, color: "var(--text-dim)" }}>Crea más agentes para conectarlos.</div>}
                 </div>
+              </div>
+
+              {/* Secciones de la plataforma */}
+              <div>
+                <label style={lbl}>Conectar con secciones de la plataforma</label>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                  {resourceDefs.map((r) => {
+                    const on = (editing.resources || []).includes(r.key);
+                    return <button key={r.key} onClick={() => toggleRes(r.key)} style={{ ...chip, background: on ? "#12b886" : "var(--bg-elev-2,#f4f6fa)", color: on ? "#fff" : "var(--text,#1e1e26)", borderColor: on ? "#12b886" : "var(--border,#e6e9ef)" }}>{r.emoji} {r.label}</button>;
+                  })}
+                </div>
+                <div style={{ fontSize: 11, color: "var(--text-dim)", marginTop: 4 }}>P.ej. conecta al <b>Campaign Manager</b> con "Clientes (Smartlead) + informes" y "Campañas activas": recibirá esos datos reales y controlará los informes. Aparecerá enlazado en el esquema.</div>
               </div>
             </div>
             <div style={modalFooter}>

@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
-import { listAgents, saveAgent, deleteAgent, ROLE_PRESETS } from "@/lib/ai-team";
+import { listAgents, saveAgent, deleteAgent, ROLE_PRESETS, RESOURCE_DEFS } from "@/lib/ai-team";
 
 export const runtime = "nodejs";
 
-/** GET → { agents, roles } */
+/** GET → { agents, roles, resources } */
 export async function GET() {
   const agents = await listAgents();
-  return NextResponse.json({ agents, roles: ROLE_PRESETS });
+  return NextResponse.json({ agents, roles: ROLE_PRESETS, resources: RESOURCE_DEFS });
 }
 
 /** POST → crea/actualiza un agente. */
@@ -23,6 +23,7 @@ export async function POST(req: NextRequest) {
       instructions: String(b.instructions || ""),
       memory: String(b.memory || ""),
       connections: Array.isArray(b.connections) ? b.connections.map(String) : undefined,
+      resources: Array.isArray(b.resources) ? b.resources.map(String) : undefined,
       x: typeof b.x === "number" ? b.x : undefined,
       y: typeof b.y === "number" ? b.y : undefined,
     });

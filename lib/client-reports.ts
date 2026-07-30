@@ -240,41 +240,56 @@ export async function generateReportSections(
   const camps = d.perCampaign.slice(0, 12).map((c) =>
     `- ${c.name}: ${nf(c.contacted)} contactados · ${nf(c.sent)} enviados · ${nf(c.replies)} respuestas (${pctOf(c.replies, c.contacted)}) · ${nf(c.interested)} interesados`
   ).join("\n");
+  // Actividad reciente → el estudio se fija en lo ÚLTIMO (no solo totales).
+  const recent = d.daily.slice(-5).filter((x) => x.sent || x.replies).map((x) => `${x.label}: ${x.sent} envíos, ${x.replies} resp.`).join(" · ") || "poca actividad estos últimos días";
+  // Ángulo distinto en cada generación → el resumen NO sale siempre igual.
+  const angles = [
+    "el volumen alcanzado y el alcance conseguido",
+    "la tasa de respuesta y el interés que se está generando",
+    "las oportunidades de escalar en el próximo periodo",
+    "el recorrido que queda por delante (contactos restantes)",
+    "la evolución y el ritmo de los últimos días",
+    "la calidad del encaje del mensaje con la audiencia",
+  ];
+  const angle = angles[Math.floor(Math.random() * angles.length)];
   const prompt = `Cliente: ${clientName}
 Periodo: ${periodLabel}
 
-MÉTRICAS DEL PERIODO:
-- Personas contactadas: ${nf(t.contacted)} (todas nuevas en el periodo)
+MÉTRICAS ACTUALES (acumuladas hasta hoy):
+- Personas contactadas: ${nf(t.contacted)}
 - Correos enviados: ${nf(t.sent)}
 - Respuestas: ${nf(t.replies)}
 - Tasa de respuesta: ${ratePct(d.replyRate)}
 - Interesados (marcados por la IA): ${nf(t.interested)}
-- Rebotes: ${nf(t.bounces)}
 - Contactos restantes por enviar: ${nf(t.remaining)}
+
+ACTIVIDAD DE LOS ÚLTIMOS DÍAS:
+${recent}
 
 POR CAMPAÑA:
 ${camps || "(sin campañas)"}
 ${context ? `\nCONTEXTO DE RESPUESTAS REALES (solo para dar color, no cites literal):\n${context}\n` : ""}
 Redacta un informe para el cliente final en 4 secciones. Devuelve EXCLUSIVAMENTE un JSON válido con esta forma:
 {
-  "summary": "1 párrafo (5-7 frases) de resumen ejecutivo del periodo",
+  "summary": "1 párrafo (5-7 frases) de resumen ejecutivo",
   "highlights": ["4-5 frases de lo más destacado"],
-  "nextSteps": ["4-5 acciones concretas que vais a hacer el próximo periodo"],
+  "nextSteps": ["4-5 acciones concretas para el próximo periodo"],
   "improvements": ["4-5 mejoras concretas del email/campaña"]
 }
 
 REGLAS ESTRICTAS:
+- VARÍA el enfoque, el orden de las ideas y las palabras en CADA informe: que nunca parezca la misma plantilla. Esta vez enfoca especialmente en ${angle}, teniendo en cuenta la actividad de los últimos días.
 - SIEMPRE en tono POSITIVO, motivador y profesional. El cliente debe quedar contento.
 - Si los números son bajos, enmárcalo como "margen de crecimiento" u "oportunidad", NUNCA como problema o fallo.
-- Si estamos en época de vacaciones (julio/agosto/Navidad), menciónalo como explicación natural de resultados más flojos (estacional, no de la campaña).
-- Puedes comparar con el promedio del sector (1-3% de respuesta) como referencia de recorrido.
-- Los rebotes SOLO se mencionan en positivo: si son 0 o bajos, es señal de que los datos de contacto son correctos. Nunca hables de rebotes como algo malo.
+- Si estamos en época de vacaciones (julio/agosto/Navidad), menciónalo como explicación natural (estacional).
+- Puedes comparar con el promedio del sector (1-3% de respuesta) como referencia.
+- NO menciones NUNCA rebotes, spam, bajas, errores de entrega ni nada negativo. Habla solo de contactados, enviados, respuestas, interés, oportunidades y recorrido.
 - Usa los nombres reales de las campañas. Español de España. Sin markdown, sin emojis, sin títulos dentro de los textos.`;
 
   try {
     const txt = await generateText({
-      system: "Eres un analista de cold email B2B de una agencia que redacta informes para el cliente final. Tu tono es SIEMPRE positivo, motivador y profesional. Devuelves solo JSON válido, sin texto adicional.",
-      prompt, maxTokens: 1100, temperature: 0.5,
+      system: "Eres un analista de cold email B2B de una agencia que redacta informes para el cliente final. Tu tono es SIEMPRE positivo y profesional, y VARÍAS la redacción y el enfoque en cada informe (nunca la misma plantilla). No mencionas nunca rebotes ni nada negativo. Devuelves solo JSON válido.",
+      prompt, maxTokens: 1100, temperature: 0.9,
     });
     const m = (txt || "").match(/\{[\s\S]*\}/);
     if (m) {
@@ -375,13 +390,12 @@ export async function generateReportPDF(opts: {
     doc.fillColor(INK).font("Helvetica-Bold").fontSize(14).text("Tasa de respuesta", M + 180, heroY + 24);
     doc.fillColor(GRAY).font("Helvetica").fontSize(10.5).text(`${nf(t.replies)} respuestas de ${nf(t.contacted)} personas contactadas`, M + 180, heroY + 46);
 
-    // KPIs 3×2
+    // KPIs (sin rebotes — no se muestran en el estudio)
     const cards = [
       { n: nf(t.contacted), l: "PERSONAS CONTACTADAS", sub: `+${nf(t.newContacted)} nuevas` },
-      { n: nf(t.sent), l: "CORREOS ENVIADOS", sub: `${nf(t.sent)} en el periodo` },
-      { n: nf(t.replies), l: "RESPUESTAS", sub: "" },
+      { n: nf(t.sent), l: "CORREOS ENVIADOS", sub: "" },
+      { n: nf(t.replies), l: "RESPUESTAS", sub: ratePct(d.replyRate) },
       { n: nf(t.interested), l: "INTERESADOS", sub: "marcados por la IA" },
-      { n: nf(t.bounces), l: "REBOTES", sub: "" },
       { n: nf(t.remaining), l: "CONTACTOS RESTANTES", sub: "" },
     ];
     const gap = 14, cw = (W - 2 * gap) / 3, ch = 92, gy = heroY + heroH + 20;

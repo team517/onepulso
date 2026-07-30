@@ -38,7 +38,7 @@ const nextConfig = {
   // pdfkit se carga desde node_modules en runtime (no se bundlea) para que
   // encuentre sus archivos de fuentes (.afm). Bundlearlo rompe la generación
   // de PDF ("ENOENT Helvetica.afm").
-  serverExternalPackages: ["pdfkit"],
+  serverExternalPackages: ["pdfkit", "unpdf"],
   typescript: {
     ignoreBuildErrors: true,
   },

@@ -194,7 +194,8 @@ export default function EquipoIAPage() {
     <div className="dash-shell">
       <DashboardNav />
       <div className="dash-content">
-        <div style={{ maxWidth: 1100, margin: "0 auto", padding: "8px 4px 40px" }}>
+        <div style={{ flex: 1, overflowY: "auto", minHeight: 0, width: "100%" }}>
+        <div style={{ maxWidth: 1100, margin: "0 auto", padding: "8px 16px 40px" }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 10, marginBottom: 6 }}>
             <div>
               <h1 style={{ fontSize: 24, fontWeight: 800, margin: 0 }}>🧠 Equipo IA</h1>
@@ -299,6 +300,7 @@ export default function EquipoIAPage() {
               </div>
             </>
           )}
+        </div>
         </div>
       </div>
 

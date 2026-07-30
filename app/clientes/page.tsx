@@ -221,7 +221,8 @@ export default function ClientesPage() {
           </div>
         </div>
 
-        <div style={{ maxWidth: 900, margin: "0 auto", padding: "8px 0 60px" }}>
+        <div style={{ flex: 1, overflowY: "auto", minHeight: 0 }}>
+        <div style={{ maxWidth: 900, margin: "0 auto", padding: "8px 16px 60px" }}>
           <h1 style={{ fontSize: 22, fontWeight: 800, marginBottom: 4 }}>Informes de clientes (Smartlead)</h1>
           <p style={{ color: "var(--text-dim)", fontSize: 13.5, marginBottom: 20 }}>
             Conecta Smartlead, elige el destinatario de cada cliente y activa el informe PDF automático cada 48h.
@@ -327,6 +328,7 @@ export default function ClientesPage() {
               </div>
             </>
           )}
+        </div>
         </div>
       </div>
 

@@ -28,3 +28,5 @@ data/*/
 # Pero SÍ mantenemos los .md de memoria (son seed de tu propuesta de valor)
 !data/memory/
 !data/memory/*.md
+
+UNIBOX_CODIGO*

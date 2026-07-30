@@ -106,16 +106,13 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     attachments,
   };
   if (normalizedInReplyTo) {
-    mail.inReplyTo = normalizedInReplyTo;
-    // Construir cadena de References completa, todas con <>:
+    // Cadena de References completa (todas con <>), terminando en el mensaje al que
+    // respondemos. Usamos SOLO las opciones de nodemailer (inReplyTo/references):
+    // generan bien las cabeceras In-Reply-To y References, sin duplicarlas.
     const refList = (references ? references.split(/\s+/).filter(Boolean).map(wrapMsgId) : []);
     if (!refList.includes(normalizedInReplyTo)) refList.push(normalizedInReplyTo);
+    mail.inReplyTo = normalizedInReplyTo;
     mail.references = refList;
-    // Cabeceras explícitas como respaldo por si nodemailer no las pone bien
-    mail.headers = {
-      "In-Reply-To": normalizedInReplyTo,
-      "References": refList.join(" "),
-    };
   }
 
   // ENVÍO con reintentos: intentamos el puerto configurado y, si falla

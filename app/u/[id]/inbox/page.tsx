@@ -446,13 +446,25 @@ export default function ClientInboxPage() {
       <div style="font-size:12px;color:#888">El ${dateStr}, ${m.from || ""} escribió:</div>
       <br>${m.html || (m.text || "").replace(/\n/g, "<br>")}
     </div>`;
+    // Cadena References COMPLETA del hilo → la respuesta sigue el hilo (Gmail/Outlook)
+    // aunque sea una conversación de varios mensajes. Orden cronológico, sin duplicados,
+    // terminando en el mensaje al que respondemos.
+    const wrap = (s: string) => { const t = String(s || "").trim().replace(/^<+|>+$/g, ""); return t ? `<${t}>` : ""; };
+    const chain: string[] = [];
+    const seen = new Set<string>();
+    const push = (id: string) => { const w = wrap(id); if (w && !seen.has(w.toLowerCase())) { seen.add(w.toLowerCase()); chain.push(w); } };
+    (m.references || []).forEach(push);
+    [...thread]
+      .sort((a: any, b: any) => new Date(a.date || 0).getTime() - new Date(b.date || 0).getTime())
+      .forEach((t: any) => { (t.references || []).forEach(push); push(t.messageId); });
+    push(m.messageId); // el mensaje al que respondo va al final de la cadena
     setComposeData({
       accountId: m.accountId,
       to: replyAddr,
       subject: subj,
       body: quoted,
       inReplyTo: m.messageId,
-      references: (m.references || []).join(" "),
+      references: chain.join(" "),
     });
     setComposeOpen(true);
   }

@@ -166,8 +166,8 @@ export async function tick() {
     console.error("[email-scheduler] daily interested alerts error:", e.message);
   }
 
-  // 0.e Informe SEMANAL de clientes los VIERNES por la tarde (Europe/Madrid).
-  // Se auto-limita al viernes 17:00–22:59 y a un envío/cliente ese día.
+  // 0.e Informe SEMANAL de clientes los VIERNES (Europe/Madrid), en la franja de
+  // las 11:00. Se auto-limita al viernes y a un envío/cliente ese día.
   try {
     const { runWeeklyReports } = await import("./client-reports");
     const w = await runWeeklyReports();

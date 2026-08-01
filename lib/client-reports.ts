@@ -589,7 +589,7 @@ export async function sendReportForClient(
  *  cuyo intervalo venció. SOLO de lunes a jueves: el fin de semana no se envía
  *  nada y el viernes se reserva para el informe SEMANAL (`runWeeklyReports`). */
 const REPORT_HOUR = 11;          // hora de envío de informes (Europe/Madrid)
-const REPORT_MAX_PER_TICK = 5;   // máx. informes por tick → no todos de golpe
+const REPORT_MAX_PER_TICK = 2;   // máx. informes por tick → ráfagas pequeñas (escala a 15+ clientes)
 
 export async function runDueReports(): Promise<{ sent: number; errors: number }> {
   const { weekday, hour, minute } = madridNow();

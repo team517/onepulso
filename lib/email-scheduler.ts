@@ -107,9 +107,6 @@ const STUCK_CHECK_MS = 5 * 60_000; // cada 5 min
 let lastCompact = 0;
 const COMPACT_MS = 6 * 60 * 60_000; // cada 6h: archiva hilos viejos/cerrados
 
-let lastReportsCheck = 0;
-const REPORTS_CHECK_MS = 30 * 60_000; // cada 30 min: informes de clientes vencidos
-
 export async function tick() {
   // EMERGENCY_MODE bypass — no hacer trabajo de fondo si está activo.
   if (process.env.EMERGENCY_MODE === "1" || process.env.EMERGENCY_MODE === "true") {
@@ -142,17 +139,15 @@ export async function tick() {
     }
   }
 
-  // 0.c Cada 30 min: enviar informes de clientes (Smartlead) cuyo intervalo
-  // (p.ej. 48h) haya vencido. Cada config decide si está activo.
-  if (Date.now() - lastReportsCheck > REPORTS_CHECK_MS) {
-    lastReportsCheck = Date.now();
-    try {
-      const { runDueReports } = await import("./client-reports");
-      const r = await runDueReports();
-      if (r.sent > 0 || r.errors > 0) console.log(`[email-scheduler] informes clientes: ${r.sent} enviados, ${r.errors} errores`);
-    } catch (e: any) {
-      console.error("[email-scheduler] client reports error:", e.message);
-    }
+  // 0.c Informes 48h de clientes (Smartlead) cuyo intervalo haya vencido. Se llama
+  // cada tick; la función se auto-limita a la franja de las 11:00 (lun-jue) y manda
+  // pocos por tick (escalonado), así 15+ clientes se reparten sin saturar.
+  try {
+    const { runDueReports } = await import("./client-reports");
+    const r = await runDueReports();
+    if (r.sent > 0 || r.errors > 0) console.log(`[email-scheduler] informes clientes: ${r.sent} enviados, ${r.errors} errores`);
+  } catch (e: any) {
+    console.error("[email-scheduler] client reports error:", e.message);
   }
 
   // 0.d Alerta DIARIA de interesados a las 18:00 (Europe/Madrid), escalonada por

@@ -29,15 +29,28 @@ function withKey(path: string, key: string): string {
 }
 
 async function slGet(path: string, key: string): Promise<any> {
-  const res = await fetch(withKey(path, key), { headers: { Accept: "application/json" }, cache: "no-store" });
-  const text = await res.text();
-  let json: any = null;
-  try { json = text ? JSON.parse(text) : null; } catch { json = text; }
-  if (!res.ok) {
-    const msg = (json && (json.message || json.error)) || `HTTP ${res.status}`;
-    throw new Error(`Smartlead ${res.status}: ${msg}`);
+  // Reintenta ante límites de la API (429) o errores transitorios (5xx) con
+  // backoff. Con muchos clientes/campañas evita que una llamada estrangulada
+  // devuelva un dato a 0 en el informe.
+  let lastErr = "";
+  for (let attempt = 0; attempt < 4; attempt++) {
+    if (attempt > 0) await new Promise((r) => setTimeout(r, 600 * attempt + Math.floor(Math.random() * 300)));
+    let res: Response;
+    try {
+      res = await fetch(withKey(path, key), { headers: { Accept: "application/json" }, cache: "no-store" });
+    } catch (e: any) {
+      lastErr = e?.message || "network"; // fallo de red → reintentar
+      continue;
+    }
+    const text = await res.text();
+    let json: any = null;
+    try { json = text ? JSON.parse(text) : null; } catch { json = text; }
+    if (res.ok) return json;
+    lastErr = (json && (json.message || json.error)) || `HTTP ${res.status}`;
+    // 429 (rate limit) y 5xx → reintentar; el resto (401/404…) → fallar ya.
+    if (res.status !== 429 && res.status < 500) break;
   }
-  return json;
+  throw new Error(`Smartlead ${lastErr}`);
 }
 
 /** Comprueba que la API key es válida (lista clientes). */
@@ -265,8 +278,8 @@ export async function getClientReplyContext(
   if (wanted.size === 0) return "";
 
   const snippets: string[] = [];
-  let pageBudget = 15;   // máx. páginas de leads a escanear en total (100 leads/página)
-  let histBudget = 10;   // máx. historiales a abrir en total
+  let pageBudget = 8;    // máx. páginas de leads a escanear en total (100 leads/página)
+  let histBudget = 6;    // máx. historiales a abrir en total
 
   for (const c of camps) {
     if (snippets.length >= maxSnippets || histBudget <= 0 || pageBudget <= 0) break;

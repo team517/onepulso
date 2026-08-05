@@ -374,7 +374,7 @@ export async function getClientReport(
   const { api_key } = await getSmartleadSettings();
   if (!api_key) throw new Error("Falta la API key de Smartlead.");
   const windowDays = Math.max(1, opts.windowDays ?? 2);
-  const dailyDays = Math.max(1, opts.dailyDays ?? 7);
+  const dailyDays = Math.max(0, opts.dailyDays ?? 7); // 0 = sin gráfico diario (más ligero)
   const cumulative = !!opts.cumulative; // true = estado actual acumulado (todo hasta hoy)
 
   let camps = await listCampaigns(clientId);

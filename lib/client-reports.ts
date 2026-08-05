@@ -755,14 +755,19 @@ export async function runClientAgent(
   let clientName = "el cliente";
 
   if (isAll) {
-    // Modo cartera: resumen del estado actual de TODOS los clientes.
-    const clients = await listClients().catch(() => []);
-    const summaries = await Promise.all(clients.slice(0, 15).map(async (cl) => {
-      const d = await getClientReport(String(cl.id), undefined, { cumulative: true, dailyDays: 7 }).catch(() => null);
-      if (!d) return `- ${cl.name}: (sin datos)`;
-      const t = d.totals;
-      return `- ${cl.name}: contactados ${nf(t.contacted)}, enviados ${nf(t.sent)}, respuestas ${nf(t.replies)} (${ratePct(d.replyRate)}), interesados ${nf(t.interested)}, restantes ${nf(t.remaining)}`;
-    }));
+    // Modo cartera: resumen del estado actual de TODOS los clientes. Ligero
+    // (sin gráfico diario) y por lotes para no saturar la API con 15+ clientes.
+    const clients = (await listClients().catch(() => [])).slice(0, 15);
+    const summaries: string[] = [];
+    for (let i = 0; i < clients.length; i += 4) {
+      const part = await Promise.all(clients.slice(i, i + 4).map(async (cl) => {
+        const d = await getClientReport(String(cl.id), undefined, { cumulative: true, dailyDays: 0 }).catch(() => null);
+        if (!d) return `- ${cl.name}: (sin datos)`;
+        const t = d.totals;
+        return `- ${cl.name}: contactados ${nf(t.contacted)}, enviados ${nf(t.sent)}, respuestas ${nf(t.replies)} (${ratePct(d.replyRate)}), interesados ${nf(t.interested)}, restantes ${nf(t.remaining)}`;
+      }));
+      summaries.push(...part);
+    }
     clientName = "toda la cartera de clientes";
     ctx = `CARTERA DE CLIENTES (Smartlead) — estado actual acumulado:\n${summaries.join("\n") || "(sin clientes)"}`;
   } else {

@@ -47,7 +47,15 @@ export type GenerateOptions = {
 
 export async function generateText(opts: GenerateOptions): Promise<string> {
   const settings = await getSettings();
-  const provider = opts.provider || settings.default_provider;
+  let provider = opts.provider || settings.default_provider;
+
+  // Auto-tolerante: si el proveedor elegido no tiene clave pero el otro sí, usa
+  // el que funcione. Así la IA responde aunque el ajuste guardado no cuadre con
+  // las claves configuradas.
+  const hasClaude = !!envVar("ANTHROPIC_API_KEY");
+  const hasDeepseek = !!(settings.deepseek_api_key || envVar("DEEPSEEK_API_KEY"));
+  if (provider === "claude" && !hasClaude && hasDeepseek) provider = "deepseek";
+  else if (provider === "deepseek" && !hasDeepseek && hasClaude) provider = "claude";
 
   if (provider === "deepseek") {
     return await callDeepSeek(opts, settings);

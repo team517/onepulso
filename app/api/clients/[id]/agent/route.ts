@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { runClientAgent } from "@/lib/client-reports";
 
 export const runtime = "nodejs";
-export const maxDuration = 90;
+export const maxDuration = 120;
 
 /** POST { message, mode } → asistente IA del cliente con sus datos reales. */
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {

@@ -13,6 +13,16 @@ import {
 
 const PREFIX = "memory/";
 
+/**
+ * Carpeta de la memoria SEMILLA (los .md incluidos en el repo: identity, framework,
+ * estructura de copy…). SIEMPRE se lee del código, NO de DATA_DIR: DATA_DIR apunta a
+ * un volumen para datos de usuario y NO contiene estos .md, así que usar dataPath()
+ * aquí dejaba la memoria vacía en producción → los prompts salían sin la "voz".
+ */
+function bundledMemoryDir(): string {
+  return path.join(process.cwd(), "data", "memory");
+}
+
 export type MemoryEntry = {
   slug: string;
   title: string;
@@ -46,7 +56,7 @@ export async function listMemory(): Promise<MemoryEntry[]> {
       for (const e of await sbListMemory()) found.set(e.slug, e);
       // Auto-import de los .md incluidos en el repo si aún no están en Supabase.
       try {
-        const dir = dataPath("memory");
+        const dir = bundledMemoryDir();
         const files = await fs.readdir(dir).catch(() => []);
         for (const f of files) {
           if (!f.endsWith(".md")) continue;
@@ -82,7 +92,7 @@ export async function listMemory(): Promise<MemoryEntry[]> {
 
   // 2) Leer .md del repo / filesystem y auto-importar a Postgres si no estaban
   try {
-    const dir = dataPath("memory");
+    const dir = bundledMemoryDir();
     const files = await fs.readdir(dir).catch(() => []);
     for (const f of files) {
       if (!f.endsWith(".md")) continue;
@@ -121,22 +131,20 @@ export async function getMemory(slug: string): Promise<MemoryEntry | null> {
   const j = await readJson<MemoryEntry>(`${PREFIX}${slug}`);
   if (j) return j;
 
-  // Fallback: intentar leer .md legacy
-  if (!isDbEnabled()) {
-    try {
-      const full = dataPath("memory", `${slug}.md`);
-      const raw = await fs.readFile(full, "utf-8");
-      const stat = await fs.stat(full);
-      const parsed = parseFrontmatter(raw);
-      return {
-        slug,
-        title: parsed.meta.title ?? slug,
-        category: parsed.meta.category ?? "general",
-        content: parsed.body,
-        updated: stat.mtime.toISOString(),
-      };
-    } catch {}
-  }
+  // Fallback: intentar leer el .md semilla del repo (siempre, no solo sin DB).
+  try {
+    const full = path.join(bundledMemoryDir(), `${slug}.md`);
+    const raw = await fs.readFile(full, "utf-8");
+    const stat = await fs.stat(full);
+    const parsed = parseFrontmatter(raw);
+    return {
+      slug,
+      title: parsed.meta.title ?? slug,
+      category: parsed.meta.category ?? "general",
+      content: parsed.body,
+      updated: stat.mtime.toISOString(),
+    };
+  } catch {}
   return null;
 }
 

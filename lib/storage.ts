@@ -32,7 +32,12 @@ const CACHE_MAX_VALUE_CHARS = 256 * 1024; // 256 KB por entrada máx
 // en RAM; lo que disparaba la RAM a 5GB era cachear DECENAS de blobs de
 // mensajes de unibox a la vez, no este único blob. Sin esto, cada lectura
 // deserializa varios MB desde Postgres → /seguimientos va lento.
-const HOT_LARGE_KEYS = new Set(["email-threads", "email-threads/list-index"]);
+// Sufijos "calientes": la clave puede venir namespaceada por tenant
+// (clients/<id>/email-threads), así que comparamos por sufijo, no exacto.
+const HOT_LARGE_SUFFIXES = ["email-threads", "email-threads/list-index"];
+function isHotLargeKey(key: string): boolean {
+  return HOT_LARGE_SUFFIXES.some((s) => key === s || key.endsWith(`/${s}`));
+}
 const HOT_LARGE_MAX_CHARS = 8 * 1024 * 1024; // 8 MB tope para claves calientes
 const HOT_LARGE_TTL_MS = 15_000; // TTL un poco mayor para cubrir el polling
 
@@ -46,7 +51,7 @@ function cacheGet(key: string): any | undefined {
   return e.value;
 }
 function cacheSet(key: string, value: any): void {
-  const isHot = HOT_LARGE_KEYS.has(key);
+  const isHot = isHotLargeKey(key);
   const maxChars = isHot ? HOT_LARGE_MAX_CHARS : CACHE_MAX_VALUE_CHARS;
   // Skip blobs grandes — no queremos GB de mensajes en RAM.
   try {

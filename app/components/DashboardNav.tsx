@@ -8,6 +8,7 @@ const NAV = [
   { href: "/campaigns",    label: "Campañas",      icon: "✦", exact: false },
   { href: "/personalizacion", label: "Personalización", icon: "✺", exact: false },
   { href: "/clientes",     label: "Clientes",      icon: "◑", exact: false },
+  { href: "/cuentas-cliente", label: "Cuentas cliente", icon: "⚇", exact: false },
   { href: "/seguimientos", label: "Seguimientos",  icon: "◈", exact: false },
   { href: "/onboarding",   label: "Onboarding",    icon: "◉", exact: false },
   { href: "/estudios",     label: "Estudios",      icon: "◬", exact: false },
@@ -20,14 +21,33 @@ const NAV = [
   { href: "/facturacion",  label: "Facturación",   icon: "◇", exact: false },
 ];
 
+// Un CLIENTE solo ve estas dos secciones.
+const CLIENT_HREFS = new Set(["/personalizacion", "/seguimientos"]);
+
 export default function DashboardNav() {
   const path = usePathname();
   const [open, setOpen] = useState(false);
+  const [role, setRole] = useState<"owner" | "client" | "anon" | null>(null);
+  const [userEmail, setUserEmail] = useState<string>("");
 
   // Cerrar drawer al cambiar de ruta
   useEffect(() => {
     setOpen(false);
   }, [path]);
+
+  // Saber si es owner o cliente para filtrar secciones + logout correcto.
+  useEffect(() => {
+    let alive = true;
+    fetch("/api/whoami")
+      .then((r) => r.json())
+      .then((d) => {
+        if (!alive) return;
+        setRole(d.role ?? "anon");
+        setUserEmail(d.email ?? "");
+      })
+      .catch(() => alive && setRole("owner"));
+    return () => { alive = false; };
+  }, []);
 
   // Lock body scroll cuando el drawer está abierto en móvil
   useEffect(() => {
@@ -37,11 +57,18 @@ export default function DashboardNav() {
   }, [open]);
 
   async function logout() {
-    await fetch("/api/auth/logout", { method: "POST" });
-    window.location.href = "/login";
+    if (role === "client") {
+      await fetch("/api/client-portal/logout", { method: "POST" });
+      window.location.href = "/portal";
+    } else {
+      await fetch("/api/auth/logout", { method: "POST" });
+      window.location.href = "/login";
+    }
   }
 
-  const activeItem = NAV.find((item) =>
+  const visibleNav = role === "client" ? NAV.filter((i) => CLIENT_HREFS.has(i.href)) : NAV;
+
+  const activeItem = visibleNav.find((item) =>
     item.exact ? path === item.href : path.startsWith(item.href)
   );
 
@@ -90,7 +117,7 @@ export default function DashboardNav() {
         {/* Nav links */}
         <div className="dash-nav-links">
           <div className="dash-section-label">MÓDULOS</div>
-          {NAV.map(item => {
+          {visibleNav.map(item => {
             const active = item.exact
               ? path === item.href
               : path.startsWith(item.href);
@@ -111,10 +138,10 @@ export default function DashboardNav() {
         {/* Footer */}
         <div className="dash-nav-foot">
           <div className="dash-nav-user">
-            <div className="dash-nav-avatar">T</div>
+            <div className="dash-nav-avatar">{(userEmail || "T").charAt(0).toUpperCase()}</div>
             <div className="dash-nav-user-info">
-              <div className="dash-nav-user-name">team</div>
-              <div className="dash-nav-user-email">onepulso.online</div>
+              <div className="dash-nav-user-name">{role === "client" ? "Cliente" : "team"}</div>
+              <div className="dash-nav-user-email">{userEmail || "onepulso.online"}</div>
             </div>
           </div>
           <button className="dash-nav-item dash-nav-item--logout" onClick={logout}>

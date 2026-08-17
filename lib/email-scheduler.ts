@@ -6,6 +6,8 @@ import { isSendIfNoReply, stripConditionMarkers } from "./email-sequences";
 import { runAutopilot } from "./email-autopilot";
 import { processTaskReminders } from "./tasks-reminder";
 import { syncAllUniboxes } from "./unibox-sync";
+import { runWithTenant } from "./tenant";
+import { listActiveClientIds } from "./client-accounts";
 
 declare global {
   // eslint-disable-next-line no-var
@@ -105,52 +107,82 @@ async function rescueStuckSendingFollowups(maxStuckMinutes = 5): Promise<number>
   return rescued;
 }
 
-let lastStuckCheck = 0;
 const STUCK_CHECK_MS = 5 * 60_000; // cada 5 min
-
-let lastCompact = 0;
 const COMPACT_MS = 6 * 60 * 60_000; // cada 6h: archiva hilos viejos/cerrados
-
 // Ingesta ACOTADA de respuestas entrantes en el servidor: para que los follow-ups
 // se cancelen si el prospect responde (aunque nadie tenga la pestaña abierta) y el
 // autopilot vea las respuestas nuevas. Espaciado + max bajo → sin saturar el pool.
-let lastServerInboxSync = 0;
 const SERVER_INBOX_SYNC_MS = 15 * 60_000; // cada 15 min
-let lastAutopilotRun = 0;
 const AUTOPILOT_MS = 5 * 60_000;          // cada 5 min
+
+// Throttles POR TENANT (owner = "__owner__", cada cliente por su id). Sin esto,
+// al iterar tenants todos compartirían el mismo timestamp y solo el primero
+// haría el trabajo pesado.
+type TenantThrottle = { stuck: number; compact: number; inbox: number; autopilot: number };
+const tenantThrottle = new Map<string, TenantThrottle>();
+function throttleFor(clientId: string | null): TenantThrottle {
+  const k = clientId ?? "__owner__";
+  let t = tenantThrottle.get(k);
+  if (!t) { t = { stuck: 0, compact: 0, inbox: 0, autopilot: 0 }; tenantThrottle.set(k, t); }
+  return t;
+}
+
+/**
+ * Trabajo del scheduler que toca datos NAMESPACEADOS por tenant (follow-ups,
+ * inbox, autopilot). Se llama una vez por el owner y una por cada cliente activo,
+ * cada uno dentro de su runWithTenant() para que las claves de storage aíslen bien.
+ */
+async function runTenantTick(clientId: string | null): Promise<{ sent: number; failed: number }> {
+  const st = throttleFor(clientId);
+  const now = Date.now();
+
+  // Rescatar follow-ups atascadas en "sending".
+  if (now - st.stuck > STUCK_CHECK_MS) {
+    st.stuck = now;
+    try {
+      const n = await rescueStuckSendingFollowups();
+      if (n > 0) console.log(`[email-scheduler] [${clientId ?? "owner"}] ${n} follow-ups rescatadas → scheduled`);
+    } catch (e: any) { console.error(`[email-scheduler] [${clientId ?? "owner"}] stuck check:`, e.message); }
+  }
+
+  // Compactar el blob de hilos (cada 6h).
+  if (now - st.compact > COMPACT_MS) {
+    st.compact = now;
+    try {
+      const c = await compactThreads({ olderThanDays: 30 });
+      if (c.archivedNow > 0) console.log(`[email-scheduler] [${clientId ?? "owner"}] compactado: ${c.archivedNow} hilos`);
+    } catch (e: any) { console.error(`[email-scheduler] [${clientId ?? "owner"}] compact:`, e.message); }
+  }
+
+  // Ingesta acotada de respuestas entrantes (cada 15 min) → cancela follow-ups si respondieron.
+  if (now - st.inbox > SERVER_INBOX_SYNC_MS) {
+    st.inbox = now;
+    try {
+      const r = await syncInbox({ days: 3, max: 30 });
+      if (r.new_messages > 0) console.log(`[email-scheduler] [${clientId ?? "owner"}] inbound: ${r.new_messages} nuevos`);
+    } catch (e: any) { console.error(`[email-scheduler] [${clientId ?? "owner"}] inbox sync:`, e.message); }
+  }
+
+  // Enviar follow-ups vencidos (tras ingerir respuestas).
+  const due = await sendDueFollowups();
+
+  // Autopilot (cada 5 min).
+  if (now - st.autopilot > AUTOPILOT_MS) {
+    st.autopilot = now;
+    try {
+      const a: any = await runAutopilot();
+      if (a?.processed > 0) console.log(`[email-scheduler] [${clientId ?? "owner"}] autopilot: ${a.processed} hilos`);
+    } catch (e: any) { console.error(`[email-scheduler] [${clientId ?? "owner"}] autopilot:`, e.message); }
+  }
+
+  return due;
+}
 
 export async function tick() {
   // EMERGENCY_MODE bypass — no hacer trabajo de fondo si está activo.
   if (process.env.EMERGENCY_MODE === "1" || process.env.EMERGENCY_MODE === "true") {
     return { skipped: true, reason: "EMERGENCY_MODE" } as any;
   }
-  // 0. Cada 5 min, rescatar followups "sending" atascadas
-  if (Date.now() - lastStuckCheck > STUCK_CHECK_MS) {
-    lastStuckCheck = Date.now();
-    try {
-      const n = await rescueStuckSendingFollowups();
-      if (n > 0) console.log(`[email-scheduler] ${n} follow-ups rescatadas de sending → scheduled`);
-    } catch (e: any) {
-      console.error("[email-scheduler] stuck check error:", e.message);
-    }
-  }
-
-  // 0.b Cada 6h, compactar el blob email-threads: archiva hilos inactivos
-  // (cerrados/obsoletos > 30 días y sin follow-up pendiente) a una clave
-  // aparte. Mantiene el blob principal pequeño → /seguimientos carga rápido
-  // y el tick lee menos MB.
-  if (Date.now() - lastCompact > COMPACT_MS) {
-    lastCompact = Date.now();
-    try {
-      const c = await compactThreads({ olderThanDays: 30 });
-      if (c.archivedNow > 0) {
-        console.log(`[email-scheduler] compactado: ${c.archivedNow} hilos archivados (activos=${c.keptActive})`);
-      }
-    } catch (e: any) {
-      console.error("[email-scheduler] compact error:", e.message);
-    }
-  }
-
   // 0.c Informes 48h de clientes (Smartlead) cuyo intervalo haya vencido. Se llama
   // cada tick; la función se auto-limita a la franja de las 11:00 (lun-jue) y manda
   // pocos por tick (escalonado), así 15+ clientes se reparten sin saturar.
@@ -183,37 +215,23 @@ export async function tick() {
     console.error("[email-scheduler] weekly reports error:", e.message);
   }
 
-  // 0.f Ingesta ACOTADA de respuestas entrantes (cada 15 min, max 30). Al añadir
-  // un inbound, email-inbox cancela los follow-ups pendientes de ese hilo como
-  // "prospect_replied" → los follow-ups NO se envían tras una respuesta aunque
-  // nadie tenga la pestaña abierta. También alimenta el autopilot. Espaciado +
-  // max bajo + guardia in-flight → sin saturar Postgres (era el motivo de que
-  // estuviera desactivado; ahora es mucho más ligero).
-  if (Date.now() - lastServerInboxSync > SERVER_INBOX_SYNC_MS) {
-    lastServerInboxSync = Date.now();
-    try {
-      const r = await syncInbox({ days: 3, max: 30 });
-      if (r.new_messages > 0) console.log(`[email-scheduler] inbound ingerido: ${r.new_messages} nuevos`);
-    } catch (e: any) {
-      console.error("[email-scheduler] inbox sync error:", e.message);
+  // 1. Trabajo por TENANT: rescate + compactación + ingesta de inbound + envío de
+  //    follow-ups vencidos + autopilot. Se corre para el OWNER (claves globales) y
+  //    para CADA cliente activo, cada uno en su runWithTenant → datos aislados.
+  //    Los clientes se procesan después del owner; un error en un cliente no corta
+  //    a los demás.
+  const dueResults = await runWithTenant(null, () => runTenantTick(null));
+  try {
+    const clientIds = await listActiveClientIds(); // registro global (no namespaceado)
+    for (const cid of clientIds) {
+      try {
+        await runWithTenant(cid, () => runTenantTick(cid));
+      } catch (e: any) {
+        console.error(`[email-scheduler] tenant ${cid} error:`, e.message);
+      }
     }
-  }
-
-  // 1. Enviar follow-ups vencidos (tras ingerir respuestas → los que respondieron
-  //    ya están cancelados).
-  const dueResults = await sendDueFollowups();
-
-  // 0.g Autopilot (cada 5 min): genera borradores para hilos con auto_pilot activo
-  //     y nuevas respuestas. Requiere aprobación humana antes de enviarse (salvo
-  //     secuencias auto configuradas explícitamente).
-  if (Date.now() - lastAutopilotRun > AUTOPILOT_MS) {
-    lastAutopilotRun = Date.now();
-    try {
-      const a: any = await runAutopilot();
-      if (a?.processed > 0) console.log(`[email-scheduler] autopilot: ${a.processed} hilos procesados`);
-    } catch (e: any) {
-      console.error("[email-scheduler] autopilot error:", e.message);
-    }
+  } catch (e: any) {
+    console.error("[email-scheduler] listActiveClientIds error:", e.message);
   }
   void deepRefreshAllThreads; // (deep refresh sigue desactivado: demasiado pesado)
 

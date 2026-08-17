@@ -12,10 +12,13 @@ export async function GET(req: NextRequest) {
   const masked = s.deepseek_api_key
     ? s.deepseek_api_key.slice(0, 6) + "•".repeat(Math.max(0, s.deepseek_api_key.length - 10)) + s.deepseek_api_key.slice(-4)
     : null;
+  // DeepSeek "ya viene conectada" si hay clave guardada O clave global en el env.
+  const deepseekEnv = !!process.env.DEEPSEEK_API_KEY;
   return NextResponse.json({
     default_provider: s.default_provider,
     deepseek_api_key_masked: masked,
-    deepseek_api_key_present: !!s.deepseek_api_key,
+    deepseek_api_key_present: !!s.deepseek_api_key || deepseekEnv,
+    deepseek_preconnected_env: deepseekEnv,
     deepseek_model: s.deepseek_model,
     claude_model: s.claude_model,
   });

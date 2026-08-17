@@ -142,18 +142,29 @@ export function startPersonalizationWatchdog(intervalMs = 60_000) {
 }
 
 async function watchdogTick() {
-  // 1) Marcar jobs running atascados (sin progreso >2 min) como interrupted
-  const marked = await detectInterruptedJobs(2);
-  if (marked > 0) console.log(`[personalization-watchdog] ${marked} jobs marcados como interrupted`);
+  // Los jobs están namespaceados por tenant. Corremos el watchdog para el OWNER
+  // (claves globales) y para cada CLIENTE activo, cada uno en su contexto.
+  const { runWithTenant } = await import("./tenant");
+  const { listActiveClientIds } = await import("./client-accounts");
+  const tenants: (string | null)[] = [null];
+  try { tenants.push(...(await listActiveClientIds())); } catch { /* ignore */ }
 
-  // 2) Buscar todos los interrupted y relanzarlos en background
-  const all = await listJobs();
-  for (const j of all) {
-    if ((j as any).status !== "interrupted") continue;
-    // Resume en background — no esperamos a que termine
-    console.log(`[personalization-watchdog] auto-resume job ${j.id} (${j.progress.done}/${j.selected_rows.length})`);
-    resumeJob(j.id).catch((e) => {
-      console.error(`[personalization-watchdog] resume ${j.id} fallo:`, e?.message || e);
+  for (const tenant of tenants) {
+    await runWithTenant(tenant, async () => {
+      // 1) Marcar jobs running atascados (sin progreso >2 min) como interrupted
+      const marked = await detectInterruptedJobs(2);
+      if (marked > 0) console.log(`[personalization-watchdog] [${tenant ?? "owner"}] ${marked} jobs interrupted`);
+
+      // 2) Buscar todos los interrupted y relanzarlos en background (mantienen el
+      //    contexto de tenant al lanzarse dentro de este runWithTenant).
+      const all = await listJobs();
+      for (const j of all) {
+        if ((j as any).status !== "interrupted") continue;
+        console.log(`[personalization-watchdog] [${tenant ?? "owner"}] auto-resume ${j.id} (${j.progress.done}/${j.selected_rows.length})`);
+        resumeJob(j.id).catch((e) => {
+          console.error(`[personalization-watchdog] resume ${j.id} fallo:`, e?.message || e);
+        });
+      }
     });
   }
 }

@@ -1,6 +1,7 @@
 import { withRequestTenant } from "@/lib/client-auth";
 import { NextResponse } from "next/server";
 import { createJob, runJob, readCSVRows } from "@/lib/personalization";
+import { currentClientId } from "@/lib/tenant";
 
 export const runtime = "nodejs";
 export const maxDuration = 600;
@@ -32,6 +33,9 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: `No pude leer CSV: ${e.message}` }, { status: 400 });
   }
 
+  // Los CLIENTES usan DeepSeek preconectado por defecto; el owner mantiene claude.
+  const isClient = !!currentClientId();
+  const defaultProvider = isClient ? "deepseek" : "claude";
   const job = await createJob({
     file_id,
     filename: filename || "(sin nombre)",
@@ -39,7 +43,7 @@ export async function POST(req: Request) {
     selected_rows: rows,
     mapping,
     prompt,
-    provider: provider || "claude",
+    provider: provider || defaultProvider,
   });
 
   // Arrancar el job EN BACKGROUND (no esperamos a que termine).

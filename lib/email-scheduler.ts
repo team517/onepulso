@@ -88,8 +88,12 @@ async function rescueStuckSendingFollowups(maxStuckMinutes = 5): Promise<number>
   for (const t of threads) {
     for (const f of t.followups ?? []) {
       if (f.status === "sending") {
-        // No tenemos timestamp exacto de cuándo pasó a sending; usamos updated_at del thread.
-        const stamp = new Date(t.updated_at).getTime();
+        // Usamos el timestamp PROPIO de cuándo pasó a "sending". Antes usábamos
+        // t.updated_at, que otra actividad del hilo (una respuesta entrante, otro
+        // follow-up) refrescaba → un envío atascado no se rescataba nunca, o se
+        // rescataba uno que se estaba enviando AHORA (doble envío).
+        // Fallback a updated_at solo para filas antiguas sin sending_at.
+        const stamp = new Date(f.sending_at ?? t.updated_at).getTime();
         if (stamp < cutoff) {
           await updateFollowup(t.id, f.id, { status: "scheduled", error: undefined });
           rescued++;
@@ -281,7 +285,7 @@ export async function sendDueFollowups(): Promise<{ sent: number; failed: number
       continue;
     }
 
-    await updateFollowup(f.thread_id, f.id, { status: "sending" });
+    await updateFollowup(f.thread_id, f.id, { status: "sending", sending_at: new Date().toISOString() });
     try {
       const cfg = await readEmailConfig();
       if (!cfg) throw new Error("Email no conectado");

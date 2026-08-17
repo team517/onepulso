@@ -47,7 +47,7 @@ export async function POST(_req: Request, ctx: { params: Promise<{ id: string }>
       return NextResponse.json({ error: "Email no conectado" }, { status: 400 });
     }
 
-    await updateFollowup(thread.id, followup.id, { status: "sending" });
+    await updateFollowup(thread.id, followup.id, { status: "sending", sending_at: new Date().toISOString() });
 
     // Reply al ÚLTIMO mensaje del hilo (sea inbound u outbound),
     // para que aparezca como continuación natural de la conversación.

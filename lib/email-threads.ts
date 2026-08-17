@@ -56,6 +56,9 @@ export type Followup = {
   error?: string;
   sent_at?: string;
   sent_message_id?: string;
+  // Momento en que pasó a "sending" — para detectar envíos atascados con
+  // precisión (no dependemos de thread.updated_at, que lo bumpea otra actividad).
+  sending_at?: string;
   // Razón de cancelación, útil para entender qué pasó:
   // "prospect_replied" | "manual" | "duplicate" | "thread_closed"
   cancelled_reason?: string;

@@ -47,7 +47,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
 
     // Quitar el marcador interno para que NO viaje en el correo.
     const cleanBody = stripConditionMarkers(bodyHtml);
-    await updateFollowup(threadId, id, { status: "sending", body_html: cleanBody });
+    await updateFollowup(threadId, id, { status: "sending", body_html: cleanBody, sending_at: new Date().toISOString() });
 
     try {
       // Reply al ÚLTIMO mensaje del hilo (cualquier dirección)

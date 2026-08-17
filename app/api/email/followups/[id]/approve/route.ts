@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { listThreads, updateFollowup, appendMessage, getThread } from "@/lib/email-threads";
 import { sendEmail } from "@/lib/email-send";
 import { readEmailConfig } from "@/lib/email-config";
+import { stripConditionMarkers } from "@/lib/email-sequences";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -37,10 +38,16 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
 
   // ENVÍO INMEDIATO
   if (body.send_now === true) {
+    // Guardia anti doble-envío: si ya se está enviando o ya se envió, no repetir.
+    if (followup.status === "sending" || followup.status === "sent") {
+      return NextResponse.json({ ok: true, already: true, message_id: followup.sent_message_id });
+    }
     const cfg = await readEmailConfig();
     if (!cfg) return NextResponse.json({ error: "Email no conectado" }, { status: 400 });
 
-    await updateFollowup(threadId, id, { status: "sending", body_html: bodyHtml });
+    // Quitar el marcador interno para que NO viaje en el correo.
+    const cleanBody = stripConditionMarkers(bodyHtml);
+    await updateFollowup(threadId, id, { status: "sending", body_html: cleanBody });
 
     try {
       // Reply al ÚLTIMO mensaje del hilo (cualquier dirección)
@@ -60,7 +67,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
       const info = await sendEmail({
         to: recipient,
         subject,
-        body_html: bodyHtml,
+        body_html: cleanBody,
         in_reply_to: lastMsg?.message_id,
         references: refsChain.length > 0 ? refsChain : undefined,
       });
@@ -70,7 +77,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
         from: cfg.email,
         to: [recipient],
         subject,
-        body_html: bodyHtml,
+        body_html: cleanBody,
         message_id: info.messageId,
         in_reply_to: lastMsg?.message_id,
         references: refsChain.length > 0 ? refsChain : undefined,

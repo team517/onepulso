@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { listThreads, updateFollowup, appendMessage, getThread } from "@/lib/email-threads";
 import { sendEmail } from "@/lib/email-send";
 import { readEmailConfig } from "@/lib/email-config";
+import { stripConditionMarkers } from "@/lib/email-sequences";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -59,7 +60,7 @@ export async function POST(_req: Request, ctx: { params: Promise<{ id: string }>
     // Asegurar prefijo "Re:" sin duplicarlo
     const baseSubject = thread.subject.replace(/^(re:\s*)+/i, "").trim();
     const subject = `Re: ${baseSubject}`;
-    const cleanBody = followup.body_html.replace(/<!--\s*if[\s\S]*?-->/gi, "").trim();
+    const cleanBody = stripConditionMarkers(followup.body_html).trim();
 
     // Construir cadena de References: todas las references del último msg + su message_id
     const refsChain: string[] = [];

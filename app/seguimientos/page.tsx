@@ -478,16 +478,22 @@ export default function SeguimientosPage() {
     setFeedback("⏳ Disparando envío de follow-ups vencidos…");
     try {
       const r = await fetch("/api/cron/tick").then(r => r.json());
-      if (r.ok) {
-        setFeedback(`✓ Tick ejecutado · ${r.sent} enviados · ${r.failed} fallaron`);
-        refreshThreads();
+      if (r.error) {
+        setFeedback("⚠️ " + r.error);
       } else {
-        setFeedback("⚠️ " + (r.error || "Error desconocido"));
+        // El tick procesa en SEGUNDO PLANO (no devuelve contadores al instante).
+        setFeedback("✓ Envío disparado — procesando los vencidos…");
+        setTimeout(() => {
+          refreshThreads();
+          loadPendingApprovals();
+          setFeedback("✓ Listo. Revisa el estado de los follow-ups.");
+          setTimeout(() => setFeedback(null), 4000);
+        }, 4000);
       }
     } catch (e: any) {
       setFeedback("⚠️ " + e.message);
+      setTimeout(() => setFeedback(null), 8000);
     }
-    setTimeout(() => setFeedback(null), 8000);
   }
 
   async function openResendModal() {
@@ -756,11 +762,16 @@ export default function SeguimientosPage() {
     if (thread) loadThread(thread.id);
   }
   async function loadThread(id: string) {
+    // Solo limpiamos el borrador de respuesta al CAMBIAR de hilo, no en los
+    // refrescos en segundo plano (cada 12s) — antes borraba lo que escribías.
+    const switchingThread = threadIdRef.current !== id;
     const r = await fetch(`/api/email/threads/${id}`).then((r) => r.json());
     setThread(r.thread ?? null);
     setView("thread");
-    setReplyHtml("");
-    setReplyHint("");
+    if (switchingThread) {
+      setReplyHtml("");
+      setReplyHint("");
+    }
 
     // Sync agresivo en background del contacto del hilo — busca cualquier mensaje
     // nuevo intercambiado con ellos en los últimos 90 días (FROM + TO en INBOX,
@@ -4346,11 +4357,16 @@ function ThreadView(p: any) {
                       </span>
                       <button
                         onClick={async () => {
-                          if (!confirm("¿Restaurar este follow-up al estado programado?\n\nSe enviará en su fecha original si aún no ha pasado, o lo puedes cambiar de fecha después.")) return;
+                          const past = new Date(f.scheduled_at).getTime() <= Date.now();
+                          if (!confirm(past
+                            ? "¿Restaurar este follow-up?\n\nSu fecha original ya pasó, así que se reprograma para dentro de 24h (puedes cambiar la fecha después). Así NO se envía de golpe."
+                            : "¿Restaurar este follow-up al estado programado?\n\nSe enviará en su fecha original.")) return;
+                          const patch: any = { status: "scheduled", cancelled_reason: undefined, cancelled_at: undefined };
+                          if (past) patch.scheduled_at = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
                           await fetch(`/api/email/followups/${f.id}`, {
                             method: "PATCH",
                             headers: { "Content-Type": "application/json" },
-                            body: JSON.stringify({ status: "scheduled", cancelled_reason: undefined, cancelled_at: undefined }),
+                            body: JSON.stringify(patch),
                           });
                           p.reloadThread?.();
                         }}

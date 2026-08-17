@@ -252,10 +252,15 @@ export async function scheduleFollowupsBatch(input: {
   if (!t) return { scheduled: [], error: "thread no encontrado" };
   const created: Followup[] = [];
   for (const step of input.steps) {
+    // Marcador para que el follow-up se CANCELE si el prospect responde antes de
+    // la fecha (la UI lo promete). Sin esto, se enviaba igual aunque respondieran.
+    const body = step.body_html.includes("<!--send_if_no_reply-->")
+      ? step.body_html
+      : step.body_html + "<!--send_if_no_reply-->";
     const f: Followup = {
       id: randomUUID(),
       thread_id: input.thread_id,
-      body_html: step.body_html,
+      body_html: body,
       scheduled_at: new Date(step.scheduled_at).toISOString(),
       status: "scheduled",
       origin: input.origin,

@@ -1,9 +1,11 @@
+import { withRequestTenant } from "@/lib/client-auth";
 import { NextResponse } from "next/server";
 import { updateSavedPrompt, deleteSavedPrompt, markPromptUsed } from "@/lib/saved-prompts";
 
 export const runtime = "nodejs";
 
 export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }> }) {
+  return withRequestTenant(req as any, async () => {
   const { id } = await ctx.params;
   const body = await req.json();
   if (body.action === "mark_used") {
@@ -13,10 +15,15 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
   const p = await updateSavedPrompt(id, body);
   if (!p) return NextResponse.json({ error: "no encontrado" }, { status: 404 });
   return NextResponse.json({ prompt: p });
+
+  }) as any;
 }
 
 export async function DELETE(_req: Request, ctx: { params: Promise<{ id: string }> }) {
+  return withRequestTenant(_req as any, async () => {
   const { id } = await ctx.params;
   await deleteSavedPrompt(id);
   return NextResponse.json({ ok: true });
+
+  }) as any;
 }

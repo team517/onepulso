@@ -1,3 +1,5 @@
+import type { NextRequest } from "next/server";
+import { withRequestTenant } from "@/lib/client-auth";
 import { NextResponse } from "next/server";
 import { ImapFlow } from "imapflow";
 import { simpleParser } from "mailparser";
@@ -6,7 +8,8 @@ import { readEmailConfig } from "@/lib/email-config";
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
-export async function GET() {
+export async function GET(req: NextRequest) {
+  return withRequestTenant(req as any, async () => {
   const cfg = await readEmailConfig();
   if (!cfg) return NextResponse.json({ error: "Email no conectado" }, { status: 400 });
 
@@ -68,4 +71,6 @@ export async function GET() {
   } catch (e: any) {
     return NextResponse.json({ error: e.message }, { status: 500 });
   }
+
+  }) as any;
 }

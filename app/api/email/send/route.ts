@@ -1,3 +1,4 @@
+import { withRequestTenant } from "@/lib/client-auth";
 import { NextRequest, NextResponse } from "next/server";
 import { promises as fs } from "fs";
 import path from "path";
@@ -18,6 +19,7 @@ export const maxDuration = 120;
 const ATTACH_DIR = path.join(process.cwd(), "data", "email-attachments");
 
 export async function POST(req: NextRequest) {
+  return withRequestTenant(req as any, async () => {
   const ct = req.headers.get("content-type") ?? "";
   let to = "";
   let subject = "";
@@ -114,4 +116,6 @@ export async function POST(req: NextRequest) {
   });
 
   return NextResponse.json({ thread_id: thread.id, message_id: info.messageId });
+
+  }) as any;
 }

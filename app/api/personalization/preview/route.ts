@@ -1,3 +1,4 @@
+import { withRequestTenant } from "@/lib/client-auth";
 import { NextResponse } from "next/server";
 import { readCSVRows, generateForRow, applyMapping } from "@/lib/personalization";
 import { memoryAsContext } from "@/lib/memory";
@@ -11,6 +12,7 @@ export const maxDuration = 60;
  * Genera 1 mensaje de muestra usando una fila concreta del CSV.
  */
 export async function POST(req: Request) {
+  return withRequestTenant(req as any, async () => {
   const body = await req.json();
   const { file_id, mapping, prompt, provider, row_index } = body;
   if (!file_id || !mapping || !prompt) {
@@ -36,4 +38,6 @@ export async function POST(req: Request) {
   } catch (e: any) {
     return NextResponse.json({ error: e.message }, { status: 500 });
   }
+
+  }) as any;
 }

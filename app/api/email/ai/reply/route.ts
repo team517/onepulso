@@ -1,3 +1,4 @@
+import { withRequestTenant } from "@/lib/client-auth";
 import { NextRequest, NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
 import { envVar } from "@/lib/env";
@@ -28,6 +29,7 @@ REGLAS DE RESPUESTA:
 OUTPUT: HTML del cuerpo del email, sin <html>/<head>, solo los <p>. Sin comillas alrededor. Sin meta-comentarios.`;
 
 export async function POST(req: NextRequest) {
+  return withRequestTenant(req as any, async () => {
   const body = await req.json();
   const { thread_id, hint } = body;
   if (!thread_id) return NextResponse.json({ error: "thread_id requerido" }, { status: 400 });
@@ -68,6 +70,8 @@ Redacta la siguiente respuesta de Xavi como HTML del body (<p>...</p> por bloque
     .join("\n")
     .trim();
   return NextResponse.json({ body_html: text });
+
+  }) as any;
 }
 
 function stripHtml(s: string): string {

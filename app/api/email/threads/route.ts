@@ -1,3 +1,5 @@
+import type { NextRequest } from "next/server";
+import { withRequestTenant } from "@/lib/client-auth";
 import { NextResponse } from "next/server";
 import { listThreadsLight } from "@/lib/email-threads";
 import { readEmailConfig } from "@/lib/email-config";
@@ -23,7 +25,8 @@ function computeStatus(t: any): ThreadDynamicStatus {
   return "esperando";
 }
 
-export async function GET() {
+export async function GET(req: NextRequest) {
+  return withRequestTenant(req as any, async () => {
   const all = await listThreadsLight();
   const cfg = await readEmailConfig();
   const myEmail = (cfg?.email ?? "").toLowerCase();
@@ -60,6 +63,8 @@ export async function GET() {
       };
     }),
   });
+
+  }) as any;
 }
 
 function stripHtml(s: string): string {

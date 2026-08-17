@@ -13,9 +13,11 @@ import Papa from "papaparse";
 import { readJson, writeJson, readBlob, writeBlob } from "./storage";
 import { generateText, AIProvider } from "./ai-providers";
 import { memoryAsContext } from "./memory";
+import { tenantKey } from "./tenant";
 
 const JOBS_PREFIX = "personalization-job/";
-const JOBS_INDEX = "personalization-jobs-index";
+const JOBS_INDEX = () => tenantKey("personalization-jobs-index");
+const JOB_KEY = (id: string) => tenantKey(`${JOBS_PREFIX}${id}`);
 
 export type ColumnMapping = {
   first_name?: string;
@@ -50,31 +52,31 @@ export type PersonalizationJob = {
 };
 
 export async function listJobs(): Promise<PersonalizationJob[]> {
-  const ids = (await readJson<string[]>(JOBS_INDEX)) ?? [];
+  const ids = (await readJson<string[]>(JOBS_INDEX())) ?? [];
   const out: PersonalizationJob[] = [];
   for (const id of ids) {
-    const j = await readJson<PersonalizationJob>(`${JOBS_PREFIX}${id}`);
+    const j = await readJson<PersonalizationJob>(JOB_KEY(id));
     if (j) out.push(j);
   }
   return out.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
 }
 
 export async function getJob(id: string): Promise<PersonalizationJob | null> {
-  return await readJson<PersonalizationJob>(`${JOBS_PREFIX}${id}`);
+  return await readJson<PersonalizationJob>(JOB_KEY(id));
 }
 
 async function saveJob(j: PersonalizationJob) {
-  await writeJson(`${JOBS_PREFIX}${j.id}`, j);
-  const ids = (await readJson<string[]>(JOBS_INDEX)) ?? [];
+  await writeJson(JOB_KEY(j.id), j);
+  const ids = (await readJson<string[]>(JOBS_INDEX())) ?? [];
   if (!ids.includes(j.id)) {
     ids.unshift(j.id);
-    await writeJson(JOBS_INDEX, ids.slice(0, 100)); // máx 100 jobs en historial
+    await writeJson(JOBS_INDEX(), ids.slice(0, 100)); // máx 100 jobs en historial
   }
 }
 
 export async function deleteJob(id: string): Promise<void> {
-  const ids = (await readJson<string[]>(JOBS_INDEX)) ?? [];
-  await writeJson(JOBS_INDEX, ids.filter((x) => x !== id));
+  const ids = (await readJson<string[]>(JOBS_INDEX())) ?? [];
+  await writeJson(JOBS_INDEX(), ids.filter((x) => x !== id));
 }
 
 /**
@@ -94,7 +96,7 @@ export async function detectInterruptedJobs(staleMinutes = 2): Promise<number> {
     if (now - updated > STALE_MS) {
       (j as any).status = "interrupted";
       j.updated_at = new Date().toISOString();
-      await writeJson(`${JOBS_PREFIX}${j.id}`, j);
+      await writeJson(JOB_KEY(j.id), j);
       touched++;
     }
   }

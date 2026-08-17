@@ -1,3 +1,4 @@
+import { withRequestTenant } from "@/lib/client-auth";
 import { NextResponse } from "next/server";
 import { ImapFlow } from "imapflow";
 import { readEmailConfig } from "@/lib/email-config";
@@ -17,6 +18,7 @@ export const maxDuration = 60;
  *   ?folder=...  fuerza la carpeta para el append
  */
 export async function GET(req: Request) {
+  return withRequestTenant(req as any, async () => {
   const url = new URL(req.url);
   const noWrite = url.searchParams.get("nowrite") === "1";
   const forceFolder = url.searchParams.get("folder");
@@ -146,4 +148,6 @@ export async function GET(req: Request) {
 
   result.finished_at = new Date().toISOString();
   return NextResponse.json(result);
+
+  }) as any;
 }

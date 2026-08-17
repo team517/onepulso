@@ -3,8 +3,9 @@
  */
 import { randomUUID } from "crypto";
 import { readJson, writeJson } from "./storage";
+import { tenantKey } from "./tenant";
 
-const KEY = "saved-prompts";
+const KEY = () => tenantKey("saved-prompts");
 
 export type SavedPrompt = {
   id: string;
@@ -22,11 +23,11 @@ export type SavedPrompt = {
 };
 
 export async function listSavedPrompts(): Promise<SavedPrompt[]> {
-  return (await readJson<SavedPrompt[]>(KEY)) ?? [];
+  return (await readJson<SavedPrompt[]>(KEY())) ?? [];
 }
 
 async function saveAll(items: SavedPrompt[]) {
-  await writeJson(KEY, items);
+  await writeJson(KEY(), items);
 }
 
 export async function createSavedPrompt(input: Partial<SavedPrompt> & { name: string; content: string }): Promise<SavedPrompt> {

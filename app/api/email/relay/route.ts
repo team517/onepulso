@@ -1,10 +1,13 @@
+import type { NextRequest } from "next/server";
+import { withRequestTenant } from "@/lib/client-auth";
 import { NextResponse } from "next/server";
 import { readEmailConfig, saveEmailConfig } from "@/lib/email-config";
 
 export const runtime = "nodejs";
 
 /** GET — estado actual del relay */
-export async function GET() {
+export async function GET(req: NextRequest) {
+  return withRequestTenant(req as any, async () => {
   const cfg = await readEmailConfig();
   if (!cfg) return NextResponse.json({ connected: false });
   return NextResponse.json({
@@ -14,10 +17,13 @@ export async function GET() {
     resend_from: cfg.resend_from || null,
     resend_api_key_preview: cfg.resend_api_key ? cfg.resend_api_key.slice(0, 8) + "…" : null,
   });
+
+  }) as any;
 }
 
 /** POST — guardar/actualizar la API key de Resend y el "from" */
 export async function POST(req: Request) {
+  return withRequestTenant(req as any, async () => {
   const body = await req.json().catch(() => ({}));
   const cfg = await readEmailConfig();
   if (!cfg) return NextResponse.json({ error: "Email no conectado. Conecta tu Gmail primero (para IMAP)." }, { status: 400 });
@@ -40,10 +46,13 @@ export async function POST(req: Request) {
   }
   await saveEmailConfig(cfg);
   return NextResponse.json({ ok: true, resend_from: cfg.resend_from || cfg.email });
+
+  }) as any;
 }
 
 /** POST a /test — envía un correo de prueba via Resend */
 export async function PUT(req: Request) {
+  return withRequestTenant(req as any, async () => {
   const body = await req.json().catch(() => ({}));
   const cfg = await readEmailConfig();
   if (!cfg) return NextResponse.json({ error: "Email no conectado" }, { status: 400 });
@@ -75,4 +84,6 @@ export async function PUT(req: Request) {
   } catch (e: any) {
     return NextResponse.json({ ok: false, error: e.message }, { status: 200 });
   }
+
+  }) as any;
 }

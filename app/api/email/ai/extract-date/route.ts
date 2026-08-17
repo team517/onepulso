@@ -1,3 +1,4 @@
+import { withRequestTenant } from "@/lib/client-auth";
 import { NextRequest, NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
 import { envVar } from "@/lib/env";
@@ -31,6 +32,7 @@ OUTPUT: JSON puro, sin markdown, sin explicación extra. Schema:
 { "has_date": bool, "date_iso": "string|null", "confidence": "high|medium|low", "reasoning": "string", "date_text": "string" }`;
 
 export async function POST(req: NextRequest) {
+  return withRequestTenant(req as any, async () => {
   const body = await req.json();
   const { thread_id, text } = body;
   const apiKey = envVar("ANTHROPIC_API_KEY");
@@ -75,6 +77,8 @@ export async function POST(req: NextRequest) {
   } catch {
     return NextResponse.json({ has_date: false, reasoning: "no se pudo parsear", raw: out });
   }
+
+  }) as any;
 }
 
 function stripHtml(s: string): string {

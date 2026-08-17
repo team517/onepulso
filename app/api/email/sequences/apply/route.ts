@@ -1,3 +1,4 @@
+import { withRequestTenant } from "@/lib/client-auth";
 import { NextRequest, NextResponse } from "next/server";
 import { applySequence } from "@/lib/email-sequences";
 
@@ -5,6 +6,7 @@ export const runtime = "nodejs";
 export const maxDuration = 30;
 
 export async function POST(req: NextRequest) {
+  return withRequestTenant(req as any, async () => {
   const body = await req.json();
   const { sequence_id, thread_id, base_date } = body;
   if (!sequence_id || !thread_id) {
@@ -16,4 +18,6 @@ export async function POST(req: NextRequest) {
   } catch (e: any) {
     return NextResponse.json({ error: e.message }, { status: 500 });
   }
+
+  }) as any;
 }

@@ -1,3 +1,4 @@
+import { withRequestTenant } from "@/lib/client-auth";
 import { NextRequest, NextResponse } from "next/server";
 import { updateThread, getThread } from "@/lib/email-threads";
 import { runAutopilot } from "@/lib/email-autopilot";
@@ -18,6 +19,7 @@ export const maxDuration = 180;
  * }
  */
 export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
+  return withRequestTenant(req as any, async () => {
   const { id } = await ctx.params;
   const body = await req.json();
 
@@ -66,4 +68,6 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     custom_prompt:    patch.custom_prompt    ?? t.custom_prompt    ?? null,
     auto,
   });
+
+  }) as any;
 }

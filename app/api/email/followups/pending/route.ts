@@ -1,3 +1,5 @@
+import type { NextRequest } from "next/server";
+import { withRequestTenant } from "@/lib/client-auth";
 import { NextResponse } from "next/server";
 import { listThreadsLight } from "@/lib/email-threads";
 import { readEmailConfig } from "@/lib/email-config";
@@ -8,7 +10,8 @@ export const runtime = "nodejs";
  * GET /api/email/followups/pending
  * Devuelve los follow-ups en estado "pending_approval" (esperando confirmación humana).
  */
-export async function GET() {
+export async function GET(req: NextRequest) {
+  return withRequestTenant(req as any, async () => {
   const threads = await listThreadsLight();
   const cfg = await readEmailConfig().catch(() => null);
   const ourEmail = (cfg?.email || "").toLowerCase();
@@ -38,4 +41,6 @@ export async function GET() {
   }
   items.sort((a, b) => (b.scheduled_at || "").localeCompare(a.scheduled_at || ""));
   return NextResponse.json({ pending: items });
+
+  }) as any;
 }

@@ -1,3 +1,4 @@
+import { withRequestTenant } from "@/lib/client-auth";
 import { NextResponse } from "next/server";
 import { listThreads } from "@/lib/email-threads";
 import { readEmailConfig } from "@/lib/email-config";
@@ -16,6 +17,7 @@ export const maxDuration = 60;
  * Además fuerza un tick AHORA antes de responder (envía los vencidos).
  */
 export async function GET(req: Request) {
+  return withRequestTenant(req as any, async () => {
   const url = new URL(req.url);
   const forceTick = url.searchParams.get("tick") === "1";
 
@@ -141,6 +143,8 @@ export async function GET(req: Request) {
     sent_recent: sentRecent.items,
     diagnosis,
   });
+
+  }) as any;
 }
 
 function buildDiagnosis(s: {

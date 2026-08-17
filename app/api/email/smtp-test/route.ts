@@ -1,3 +1,4 @@
+import { withRequestTenant } from "@/lib/client-auth";
 import { NextResponse } from "next/server";
 import net from "net";
 import nodemailer from "nodemailer";
@@ -104,6 +105,7 @@ async function fastSend(cfg: any, port: number, secure: boolean, to: string, lab
  * Tarda como mucho ~45s en total aunque todo falle.
  */
 export async function GET(req: Request) {
+  return withRequestTenant(req as any, async () => {
   const url = new URL(req.url);
   const toOverride = url.searchParams.get("to");
   const skipSend = url.searchParams.get("nosend") === "1";
@@ -174,6 +176,8 @@ export async function GET(req: Request) {
   results.total_ms = results.steps.reduce((a: number, s: any) => a + s.ms, 0);
   results.diagnosis = buildDiagnosis(results);
   return NextResponse.json(results);
+
+  }) as any;
 }
 
 function buildDiagnosis(r: any): string {

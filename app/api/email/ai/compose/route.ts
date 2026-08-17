@@ -1,3 +1,4 @@
+import { withRequestTenant } from "@/lib/client-auth";
 import { NextRequest, NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
 import { memoryAsContext } from "@/lib/memory";
@@ -19,6 +20,7 @@ export const maxDuration = 60;
  * Devuelve { subject?: string, body_html: string }
  */
 export async function POST(req: NextRequest) {
+  return withRequestTenant(req as any, async () => {
   if (!process.env.ANTHROPIC_API_KEY) {
     return NextResponse.json({ error: "Falta ANTHROPIC_API_KEY" }, { status: 500 });
   }
@@ -86,4 +88,6 @@ OUTPUT: ${wantSubject
   } catch (e: any) {
     return NextResponse.json({ error: e.message }, { status: 500 });
   }
+
+  }) as any;
 }

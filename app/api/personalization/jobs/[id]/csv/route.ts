@@ -1,3 +1,4 @@
+import { withRequestTenant } from "@/lib/client-auth";
 import { NextRequest, NextResponse } from "next/server";
 import Papa from "papaparse";
 import { getJob, buildPartialCSV } from "@/lib/personalization";
@@ -7,6 +8,7 @@ export const runtime = "nodejs";
 export const maxDuration = 60;
 
 export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
+  return withRequestTenant(req as any, async () => {
   const { id } = await ctx.params;
   const j = await getJob(id);
   if (!j) return NextResponse.json({ error: "no encontrado" }, { status: 404 });
@@ -64,4 +66,6 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string 
       "Cache-Control": "private, max-age=0",
     },
   });
+
+  }) as any;
 }

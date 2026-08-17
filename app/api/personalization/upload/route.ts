@@ -1,3 +1,4 @@
+import { withRequestTenant } from "@/lib/client-auth";
 import { NextResponse } from "next/server";
 import { saveCSVBlobOnly } from "@/lib/csv";
 
@@ -12,6 +13,7 @@ const MAX_SIZE = 100 * 1024 * 1024;
  *  hace después via /api/personalization/upload/parse-stream (SSE) que
  *  emite progreso por lotes de 100 filas. */
 export async function POST(req: Request) {
+  return withRequestTenant(req as any, async () => {
   const filenameRaw = req.headers.get("x-filename");
   if (!filenameRaw) return NextResponse.json({ error: "Falta x-filename" }, { status: 400 });
   const filename = decodeURIComponent(filenameRaw);
@@ -65,4 +67,6 @@ export async function POST(req: Request) {
   } catch (e: any) {
     return NextResponse.json({ error: e.message }, { status: 500 });
   }
+
+  }) as any;
 }

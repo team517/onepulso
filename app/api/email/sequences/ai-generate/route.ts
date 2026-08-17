@@ -1,3 +1,4 @@
+import { withRequestTenant } from "@/lib/client-auth";
 import { NextRequest, NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
 import { envVar } from "@/lib/env";
@@ -36,6 +37,7 @@ OUTPUT: JSON puro sin markdown:
 }`;
 
 export async function POST(req: NextRequest) {
+  return withRequestTenant(req as any, async () => {
   const { description } = await req.json();
   if (!description) return NextResponse.json({ error: "description requerida" }, { status: 400 });
   const apiKey = envVar("ANTHROPIC_API_KEY");
@@ -69,4 +71,6 @@ Devuelve solo el JSON con la secuencia.`;
   } catch {
     return NextResponse.json({ error: "no se pudo parsear", raw: out }, { status: 500 });
   }
+
+  }) as any;
 }

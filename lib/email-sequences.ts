@@ -6,8 +6,9 @@ import {
   Thread,
 } from "./email-threads";
 import { readJson, writeJson } from "./storage";
+import { tenantKey } from "./tenant";
 
-const KEY = "email-sequences";
+const KEY = () => tenantKey("email-sequences");
 
 export type SequenceStep = {
   delay_days: number; // días después del paso anterior (o del initial si es step 1)
@@ -26,11 +27,11 @@ export type Sequence = {
 };
 
 async function readAll(): Promise<Sequence[]> {
-  return (await readJson<Sequence[]>(KEY)) ?? [];
+  return (await readJson<Sequence[]>(KEY())) ?? [];
 }
 
 async function writeAll(items: Sequence[]) {
-  await writeJson(KEY, items);
+  await writeJson(KEY(), items);
 }
 
 export async function listSequences(): Promise<Sequence[]> {

@@ -1,3 +1,4 @@
+import { withRequestTenant } from "@/lib/client-auth";
 import { NextRequest, NextResponse } from "next/server";
 import { importThread } from "@/lib/email-import";
 
@@ -5,6 +6,7 @@ export const runtime = "nodejs";
 export const maxDuration = 180;
 
 export async function POST(req: NextRequest) {
+  return withRequestTenant(req as any, async () => {
   const { gm_thrid, subject_seed, participant_seed } = await req.json();
   if (!gm_thrid && !(subject_seed && participant_seed)) {
     return NextResponse.json(
@@ -15,4 +17,6 @@ export async function POST(req: NextRequest) {
   const r = await importThread({ gm_thrid, subject_seed, participant_seed });
   if (r.error) return NextResponse.json(r, { status: 500 });
   return NextResponse.json(r);
+
+  }) as any;
 }

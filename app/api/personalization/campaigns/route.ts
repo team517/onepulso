@@ -1,14 +1,20 @@
+import type { NextRequest } from "next/server";
+import { withRequestTenant } from "@/lib/client-auth";
 import { NextResponse } from "next/server";
 import { listSavedCampaigns, createSavedCampaign } from "@/lib/saved-campaigns";
 
 export const runtime = "nodejs";
 
-export async function GET() {
+export async function GET(req: NextRequest) {
+  return withRequestTenant(req as any, async () => {
   const campaigns = await listSavedCampaigns();
   return NextResponse.json({ campaigns });
+
+  }) as any;
 }
 
 export async function POST(req: Request) {
+  return withRequestTenant(req as any, async () => {
   const body = await req.json();
   const required = ["name", "file_id", "filename", "total_rows", "columns", "mapping", "prompt"];
   for (const r of required) {
@@ -28,4 +34,6 @@ export async function POST(req: Request) {
     provider: body.provider || "claude",
   });
   return NextResponse.json({ campaign });
+
+  }) as any;
 }

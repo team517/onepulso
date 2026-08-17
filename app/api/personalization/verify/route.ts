@@ -1,3 +1,4 @@
+import { withRequestTenant } from "@/lib/client-auth";
 import { NextResponse } from "next/server";
 import { createVerifyJob, runVerifyJob } from "@/lib/verify-jobs";
 
@@ -12,6 +13,7 @@ export const maxDuration = 60;
  * El cliente consulta el progreso en GET /api/personalization/verify/[id].
  */
 export async function POST(req: Request) {
+  return withRequestTenant(req as any, async () => {
   const body = await req.json().catch(() => ({}));
   const { file_id, email_column, filename, smtp } = body;
   if (!file_id || !email_column) {
@@ -28,4 +30,6 @@ export async function POST(req: Request) {
   }).catch((e) => console.error(`[verify] job ${job.id} fatal:`, e?.message || e));
 
   return NextResponse.json({ job_id: job.id });
+
+  }) as any;
 }

@@ -1,3 +1,4 @@
+import { withRequestTenant } from "@/lib/client-auth";
 import { NextRequest, NextResponse } from "next/server";
 import { planAndScheduleSequence } from "@/lib/email-autopilot";
 
@@ -15,6 +16,7 @@ export const maxDuration = 300;
  * }
  */
 export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
+  return withRequestTenant(req as any, async () => {
   const { id } = await ctx.params;
   try {
     const body = await req.json().catch(() => ({}));
@@ -54,4 +56,6 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     console.error("[plan-sequence]", e);
     return NextResponse.json({ error: e.message }, { status: 500 });
   }
+
+  }) as any;
 }

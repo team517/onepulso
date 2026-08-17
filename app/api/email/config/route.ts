@@ -1,3 +1,4 @@
+import { withRequestTenant } from "@/lib/client-auth";
 import { NextRequest, NextResponse } from "next/server";
 import { readEmailConfig, saveEmailConfig, clearEmailConfig, gmailDefaults } from "@/lib/email-config";
 import { verifySmtp } from "@/lib/email-send";
@@ -16,7 +17,8 @@ function mask(s: string | undefined) {
   return s.slice(0, 3) + "•".repeat(Math.max(s.length - 6, 4)) + s.slice(-3);
 }
 
-export async function GET() {
+export async function GET(req: NextRequest) {
+  return withRequestTenant(req as any, async () => {
   const cfg = await readEmailConfig();
   if (!cfg) return NextResponse.json({ connected: false });
   return NextResponse.json({
@@ -32,9 +34,12 @@ export async function GET() {
     signature_html: cfg.signature_html,
     connected_at: cfg.connected_at,
   });
+
+  }) as any;
 }
 
 export async function POST(req: NextRequest) {
+  return withRequestTenant(req as any, async () => {
   const body = await req.json();
   const { email, app_password, display_name, signature_html, provider, send_aliases } = body;
 
@@ -91,9 +96,14 @@ export async function POST(req: NextRequest) {
     imap_ok: imap.ok,
     imap_error: imap.error,
   });
+
+  }) as any;
 }
 
-export async function DELETE() {
+export async function DELETE(req: NextRequest) {
+  return withRequestTenant(req as any, async () => {
   await clearEmailConfig();
   return NextResponse.json({ ok: true });
+
+  }) as any;
 }

@@ -1,3 +1,4 @@
+import { withRequestTenant } from "@/lib/client-auth";
 import { NextResponse } from "next/server";
 import { listThreads } from "@/lib/email-threads";
 
@@ -12,6 +13,7 @@ export const runtime = "nodejs";
  * Cada item incluye el hilo al que pertenece para poder linkar.
  */
 export async function GET(req: Request) {
+  return withRequestTenant(req as any, async () => {
   const url = new URL(req.url);
   const days = parseInt(url.searchParams.get("days") || "30", 10);
   const unreadOnly = url.searchParams.get("unread") === "1";
@@ -81,6 +83,8 @@ export async function GET(req: Request) {
     unread_count,
     days,
   });
+
+  }) as any;
 }
 
 function stripHtml(html: string): string {

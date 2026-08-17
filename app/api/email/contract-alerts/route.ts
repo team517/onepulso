@@ -1,3 +1,5 @@
+import type { NextRequest } from "next/server";
+import { withRequestTenant } from "@/lib/client-auth";
 import { NextResponse } from "next/server";
 import { listThreadsLight } from "@/lib/email-threads";
 
@@ -7,7 +9,8 @@ export const runtime = "nodejs";
  * GET /api/email/contract-alerts
  * Devuelve los threads con contract_alert pendiente (no acknowledged).
  */
-export async function GET() {
+export async function GET(req: NextRequest) {
+  return withRequestTenant(req as any, async () => {
   const threads = await listThreadsLight();
   const alerts = threads
     .filter(t => t.contract_alert && !t.contract_alert.acknowledged)
@@ -25,4 +28,6 @@ export async function GET() {
     .sort((a, b) => b.detected_at.localeCompare(a.detected_at));
 
   return NextResponse.json({ alerts });
+
+  }) as any;
 }

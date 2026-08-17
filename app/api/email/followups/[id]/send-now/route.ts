@@ -1,3 +1,4 @@
+import { withRequestTenant } from "@/lib/client-auth";
 import { NextResponse } from "next/server";
 import { listThreads, updateFollowup, appendMessage, getThread } from "@/lib/email-threads";
 import { sendEmail } from "@/lib/email-send";
@@ -13,6 +14,7 @@ export const maxDuration = 60;
  * El parámetro :id es el followupId.
  */
 export async function POST(_req: Request, ctx: { params: Promise<{ id: string }> }) {
+  return withRequestTenant(_req as any, async () => {
   const { id } = await ctx.params;
 
   try {
@@ -112,4 +114,6 @@ export async function POST(_req: Request, ctx: { params: Promise<{ id: string }>
   } catch (e: any) {
     return NextResponse.json({ error: e.message }, { status: 500 });
   }
+
+  }) as any;
 }

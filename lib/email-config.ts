@@ -1,6 +1,8 @@
 import { readJson, writeJson, deleteJson } from "./storage";
+import { tenantKey } from "./tenant";
 
-const KEY = "email-config";
+const BASE_KEY = "email-config";
+const KEY = () => tenantKey(BASE_KEY);
 
 export type EmailConfig = {
   email: string;
@@ -26,15 +28,15 @@ export type EmailConfig = {
 };
 
 export async function readEmailConfig(): Promise<EmailConfig | null> {
-  return await readJson<EmailConfig>(KEY);
+  return await readJson<EmailConfig>(KEY());
 }
 
 export async function saveEmailConfig(c: EmailConfig) {
-  await writeJson(KEY, c);
+  await writeJson(KEY(), c);
 }
 
 export async function clearEmailConfig() {
-  await deleteJson(KEY);
+  await deleteJson(KEY());
 }
 
 /** Defaults SMTP/IMAP para cuentas Gmail (con app password) */

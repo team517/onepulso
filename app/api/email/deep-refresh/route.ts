@@ -1,3 +1,5 @@
+import type { NextRequest } from "next/server";
+import { withRequestTenant } from "@/lib/client-auth";
 import { NextResponse } from "next/server";
 import { deepRefreshAllThreads } from "@/lib/email-inbox";
 
@@ -11,6 +13,7 @@ export const maxDuration = 120;
  * Body opcional: { days?: number, maxThreads?: number }
  */
 export async function POST(req: Request) {
+  return withRequestTenant(req as any, async () => {
   const body = await req.json().catch(() => ({}));
   const days = parseInt(body.days || "60", 10);
   const maxThreads = parseInt(body.maxThreads || "100", 10);
@@ -25,10 +28,13 @@ export async function POST(req: Request) {
   } catch (e: any) {
     return NextResponse.json({ ok: false, error: e.message }, { status: 500 });
   }
+
+  }) as any;
 }
 
 // GET por conveniencia (mismo comportamiento, para que se pueda pingear desde browser)
-export async function GET() {
+export async function GET(req: NextRequest) {
+  return withRequestTenant(req as any, async () => {
   try {
     const r = await deepRefreshAllThreads({ days: 60, maxThreads: 100 });
     return NextResponse.json({
@@ -39,4 +45,6 @@ export async function GET() {
   } catch (e: any) {
     return NextResponse.json({ ok: false, error: e.message }, { status: 500 });
   }
+
+  }) as any;
 }

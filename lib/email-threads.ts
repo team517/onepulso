@@ -1,7 +1,10 @@
 import { randomUUID } from "crypto";
 import { readJson, writeJson } from "./storage";
+import { tenantKey } from "./tenant";
 
-const KEY = "email-threads";
+// Claves namespaceadas por tenant (owner = global; cliente = clients/<id>/...).
+const KEY = () => tenantKey("email-threads");
+const ARCHIVE_KEY = () => tenantKey("email-threads/archive");
 
 export type EmailMessage = {
   id: string;
@@ -66,7 +69,7 @@ export type Followup = {
 };
 
 async function readThreads(): Promise<Thread[]> {
-  return (await readJson<Thread[]>(KEY)) ?? [];
+  return (await readJson<Thread[]>(KEY())) ?? [];
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -77,7 +80,7 @@ async function readThreads(): Promise<Thread[]> {
 // Mantenemos un índice SIN los cuerpos de mensaje → se lee al instante y cabe
 // en caché. Se reconstruye en cada writeThreads (el único punto de escritura).
 // ─────────────────────────────────────────────────────────────────────────────
-const INDEX_KEY = "email-threads/list-index";
+const INDEX_KEY = () => tenantKey("email-threads/list-index");
 
 /** Thread sin el array pesado de `messages`: solo resumen del último mensaje. */
 export type ThreadLight = Omit<Thread, "messages"> & {
@@ -104,9 +107,9 @@ function buildThreadIndex(all: Thread[]): ThreadLight[] {
 }
 
 async function writeThreads(threads: Thread[]) {
-  await writeJson(KEY, threads);
+  await writeJson(KEY(), threads);
   // Reconstruir el índice ligero (best-effort: si falla, la lista cae al blob).
-  try { await writeJson(INDEX_KEY, buildThreadIndex(threads)); } catch {}
+  try { await writeJson(INDEX_KEY(), buildThreadIndex(threads)); } catch {}
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -139,11 +142,11 @@ export async function listThreads(): Promise<Thread[]> {
 /** Lista LIGERA (sin cuerpos de mensaje) para la vista de lista — rápida.
  *  Si el índice aún no existe (primera vez), lo construye desde el blob. */
 export async function listThreadsLight(): Promise<ThreadLight[]> {
-  let idx = await readJson<ThreadLight[]>(INDEX_KEY);
+  let idx = await readJson<ThreadLight[]>(INDEX_KEY());
   if (!idx) {
     const all = await readThreads();
     idx = buildThreadIndex(all);
-    try { await writeJson(INDEX_KEY, idx); } catch {}
+    try { await writeJson(INDEX_KEY(), idx); } catch {}
   }
   return idx.sort((a, b) => b.updated_at.localeCompare(a.updated_at));
 }
@@ -379,7 +382,7 @@ export async function compactThreads(opts?: { olderThanDays?: number }): Promise
 
   return withThreadsLock(async () => {
     const all = await readThreads();
-    const archive = (await readJson<Thread[]>("email-threads/archive")) ?? [];
+    const archive = (await readJson<Thread[]>(ARCHIVE_KEY())) ?? [];
 
     const active: Thread[] = [];
     const toArchive: Thread[] = [];
@@ -401,7 +404,7 @@ export async function compactThreads(opts?: { olderThanDays?: number }): Promise
 
     if (toArchive.length > 0) {
       archive.push(...toArchive);
-      await writeJson("email-threads/archive", archive);
+      await writeJson(ARCHIVE_KEY(), archive);
       await writeThreads(active);
     }
 

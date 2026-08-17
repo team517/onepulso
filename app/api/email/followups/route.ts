@@ -1,15 +1,20 @@
+import { withRequestTenant } from "@/lib/client-auth";
 import { NextRequest, NextResponse } from "next/server";
 import { listAllScheduledFollowupsLight, scheduleFollowup, scheduleFollowupsBatch } from "@/lib/email-threads";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
-export async function GET() {
+export async function GET(req: NextRequest) {
+  return withRequestTenant(req as any, async () => {
   const items = await listAllScheduledFollowupsLight();
   return NextResponse.json({ items });
+
+  }) as any;
 }
 
 export async function POST(req: NextRequest) {
+  return withRequestTenant(req as any, async () => {
   const body = await req.json();
   const { thread_id, body_html, scheduled_at, origin, steps } = body;
   if (!thread_id) {
@@ -41,4 +46,6 @@ export async function POST(req: NextRequest) {
   });
   if (!f) return NextResponse.json({ error: "thread no encontrado" }, { status: 404 });
   return NextResponse.json({ followup: f });
+
+  }) as any;
 }

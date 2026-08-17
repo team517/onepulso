@@ -1,3 +1,5 @@
+import type { NextRequest } from "next/server";
+import { withRequestTenant } from "@/lib/client-auth";
 import { NextResponse } from "next/server";
 import { listThreads } from "@/lib/email-threads";
 import { readEmailConfig } from "@/lib/email-config";
@@ -9,7 +11,8 @@ export const runtime = "nodejs";
  * Devuelve todos los follow-ups (scheduled + sent) con info del thread
  * para mostrar en una vista de calendario.
  */
-export async function GET() {
+export async function GET(req: NextRequest) {
+  return withRequestTenant(req as any, async () => {
   try {
     const threads = await listThreads();
     const cfg = await readEmailConfig().catch(() => null);
@@ -51,6 +54,8 @@ export async function GET() {
   } catch (e: any) {
     return NextResponse.json({ error: e.message, events: [] }, { status: 500 });
   }
+
+  }) as any;
 }
 
 function extractNameFromEmail(email: string): string {

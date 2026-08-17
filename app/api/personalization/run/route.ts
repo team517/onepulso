@@ -1,3 +1,4 @@
+import { withRequestTenant } from "@/lib/client-auth";
 import { NextResponse } from "next/server";
 import { createJob, runJob, readCSVRows } from "@/lib/personalization";
 
@@ -12,6 +13,7 @@ export const dynamic = "force-dynamic";
  * El cliente debe hacer polling a /jobs/[id] para ver el progreso.
  */
 export async function POST(req: Request) {
+  return withRequestTenant(req as any, async () => {
   const body = await req.json();
   const { file_id, filename, mapping, prompt, provider, rows } = body;
   if (!file_id || !mapping || !prompt || !Array.isArray(rows)) {
@@ -48,4 +50,6 @@ export async function POST(req: Request) {
   });
 
   return NextResponse.json({ ok: true, job });
+
+  }) as any;
 }

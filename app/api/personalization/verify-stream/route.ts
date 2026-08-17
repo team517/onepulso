@@ -1,3 +1,4 @@
+import { withRequestTenant } from "@/lib/client-auth";
 import { NextRequest } from "next/server";
 import { readCSVRows } from "@/lib/personalization";
 import { verifyBatch, normalizeEmail, isValidSyntax, type VerifyResult } from "@/lib/email-verify";
@@ -30,6 +31,7 @@ function serializeCSV(columns: string[], rows: Record<string, string>[]): string
 }
 
 export async function GET(req: NextRequest) {
+  return withRequestTenant(req as any, async () => {
   const url = new URL(req.url);
   const file_id = url.searchParams.get("file_id");
   const emailColumn = url.searchParams.get("email_column") || "";
@@ -154,4 +156,6 @@ export async function GET(req: NextRequest) {
       "X-Accel-Buffering": "no",
     },
   });
+
+  }) as any;
 }

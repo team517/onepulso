@@ -9,8 +9,9 @@
  */
 import crypto from "crypto";
 import { readJson, writeJson } from "./storage";
+import { tenantKey } from "./tenant";
 
-const KEY = "email-accounts";
+const KEY = () => tenantKey("email-accounts");
 
 export type EmailAccount = {
   id: string;
@@ -139,7 +140,7 @@ export function detectDefaults(email: string): Defaults {
 }
 
 export async function listEmailAccounts(): Promise<EmailAccount[]> {
-  const arr = await readJson<EmailAccount[]>(KEY);
+  const arr = await readJson<EmailAccount[]>(KEY());
   return Array.isArray(arr) ? arr : [];
 }
 
@@ -156,7 +157,7 @@ export async function upsertEmailAccount(acc: EmailAccount): Promise<EmailAccoun
   } else {
     all.push(acc);
   }
-  await writeJson(KEY, all);
+  await writeJson(KEY(), all);
   return idx >= 0 ? all[idx] : acc;
 }
 
@@ -164,7 +165,7 @@ export async function deleteEmailAccount(id: string): Promise<boolean> {
   const all = await listEmailAccounts();
   const next = all.filter((a) => a.id !== id);
   if (next.length === all.length) return false;
-  await writeJson(KEY, next);
+  await writeJson(KEY(), next);
   return true;
 }
 

@@ -1,3 +1,4 @@
+import { withRequestTenant } from "@/lib/client-auth";
 import { NextRequest, NextResponse } from "next/server";
 import { randomUUID } from "crypto";
 import { readBlob, writeBlob } from "@/lib/storage";
@@ -33,6 +34,7 @@ const MAX_CHUNK = 8 * 1024 * 1024;  // 8 MB por chunk — bajo el límite de 10 
 const MAX_TOTAL = 100 * 1024 * 1024; // 100 MB total
 
 export async function POST(req: NextRequest) {
+  return withRequestTenant(req as any, async () => {
   const uploadId = req.headers.get("x-upload-id");
   const chunkIndex = parseInt(req.headers.get("x-chunk-index") || "-1", 10);
   const totalChunks = parseInt(req.headers.get("x-total-chunks") || "-1", 10);
@@ -122,4 +124,6 @@ export async function POST(req: NextRequest) {
     filename: meta.filename,
     size: meta.size,
   });
+
+  }) as any;
 }

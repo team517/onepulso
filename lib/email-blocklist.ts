@@ -10,8 +10,9 @@
  */
 import crypto from "crypto";
 import { readJson, writeJson } from "./storage";
+import { tenantKey } from "./tenant";
 
-const KEY = "email-blocklist";
+const KEY = () => tenantKey("email-blocklist");
 
 export type BlockEntry = {
   id: string;
@@ -25,7 +26,7 @@ export type BlockEntry = {
 };
 
 export async function listBlocklist(): Promise<BlockEntry[]> {
-  const arr = await readJson<BlockEntry[]>(KEY);
+  const arr = await readJson<BlockEntry[]>(KEY());
   return Array.isArray(arr) ? arr : [];
 }
 
@@ -38,7 +39,7 @@ export async function addToBlocklist(e: Omit<BlockEntry, "id" | "blocked_at">): 
     // Refresh affected_leads y reason si vienen nuevos
     if (typeof e.affected_leads === "number") existing.affected_leads = e.affected_leads;
     if (e.reason) existing.reason = e.reason;
-    await writeJson(KEY, all);
+    await writeJson(KEY(), all);
     return existing;
   }
   const entry: BlockEntry = {
@@ -48,7 +49,7 @@ export async function addToBlocklist(e: Omit<BlockEntry, "id" | "blocked_at">): 
     value,
   };
   all.unshift(entry);
-  await writeJson(KEY, all);
+  await writeJson(KEY(), all);
   return entry;
 }
 
@@ -56,7 +57,7 @@ export async function removeFromBlocklist(id: string): Promise<boolean> {
   const all = await listBlocklist();
   const next = all.filter((x) => x.id !== id);
   if (next.length === all.length) return false;
-  await writeJson(KEY, next);
+  await writeJson(KEY(), next);
   return true;
 }
 

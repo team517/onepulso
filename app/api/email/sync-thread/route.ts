@@ -1,3 +1,4 @@
+import { withRequestTenant } from "@/lib/client-auth";
 import { NextResponse } from "next/server";
 import { ImapFlow } from "imapflow";
 import { simpleParser } from "mailparser";
@@ -20,6 +21,7 @@ export const maxDuration = 90;
  * Útil cuando una respuesta del contacto no aparece por threading roto.
  */
 export async function POST(req: Request) {
+  return withRequestTenant(req as any, async () => {
   const body = await req.json().catch(() => ({}));
   const threadId = body.thread_id;
   const days = parseInt(body.days || "60", 10);
@@ -154,6 +156,8 @@ export async function POST(req: Request) {
     added,
     errors: errors.length > 0 ? errors.slice(0, 5) : undefined,
   });
+
+  }) as any;
 }
 
 function normMsgId(s: string | undefined | null): string {

@@ -1,3 +1,4 @@
+import { withRequestTenant } from "@/lib/client-auth";
 import { NextRequest } from "next/server";
 import { parseCSVStreamed } from "@/lib/csv";
 
@@ -16,6 +17,7 @@ export const maxDuration = 120;
  *  - event: error     → { message }
  */
 export async function GET(req: NextRequest) {
+  return withRequestTenant(req as any, async () => {
   const url = new URL(req.url);
   const file_id = url.searchParams.get("file_id");
   const filename = url.searchParams.get("filename") || "(sin nombre)";
@@ -81,4 +83,6 @@ export async function GET(req: NextRequest) {
       "X-Accel-Buffering": "no",
     },
   });
+
+  }) as any;
 }

@@ -1,9 +1,12 @@
+import type { NextRequest } from "next/server";
+import { withRequestTenant } from "@/lib/client-auth";
 import { NextResponse } from "next/server";
 import { listJobs } from "@/lib/personalization";
 
 export const runtime = "nodejs";
 
-export async function GET() {
+export async function GET(req: NextRequest) {
+  return withRequestTenant(req as any, async () => {
   const jobs = await listJobs();
   // Sin results completos en el listado (sería pesado)
   return NextResponse.json({
@@ -19,4 +22,6 @@ export async function GET() {
       updated_at: j.updated_at,
     })),
   });
+
+  }) as any;
 }

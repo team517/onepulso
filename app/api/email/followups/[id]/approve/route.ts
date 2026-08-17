@@ -1,3 +1,4 @@
+import { withRequestTenant } from "@/lib/client-auth";
 import { NextRequest, NextResponse } from "next/server";
 import { listThreads, updateFollowup, appendMessage, getThread } from "@/lib/email-threads";
 import { sendEmail } from "@/lib/email-send";
@@ -15,6 +16,7 @@ export const maxDuration = 60;
  * Si send_now=false → status="scheduled" con scheduled_at=lo indicado, scheduler lo envía a su hora.
  */
 export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
+  return withRequestTenant(req as any, async () => {
   const { id } = await ctx.params;
   const body = await req.json().catch(() => ({}));
 
@@ -106,10 +108,13 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
   if (typeof body.scheduled_at === "string") patch.scheduled_at = body.scheduled_at;
   const result = await updateFollowup(threadId, id, patch);
   return NextResponse.json({ ok: true, followup: result });
+
+  }) as any;
 }
 
 /** DELETE → cancela el borrador */
 export async function DELETE(_req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
+  return withRequestTenant(_req as any, async () => {
   const { id } = await ctx.params;
   const threads = await listThreads();
   let threadId: string | null = null;
@@ -119,4 +124,6 @@ export async function DELETE(_req: NextRequest, ctx: { params: Promise<{ id: str
   if (!threadId) return NextResponse.json({ error: "Follow-up no encontrado" }, { status: 404 });
   await updateFollowup(threadId, id, { status: "cancelled" });
   return NextResponse.json({ ok: true });
+
+  }) as any;
 }

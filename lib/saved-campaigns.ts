@@ -8,8 +8,9 @@
  */
 import { randomUUID } from "crypto";
 import { readJson, writeJson } from "./storage";
+import { tenantKey } from "./tenant";
 
-const KEY = "saved-personalization-campaigns";
+const KEY = () => tenantKey("saved-personalization-campaigns");
 
 export type SavedCampaign = {
   id: string;
@@ -31,11 +32,11 @@ export type SavedCampaign = {
 };
 
 export async function listSavedCampaigns(): Promise<SavedCampaign[]> {
-  return (await readJson<SavedCampaign[]>(KEY)) ?? [];
+  return (await readJson<SavedCampaign[]>(KEY())) ?? [];
 }
 
 async function saveAll(items: SavedCampaign[]) {
-  await writeJson(KEY, items);
+  await writeJson(KEY(), items);
 }
 
 export async function getSavedCampaign(id: string): Promise<SavedCampaign | null> {

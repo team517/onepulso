@@ -1,3 +1,4 @@
+import { withRequestTenant } from "@/lib/client-auth";
 import { NextResponse } from "next/server";
 import { getSavedCampaign, updateSavedCampaign, deleteSavedCampaign, markCampaignUsed } from "@/lib/saved-campaigns";
 import { readBlob } from "@/lib/storage";
@@ -5,6 +6,7 @@ import { readBlob } from "@/lib/storage";
 export const runtime = "nodejs";
 
 export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> }) {
+  return withRequestTenant(_req as any, async () => {
   const { id } = await ctx.params;
   const c = await getSavedCampaign(id);
   if (!c) return NextResponse.json({ error: "no encontrada" }, { status: 404 });
@@ -14,9 +16,12 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
   const file_available = !!blob;
 
   return NextResponse.json({ campaign: c, file_available });
+
+  }) as any;
 }
 
 export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }> }) {
+  return withRequestTenant(req as any, async () => {
   const { id } = await ctx.params;
   const body = await req.json();
   if (body.action === "mark_used") {
@@ -26,10 +31,15 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
   const c = await updateSavedCampaign(id, body);
   if (!c) return NextResponse.json({ error: "no encontrada" }, { status: 404 });
   return NextResponse.json({ campaign: c });
+
+  }) as any;
 }
 
 export async function DELETE(_req: Request, ctx: { params: Promise<{ id: string }> }) {
+  return withRequestTenant(_req as any, async () => {
   const { id } = await ctx.params;
   await deleteSavedCampaign(id);
   return NextResponse.json({ ok: true });
+
+  }) as any;
 }

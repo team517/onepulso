@@ -107,6 +107,14 @@ const STUCK_CHECK_MS = 5 * 60_000; // cada 5 min
 let lastCompact = 0;
 const COMPACT_MS = 6 * 60 * 60_000; // cada 6h: archiva hilos viejos/cerrados
 
+// Ingesta ACOTADA de respuestas entrantes en el servidor: para que los follow-ups
+// se cancelen si el prospect responde (aunque nadie tenga la pestaña abierta) y el
+// autopilot vea las respuestas nuevas. Espaciado + max bajo → sin saturar el pool.
+let lastServerInboxSync = 0;
+const SERVER_INBOX_SYNC_MS = 15 * 60_000; // cada 15 min
+let lastAutopilotRun = 0;
+const AUTOPILOT_MS = 5 * 60_000;          // cada 5 min
+
 export async function tick() {
   // EMERGENCY_MODE bypass — no hacer trabajo de fondo si está activo.
   if (process.env.EMERGENCY_MODE === "1" || process.env.EMERGENCY_MODE === "true") {
@@ -171,14 +179,39 @@ export async function tick() {
     console.error("[email-scheduler] weekly reports error:", e.message);
   }
 
-  // 1. Enviar follow-ups vencidos
+  // 0.f Ingesta ACOTADA de respuestas entrantes (cada 15 min, max 30). Al añadir
+  // un inbound, email-inbox cancela los follow-ups pendientes de ese hilo como
+  // "prospect_replied" → los follow-ups NO se envían tras una respuesta aunque
+  // nadie tenga la pestaña abierta. También alimenta el autopilot. Espaciado +
+  // max bajo + guardia in-flight → sin saturar Postgres (era el motivo de que
+  // estuviera desactivado; ahora es mucho más ligero).
+  if (Date.now() - lastServerInboxSync > SERVER_INBOX_SYNC_MS) {
+    lastServerInboxSync = Date.now();
+    try {
+      const r = await syncInbox({ days: 3, max: 30 });
+      if (r.new_messages > 0) console.log(`[email-scheduler] inbound ingerido: ${r.new_messages} nuevos`);
+    } catch (e: any) {
+      console.error("[email-scheduler] inbox sync error:", e.message);
+    }
+  }
+
+  // 1. Enviar follow-ups vencidos (tras ingerir respuestas → los que respondieron
+  //    ya están cancelados).
   const dueResults = await sendDueFollowups();
 
-  // 2 y 3 DESACTIVADOS: syncInbox y deepRefreshAllThreads procesaban
-  // cientos de UIDs en paralelo agotando el pool de Postgres ("Connection
-  // not available"). Esto rompía el unibox para el usuario. Si necesitas
-  // sync de /seguimientos, dispáralo manual desde /api/email/sync-thread.
-  // El UNIBOX tiene su propio sync IMAP (no afectado).
+  // 0.g Autopilot (cada 5 min): genera borradores para hilos con auto_pilot activo
+  //     y nuevas respuestas. Requiere aprobación humana antes de enviarse (salvo
+  //     secuencias auto configuradas explícitamente).
+  if (Date.now() - lastAutopilotRun > AUTOPILOT_MS) {
+    lastAutopilotRun = Date.now();
+    try {
+      const a: any = await runAutopilot();
+      if (a?.processed > 0) console.log(`[email-scheduler] autopilot: ${a.processed} hilos procesados`);
+    } catch (e: any) {
+      console.error("[email-scheduler] autopilot error:", e.message);
+    }
+  }
+  void deepRefreshAllThreads; // (deep refresh sigue desactivado: demasiado pesado)
 
   // 4. Recordatorios de tareas (cada tick — fn interna decide qué notificar)
   try {

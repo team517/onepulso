@@ -106,6 +106,28 @@ async function writeThreads(threads: Thread[]) {
   try { await writeJson(INDEX_KEY, buildThreadIndex(threads)); } catch {}
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// MUTEX EN PROCESO para el ciclo read-modify-write del blob.
+//
+// Cada mutación hace readThreads() → modifica → writeThreads(TODO el blob).
+// Sin lock, dos operaciones concurrentes (p.ej. el tick del scheduler marcando
+// un follow-up como "sent" a la vez que llega una respuesta que hace appendMessage)
+// leen el MISMO snapshot y el segundo write PISA al primero → lost updates:
+// envíos dobles, mensajes que desaparecen, cancelaciones perdidas.
+//
+// EasyPanel = 1 contenedor = 1 proceso Node, así que serializar en memoria basta.
+// Toda función que ESCRIBE el blob debe correr su read-modify-write dentro de
+// withThreadsLock() para que la lectura vea siempre el último write.
+// ─────────────────────────────────────────────────────────────────────────────
+let writeChain: Promise<unknown> = Promise.resolve();
+function withThreadsLock<T>(fn: () => Promise<T>): Promise<T> {
+  // Encola fn tras lo que hubiera en curso (gane o falle la anterior).
+  const run = writeChain.then(fn, fn);
+  // La cadena nunca propaga errores: si una mutación falla, la siguiente corre igual.
+  writeChain = run.then(() => undefined, () => undefined);
+  return run;
+}
+
 export async function listThreads(): Promise<Thread[]> {
   const all = await readThreads();
   return all.sort((a, b) => b.updated_at.localeCompare(a.updated_at));
@@ -156,57 +178,65 @@ export async function createThread(input: {
   participants: string[];
   notes?: string;
 }): Promise<Thread> {
-  const all = await readThreads();
-  const now = new Date().toISOString();
-  const t: Thread = {
-    id: randomUUID(),
-    subject: input.subject,
-    participants: input.participants,
-    messages: [],
-    status: "active",
-    followups: [],
-    notes: input.notes,
-    created_at: now,
-    updated_at: now,
-  };
-  all.push(t);
-  await writeThreads(all);
-  return t;
+  return withThreadsLock(async () => {
+    const all = await readThreads();
+    const now = new Date().toISOString();
+    const t: Thread = {
+      id: randomUUID(),
+      subject: input.subject,
+      participants: input.participants,
+      messages: [],
+      status: "active",
+      followups: [],
+      notes: input.notes,
+      created_at: now,
+      updated_at: now,
+    };
+    all.push(t);
+    await writeThreads(all);
+    return t;
+  });
 }
 
 export async function appendMessage(threadId: string, msg: Omit<EmailMessage, "id">): Promise<Thread | null> {
-  const all = await readThreads();
-  const t = all.find((x) => x.id === threadId);
-  if (!t) return null;
+  return withThreadsLock(async () => {
+    const all = await readThreads();
+    const t = all.find((x) => x.id === threadId);
+    if (!t) return null;
 
-  if (msg.message_id) {
-    const exists = t.messages.some((x) => x.message_id === msg.message_id);
-    if (exists) return t;
-  }
+    if (msg.message_id) {
+      const exists = t.messages.some((x) => x.message_id === msg.message_id);
+      if (exists) return t;
+    }
 
-  const m: EmailMessage = { id: randomUUID(), ...msg };
-  t.messages.push(m);
-  t.messages.sort((a, b) => (a.date || "").localeCompare(b.date || ""));
+    const m: EmailMessage = { id: randomUUID(), ...msg };
+    t.messages.push(m);
+    t.messages.sort((a, b) => (a.date || "").localeCompare(b.date || ""));
 
-  if (m.direction === "inbound") t.last_inbound_at = m.date;
-  else t.last_outbound_at = m.date;
-  t.updated_at = new Date().toISOString();
-  await writeThreads(all);
-  return t;
+    if (m.direction === "inbound") t.last_inbound_at = m.date;
+    else t.last_outbound_at = m.date;
+    t.updated_at = new Date().toISOString();
+    await writeThreads(all);
+    return t;
+  });
 }
 
 export async function updateThread(id: string, patch: Partial<Thread>): Promise<Thread | null> {
-  const all = await readThreads();
-  const idx = all.findIndex((t) => t.id === id);
-  if (idx === -1) return null;
-  all[idx] = { ...all[idx], ...patch, updated_at: new Date().toISOString() };
-  await writeThreads(all);
-  return all[idx];
+  return withThreadsLock(async () => {
+    const all = await readThreads();
+    const idx = all.findIndex((t) => t.id === id);
+    if (idx === -1) return null;
+    all[idx] = { ...all[idx], ...patch, updated_at: new Date().toISOString() };
+    await writeThreads(all);
+    return all[idx];
+  });
 }
 
 export async function deleteThread(id: string) {
-  const all = await readThreads();
-  await writeThreads(all.filter((t) => t.id !== id));
+  return withThreadsLock(async () => {
+    const all = await readThreads();
+    await writeThreads(all.filter((t) => t.id !== id));
+  });
 }
 
 // ===== Follow-ups =====
@@ -218,21 +248,23 @@ export async function scheduleFollowup(input: {
   origin: Followup["origin"];
   status?: Followup["status"];
 }): Promise<Followup | null> {
-  const all = await readThreads();
-  const t = all.find((x) => x.id === input.thread_id);
-  if (!t) return null;
-  const f: Followup = {
-    id: randomUUID(),
-    thread_id: input.thread_id,
-    body_html: input.body_html,
-    scheduled_at: input.scheduled_at,
-    status: input.status ?? "scheduled",
-    origin: input.origin,
-  };
-  t.followups.push(f);
-  t.updated_at = new Date().toISOString();
-  await writeThreads(all);
-  return f;
+  return withThreadsLock(async () => {
+    const all = await readThreads();
+    const t = all.find((x) => x.id === input.thread_id);
+    if (!t) return null;
+    const f: Followup = {
+      id: randomUUID(),
+      thread_id: input.thread_id,
+      body_html: input.body_html,
+      scheduled_at: input.scheduled_at,
+      status: input.status ?? "scheduled",
+      origin: input.origin,
+    };
+    t.followups.push(f);
+    t.updated_at = new Date().toISOString();
+    await writeThreads(all);
+    return f;
+  });
 }
 
 /**
@@ -247,51 +279,57 @@ export async function scheduleFollowupsBatch(input: {
   steps: Array<{ body_html: string; scheduled_at: string }>;
 }): Promise<{ scheduled: Followup[]; error?: string }> {
   if (!input.steps?.length) return { scheduled: [], error: "sin pasos" };
-  const all = await readThreads();
-  const t = all.find((x) => x.id === input.thread_id);
-  if (!t) return { scheduled: [], error: "thread no encontrado" };
-  const created: Followup[] = [];
-  for (const step of input.steps) {
-    // Marcador para que el follow-up se CANCELE si el prospect responde antes de
-    // la fecha (la UI lo promete). Sin esto, se enviaba igual aunque respondieran.
-    const body = step.body_html.includes("<!--send_if_no_reply-->")
-      ? step.body_html
-      : step.body_html + "<!--send_if_no_reply-->";
-    const f: Followup = {
-      id: randomUUID(),
-      thread_id: input.thread_id,
-      body_html: body,
-      scheduled_at: new Date(step.scheduled_at).toISOString(),
-      status: "scheduled",
-      origin: input.origin,
-    };
-    t.followups.push(f);
-    created.push(f);
-  }
-  t.updated_at = new Date().toISOString();
-  await writeThreads(all); // UNA sola escritura para todos los pasos
-  return { scheduled: created };
+  return withThreadsLock(async () => {
+    const all = await readThreads();
+    const t = all.find((x) => x.id === input.thread_id);
+    if (!t) return { scheduled: [], error: "thread no encontrado" };
+    const created: Followup[] = [];
+    for (const step of input.steps) {
+      // Marcador para que el follow-up se CANCELE si el prospect responde antes de
+      // la fecha (la UI lo promete). Sin esto, se enviaba igual aunque respondieran.
+      const body = step.body_html.includes("<!--send_if_no_reply-->")
+        ? step.body_html
+        : step.body_html + "<!--send_if_no_reply-->";
+      const f: Followup = {
+        id: randomUUID(),
+        thread_id: input.thread_id,
+        body_html: body,
+        scheduled_at: new Date(step.scheduled_at).toISOString(),
+        status: "scheduled",
+        origin: input.origin,
+      };
+      t.followups.push(f);
+      created.push(f);
+    }
+    t.updated_at = new Date().toISOString();
+    await writeThreads(all); // UNA sola escritura para todos los pasos
+    return { scheduled: created };
+  });
 }
 
 export async function updateFollowup(threadId: string, followupId: string, patch: Partial<Followup>): Promise<Followup | null> {
-  const all = await readThreads();
-  const t = all.find((x) => x.id === threadId);
-  if (!t) return null;
-  const idx = t.followups.findIndex((f) => f.id === followupId);
-  if (idx === -1) return null;
-  t.followups[idx] = { ...t.followups[idx], ...patch };
-  t.updated_at = new Date().toISOString();
-  await writeThreads(all);
-  return t.followups[idx];
+  return withThreadsLock(async () => {
+    const all = await readThreads();
+    const t = all.find((x) => x.id === threadId);
+    if (!t) return null;
+    const idx = t.followups.findIndex((f) => f.id === followupId);
+    if (idx === -1) return null;
+    t.followups[idx] = { ...t.followups[idx], ...patch };
+    t.updated_at = new Date().toISOString();
+    await writeThreads(all);
+    return t.followups[idx];
+  });
 }
 
 export async function deleteFollowup(threadId: string, followupId: string) {
-  const all = await readThreads();
-  const t = all.find((x) => x.id === threadId);
-  if (!t) return;
-  t.followups = t.followups.filter((f) => f.id !== followupId);
-  t.updated_at = new Date().toISOString();
-  await writeThreads(all);
+  return withThreadsLock(async () => {
+    const all = await readThreads();
+    const t = all.find((x) => x.id === threadId);
+    if (!t) return;
+    t.followups = t.followups.filter((f) => f.id !== followupId);
+    t.updated_at = new Date().toISOString();
+    await writeThreads(all);
+  });
 }
 
 export async function listAllScheduledFollowups(): Promise<Array<Followup & { thread: Thread }>> {
@@ -336,36 +374,38 @@ export async function compactThreads(opts?: { olderThanDays?: number }): Promise
   const olderThanDays = opts?.olderThanDays ?? 30;
   const cutoff = Date.now() - olderThanDays * 24 * 60 * 60 * 1000;
 
-  const all = await readThreads();
-  const archive = (await readJson<Thread[]>("email-threads/archive")) ?? [];
+  return withThreadsLock(async () => {
+    const all = await readThreads();
+    const archive = (await readJson<Thread[]>("email-threads/archive")) ?? [];
 
-  const active: Thread[] = [];
-  const toArchive: Thread[] = [];
+    const active: Thread[] = [];
+    const toArchive: Thread[] = [];
 
-  for (const t of all) {
-    const hasPendingFollowup = (t.followups || []).some(
-      (f) => f.status === "scheduled" || f.status === "sending" || f.status === "pending_approval"
-    );
-    const updatedAt = new Date(t.updated_at).getTime();
-    const isOld = updatedAt < cutoff;
-    const isInactive = t.status === "closed" || t.status === "stale";
-    // Archivamos solo si: inactivo Y viejo Y sin follow-up pendiente
-    if (isInactive && isOld && !hasPendingFollowup) {
-      toArchive.push(t);
-    } else {
-      active.push(t);
+    for (const t of all) {
+      const hasPendingFollowup = (t.followups || []).some(
+        (f) => f.status === "scheduled" || f.status === "sending" || f.status === "pending_approval"
+      );
+      const updatedAt = new Date(t.updated_at).getTime();
+      const isOld = updatedAt < cutoff;
+      const isInactive = t.status === "closed" || t.status === "stale";
+      // Archivamos solo si: inactivo Y viejo Y sin follow-up pendiente
+      if (isInactive && isOld && !hasPendingFollowup) {
+        toArchive.push(t);
+      } else {
+        active.push(t);
+      }
     }
-  }
 
-  if (toArchive.length > 0) {
-    archive.push(...toArchive);
-    await writeJson("email-threads/archive", archive);
-    await writeThreads(active);
-  }
+    if (toArchive.length > 0) {
+      archive.push(...toArchive);
+      await writeJson("email-threads/archive", archive);
+      await writeThreads(active);
+    }
 
-  return {
-    keptActive: active.length,
-    archivedNow: toArchive.length,
-    totalArchived: archive.length,
-  };
+    return {
+      keptActive: active.length,
+      archivedNow: toArchive.length,
+      totalArchived: archive.length,
+    };
+  });
 }

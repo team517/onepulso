@@ -31,6 +31,19 @@ function madridHourUtc(baseDate: Date, dayOffset: number, hour: number): Date {
   return new Date(guess + (guess - shown));
 }
 
+/**
+ * Marca un follow-up de secuencia (drip/nudge) como "cancelar si el prospect
+ * responde antes de la fecha". Así el scheduler lo salta al enviarse aunque la
+ * respuesta aún no se haya sincronizado (red de seguridad además de la
+ * cancelación primaria al ingerir el inbound). Los recordatorios (Modo B) NO lo
+ * llevan a propósito: se envían el día acordado aunque el prospect ya escribiera.
+ */
+function withNoReplyMarker(body_html: string): string {
+  return body_html.includes("<!--send_if_no_reply-->")
+    ? body_html
+    : body_html + "<!--send_if_no_reply-->";
+}
+
 const REPLY_SYSTEM = `Eres Xavi (onepulso). Estás escribiendo un email a un prospect en MODO AUTO-PILOT.
 
 OBJETIVO POR DEFECTO: avanzar hacia una reunión / cierre.
@@ -379,7 +392,7 @@ export async function planAndScheduleSequence(
         const fallback = new Date(now.getTime() + 5 * 60 * 1000);
         await scheduleFollowup({
           thread_id: threadId,
-          body_html: step.body_html,
+          body_html: withNoReplyMarker(step.body_html),
           scheduled_at: fallback.toISOString(),
           origin: "ai_auto",
         });
@@ -403,7 +416,7 @@ export async function planAndScheduleSequence(
 
     await scheduleFollowup({
       thread_id: threadId,
-      body_html: step.body_html,
+      body_html: withNoReplyMarker(step.body_html),
       scheduled_at: d.toISOString(),
       origin: "ai_auto",
     });

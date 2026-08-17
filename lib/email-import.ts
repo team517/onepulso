@@ -99,20 +99,35 @@ export async function importThread(opts: {
       let uids: number[] = [];
       try {
         if (opts.gm_thrid) {
-          // Gmail: buscar por participante en el ÍNDICE de Gmail (X-GM-RAW → cubre
-          // TODO el historial) y filtrar por threadId → coge el hilo completo aunque
-          // sea antiguo. Respaldo: escaneo de los últimos 1000 filtrando por threadId.
-          const found: number[] = [];
-          let candidates: number[] = [];
+          // Gmail: reunir candidatos por participante desde el ÍNDICE de Gmail
+          // (X-GM-RAW) Y desde IMAP SEARCH server-side (from/to) — ambos cubren
+          // TODO el historial. Todos con {uid:true} → UIDs reales. Luego filtramos
+          // por threadId para coger el hilo completo aunque sea antiguo.
+          const candUids = new Set<number>();
           if (opts.participant_seed) {
-            candidates = ((await client.search({ gmailRaw: `from:${opts.participant_seed} OR to:${opts.participant_seed}` } as any).catch(() => [])) as number[]) || [];
+            try {
+              const r = (await client.search(
+                { gmailRaw: `from:${opts.participant_seed} OR to:${opts.participant_seed}` } as any,
+                { uid: true } as any
+              )) as number[];
+              if (Array.isArray(r)) r.forEach((u) => candUids.add(u));
+            } catch { /* X-GM-RAW no disponible */ }
+            for (const crit of [{ from: opts.participant_seed }, { to: opts.participant_seed }]) {
+              try {
+                const r = (await client.search(crit as any, { uid: true } as any)) as number[];
+                if (Array.isArray(r)) r.forEach((u) => candUids.add(u));
+              } catch { /* ignore */ }
+            }
           }
-          if (candidates.length) {
-            for await (const m of client.fetch(candidates, { threadId: true, uid: true } as any)) {
+          const found: number[] = [];
+          if (candUids.size) {
+            // Fetch POR UID (options.uid) — candUids son UIDs reales.
+            for await (const m of client.fetch(Array.from(candUids), { threadId: true, uid: true } as any, { uid: true } as any)) {
               if ((m as any).threadId === opts.gm_thrid) found.push((m as any).uid);
             }
           }
           if (!found.length) {
+            // Respaldo: escaneo de los últimos 1000 POR SECUENCIA, filtrando threadId.
             const status = await client.status(folder, { messages: true });
             const total = (status as any).messages ?? 0;
             if (total > 0) {
@@ -124,7 +139,11 @@ export async function importThread(opts: {
           }
           uids = found;
         } else if (opts.subject_seed) {
-          const r = await client.search({ subject: opts.subject_seed.replace(/^(re:|fwd?:)\s*/gi, "") });
+          // {uid:true} → UIDs reales (coherente con fetchOne por UID más abajo).
+          const r = await client.search(
+            { subject: opts.subject_seed.replace(/^(re:|fwd?:)\s*/gi, "") } as any,
+            { uid: true } as any
+          );
           uids = Array.isArray(r) ? r : [];
         }
       } catch (e: any) {

@@ -143,12 +143,40 @@ export async function searchEmails(
 
       let uids: number[] = [];
       if (isGmail) {
-        // Gmail: X-GM-RAW usa el ÍNDICE de Gmail (como su buscador) → fiable y
-        // cubre TODO el historial, no solo los últimos N.
-        uids = ((await client.search({ gmailRaw: built.query } as any).catch(() => [])) as number[]) || [];
-        // Respaldo: si el índice no devuelve nada en un email lookup, escanear
-        // los últimos 1000 y filtrar por envelope.
-        if ((!uids || uids.length === 0) && built.targetEmail) {
+        // IMPORTANTE: client.search() SIN {uid:true} devuelve NÚMEROS DE SECUENCIA,
+        // pero luego hacemos fetchOne(..., {uid:true}) tratándolos como UIDs. En Gmail
+        // el UID != secuencia → fetchOne no encontraba el mensaje → 0 resultados aunque
+        // la búsqueda "corriera". Por eso pasamos {uid:true} a TODAS las búsquedas.
+        const uidSet = new Set<number>();
+        // 1) X-GM-RAW: usa el índice de Gmail (cubre body, hilos y TODO el historial).
+        try {
+          const raw = (await client.search({ gmailRaw: built.query } as any, { uid: true } as any)) as number[];
+          if (Array.isArray(raw)) raw.forEach((u) => uidSet.add(u));
+        } catch (e: any) {
+          console.warn(`[email-search] gmailRaw no disponible (${e?.code || e?.message}); uso IMAP SEARCH`);
+        }
+        // 2) IMAP SEARCH server-side (from/to/cc) — TAMBIÉN cubre todo el historial y
+        //    funciona aunque X-GM-RAW no esté. Unimos ambos para no perder nada.
+        if (built.targetEmail) {
+          for (const crit of [{ from: built.targetEmail }, { to: built.targetEmail }, { cc: built.targetEmail }]) {
+            try {
+              const r = (await client.search(crit as any, { uid: true } as any)) as number[];
+              if (Array.isArray(r)) r.forEach((u) => uidSet.add(u));
+            } catch { /* ignore */ }
+          }
+        } else {
+          try {
+            const r = (await client.search(
+              { or: [{ subject: query }, { body: query }, { from: query }, { to: query }] } as any,
+              { uid: true } as any
+            )) as number[];
+            if (Array.isArray(r)) r.forEach((u) => uidSet.add(u));
+          } catch { /* ignore */ }
+        }
+        uids = Array.from(uidSet);
+        // Respaldo: si NADA devolvió resultados en un email lookup, escanear
+        // los últimos 1000 por envelope (último recurso).
+        if (uids.length === 0 && built.targetEmail) {
           const status = await client.status(folder, { messages: true });
           const total = (status as any).messages ?? 0;
           const scanRange = Math.min(1000, total);
@@ -169,15 +197,16 @@ export async function searchEmails(
           }
         }
       } else if (built.targetEmail) {
-        // No-Gmail: IMAP search estándar por from/to/cc.
-        const fromHits = ((await client.search({ from: built.targetEmail }).catch(() => [])) as number[]) || [];
-        const toHits = ((await client.search({ to: built.targetEmail }).catch(() => [])) as number[]) || [];
-        const ccHits = ((await client.search({ cc: built.targetEmail }).catch(() => [])) as number[]) || [];
+        // No-Gmail: IMAP search estándar por from/to/cc. {uid:true} para que
+        // devuelva UIDs (coherente con fetchOne por UID).
+        const fromHits = ((await client.search({ from: built.targetEmail }, { uid: true } as any).catch(() => [])) as number[]) || [];
+        const toHits = ((await client.search({ to: built.targetEmail }, { uid: true } as any).catch(() => [])) as number[]) || [];
+        const ccHits = ((await client.search({ cc: built.targetEmail }, { uid: true } as any).catch(() => [])) as number[]) || [];
         uids = Array.from(new Set([...fromHits, ...toHits, ...ccHits]));
       } else {
         uids = ((await client.search({
           or: [{ from: query }, { to: query }, { subject: query }, { body: query }] as any,
-        } as any).catch(() => [])) as number[]) || [];
+        } as any, { uid: true } as any).catch(() => [])) as number[]) || [];
       }
       if (!Array.isArray(uids)) uids = [];
       const lastUids = uids.slice(-max);

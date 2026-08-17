@@ -31,6 +31,7 @@ export function middleware(req: NextRequest) {
     pathname.startsWith("/portal/") ||
     pathname.startsWith("/api/auth") ||
     pathname.startsWith("/api/client-portal/") ||
+    pathname === "/api/whoami" ||
     pathname.startsWith("/api/stripe/webhook") ||
     pathname.startsWith("/api/cron/") ||
     pathname.startsWith("/_next") ||

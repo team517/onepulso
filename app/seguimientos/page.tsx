@@ -753,13 +753,21 @@ export default function SeguimientosPage() {
   }
 
   async function editPendingBody(id: string, newBody: string) {
-    await fetch(`/api/email/followups/${id}/approve`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ body_html: newBody, send_now: true }),
-    });
+    setFeedback("📧 Enviando…");
+    try {
+      const r = await fetch(`/api/email/followups/${id}/approve`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ body_html: newBody, send_now: true }),
+      }).then(r => r.json());
+      if (r?.error) setFeedback("⚠️ " + r.error);
+      else setFeedback("✓ Enviado");
+    } catch (e: any) {
+      setFeedback("⚠️ " + e.message);
+    }
     await loadPendingApprovals();
     if (thread) loadThread(thread.id);
+    setTimeout(() => setFeedback(null), 4000);
   }
   async function loadThread(id: string) {
     // Solo limpiamos el borrador de respuesta al CAMBIAR de hilo, no en los
@@ -2434,6 +2442,7 @@ export default function SeguimientosPage() {
       {autopilotWizardOpen && thread && (
         <AutopilotWizard
           thread={thread}
+          myEmail={status?.email ?? ""}
           onClose={() => setAutopilotWizardOpen(false)}
           onActivate={activateAutopilotWithConfig}
         />
@@ -2451,10 +2460,12 @@ export default function SeguimientosPage() {
 
 function AutopilotWizard({
   thread,
+  myEmail,
   onClose,
   onActivate,
 }: {
   thread: Thread;
+  myEmail: string;
   onClose: () => void;
   onActivate: (cfg: {
     contact_name: string;
@@ -2473,7 +2484,8 @@ function AutopilotWizard({
   const initialName =
     thread.contact_name ||
     (() => {
-      const prospect = thread.participants.find(p => !/onepulso\.online$/i.test(p))
+      const me = (myEmail || "").toLowerCase();
+      const prospect = thread.participants.find(p => me && p.toLowerCase() !== me)
         || thread.participants[0] || "";
       const local = prospect.split("@")[0] || "";
       return local
@@ -3156,9 +3168,9 @@ function PendingApprovalCard({
   onEditAndSend,
 }: {
   item: any;
-  onApprove: (sendNow: boolean) => void;
+  onApprove: (sendNow: boolean) => void | Promise<void>;
   onCancel: () => void;
-  onEditAndSend: (body: string) => void;
+  onEditAndSend: (body: string) => void | Promise<void>;
 }) {
   const [editing, setEditing] = useState(false);
   const [body, setBody] = useState<string>(item.body_html || "");
@@ -3242,7 +3254,10 @@ function PendingApprovalCard({
         {editing ? (
           <>
             <button
-              onClick={() => { setBusy(true); onEditAndSend(body); }}
+              onClick={async () => {
+                setBusy(true);
+                try { await onEditAndSend(body); } finally { setBusy(false); }
+              }}
               disabled={busy}
               style={btnConfirm}
             >
@@ -3258,7 +3273,10 @@ function PendingApprovalCard({
         ) : (
           <>
             <button
-              onClick={() => { setBusy(true); onApprove(true); }}
+              onClick={async () => {
+                setBusy(true);
+                try { await onApprove(true); } finally { setBusy(false); }
+              }}
               disabled={busy}
               style={btnConfirm}
             >
@@ -3266,7 +3284,11 @@ function PendingApprovalCard({
             </button>
             {isFuture && (
               <button
-                onClick={() => onApprove(false)}
+                onClick={async () => {
+                  setBusy(true);
+                  try { await onApprove(false); } finally { setBusy(false); }
+                }}
+                disabled={busy}
                 style={btnSecondaryStyle}
               >
                 ⏰ Programar para {fmtDate(scheduledDate)}

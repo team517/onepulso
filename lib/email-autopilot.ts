@@ -8,6 +8,29 @@ import {
 import { sendEmail } from "./email-send";
 import { readEmailConfig } from "./email-config";
 
+/**
+ * Devuelve el instante UTC que corresponde a `hour:00` en horario de España
+ * (Europe/Madrid) del día `baseDate + dayOffset`, manejando el cambio de hora (DST).
+ * El servidor corre en UTC, así que setHours() programaría 1-2h tarde; esto lo corrige.
+ */
+function madridHourUtc(baseDate: Date, dayOffset: number, hour: number): Date {
+  const base = new Date(baseDate);
+  base.setUTCDate(base.getUTCDate() + dayOffset);
+  const dp = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Europe/Madrid", year: "numeric", month: "2-digit", day: "2-digit",
+  }).formatToParts(base);
+  const g = (t: string) => Number(dp.find((p) => p.type === t)!.value);
+  const y = g("year"), mo = g("month"), da = g("day");
+  const guess = Date.UTC(y, mo - 1, da, hour, 0, 0);
+  const fp = new Intl.DateTimeFormat("en-US", {
+    timeZone: "Europe/Madrid", year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "2-digit", minute: "2-digit", hour12: false,
+  }).formatToParts(new Date(guess));
+  const h = (t: string) => Number(fp.find((p) => p.type === t)!.value);
+  const shown = Date.UTC(h("year"), h("month") - 1, h("day"), h("hour") % 24, h("minute"));
+  return new Date(guess + (guess - shown));
+}
+
 const REPLY_SYSTEM = `Eres Xavi (onepulso). Estás escribiendo un email a un prospect en MODO AUTO-PILOT.
 
 OBJETIVO POR DEFECTO: avanzar hacia una reunión / cierre.
@@ -365,13 +388,17 @@ export async function planAndScheduleSequence(
       }
     }
 
-    // Programar normalmente
-    const d = new Date(now);
-    d.setDate(d.getDate() + (step.day ?? 0));
-    if (step.day === 0 && d.getHours() >= defaultHour) {
-      d.setTime(now.getTime() + 30 * 60 * 1000);
+    // Programar normalmente, a la hora indicada PERO en horario España.
+    let d: Date;
+    // ¿Ya pasó la hora objetivo de hoy en Madrid? -> mandar en 30 min.
+    const madridHourNow = Number(
+      new Intl.DateTimeFormat("en-US", { timeZone: "Europe/Madrid", hour: "2-digit", hour12: false })
+        .format(now)
+    ) % 24;
+    if (step.day === 0 && madridHourNow >= defaultHour) {
+      d = new Date(now.getTime() + 30 * 60 * 1000);
     } else {
-      d.setHours(defaultHour, 0, 0, 0);
+      d = madridHourUtc(now, step.day ?? 0, defaultHour);
     }
 
     await scheduleFollowup({
@@ -547,12 +574,13 @@ export async function runAutopilot(): Promise<{ processed: number; scheduled: nu
 
       // Si hay fecha futura → gestionar el reminder
       if (hasFutureDate) {
-        const target = new Date(dateInfo.date_iso!);
+        let target = new Date(dateInfo.date_iso!);
         const explicitTime = /\b\d{1,2}:\d{2}\b/.test(dateInfo.date_text || "");
         if (explicitTime) {
           target.setTime(target.getTime() - 60 * 60 * 1000);
         } else {
-          target.setHours(9, 0, 0, 0);
+          // 9:00 en horario España (no en UTC del servidor)
+          target = madridHourUtc(target, 0, 9);
         }
         if (target.getTime() <= Date.now() + 60 * 60 * 1000) {
           target.setTime(Date.now() + 24 * 60 * 60 * 1000);

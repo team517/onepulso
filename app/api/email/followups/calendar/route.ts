@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { listThreads } from "@/lib/email-threads";
+import { readEmailConfig } from "@/lib/email-config";
 
 export const runtime = "nodejs";
 
@@ -11,11 +12,13 @@ export const runtime = "nodejs";
 export async function GET() {
   try {
     const threads = await listThreads();
+    const cfg = await readEmailConfig().catch(() => null);
+    const ourEmail = (cfg?.email || "").toLowerCase();
     const events: any[] = [];
 
     for (const t of threads) {
-      // Determinar nombre legible del contacto
-      const prospect = t.participants.find(p => !/onepulso\.online$/i.test(p))
+      // El prospect es el participante que NO es nuestra cuenta conectada.
+      const prospect = t.participants.find((p) => ourEmail && p.toLowerCase() !== ourEmail)
         || t.participants[0]
         || "Sin contacto";
       const displayName = t.contact_name?.trim() || extractNameFromEmail(prospect) || prospect;

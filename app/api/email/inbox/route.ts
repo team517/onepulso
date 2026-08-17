@@ -60,7 +60,7 @@ export async function GET(req: Request) {
         thread_id: t.id,
         thread_subject: t.subject,
         thread_status: t.status,
-        contact_email: t.contact_email || m.from,
+        contact_email: m.from,
         contact_name: t.contact_name || m.from.split("@")[0],
         from: m.from,
         subject: m.subject || t.subject,

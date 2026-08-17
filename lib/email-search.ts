@@ -120,11 +120,16 @@ export async function searchEmails(
     await client.connect();
     const { allMailFolder, sentFolder, isGmail } = await resolveFolders(client);
 
-    // Estrategia: buscar en INBOX + Sent + (All Mail si Gmail) y deduplicar.
-    // Esto garantiza que se encuentren emails enviados aunque Gmail los archive.
-    const folders: string[] = ["INBOX"];
-    if (sentFolder) folders.push(sentFolder);
-    if (isGmail && allMailFolder && !folders.includes(allMailFolder)) folders.push(allMailFolder);
+    // Carpetas a buscar:
+    // - Gmail: SOLO All Mail (contiene TODO: inbox + enviados + archivo) → una sola
+    //   carpeta, más rápido y sin perder nada. Si no la hay, INBOX + Enviados.
+    // - Otros: INBOX + Enviados.
+    let folders: string[];
+    if (isGmail) {
+      folders = allMailFolder ? [allMailFolder] : ["INBOX", ...(sentFolder ? [sentFolder] : [])];
+    } else {
+      folders = ["INBOX", ...(sentFolder && sentFolder !== "INBOX" ? [sentFolder] : [])];
+    }
 
     for (const folder of folders) {
       try {
@@ -137,49 +142,42 @@ export async function searchEmails(
       foldersSearched.push(folder);
 
       let uids: number[] = [];
-      // Para email lookups en Gmail: la search IMAP es poco fiable.
-      // Estrategia: fetch los últimos N mensajes del folder y filtramos en JS.
-      if (built.targetEmail && isGmail) {
-        const status = await client.status(folder, { messages: true });
-        const total = (status as any).messages ?? 0;
-        const scanRange = Math.min(500, total);
-        if (scanRange > 0) {
-          const start = Math.max(1, total - scanRange + 1);
-          const seqRange = `${start}:${total}`;
-          const target = built.targetEmail.toLowerCase();
-          for await (const m of client.fetch(seqRange, { envelope: true, threadId: true, uid: true, internalDate: true } as any) as any) {
-            const env = (m as any).envelope ?? {};
-            const fromAddr = (addrToString(env.from?.[0]) ?? "").toLowerCase();
-            const toArr: string[] = [
-              ...((env.to ?? []).map(addrToString) as string[]),
-              ...((env.cc ?? []).map(addrToString) as string[]),
-              ...((env.bcc ?? []).map(addrToString) as string[]),
-            ].filter(Boolean).map((s) => s.toLowerCase());
-            const matches = fromAddr.includes(target) || toArr.some((t) => t.includes(target));
-            if (matches) uids.push((m as any).uid);
+      if (isGmail) {
+        // Gmail: X-GM-RAW usa el ÍNDICE de Gmail (como su buscador) → fiable y
+        // cubre TODO el historial, no solo los últimos N.
+        uids = ((await client.search({ gmailRaw: built.query } as any).catch(() => [])) as number[]) || [];
+        // Respaldo: si el índice no devuelve nada en un email lookup, escanear
+        // los últimos 1000 y filtrar por envelope.
+        if ((!uids || uids.length === 0) && built.targetEmail) {
+          const status = await client.status(folder, { messages: true });
+          const total = (status as any).messages ?? 0;
+          const scanRange = Math.min(1000, total);
+          if (scanRange > 0) {
+            const start = Math.max(1, total - scanRange + 1);
+            const target = built.targetEmail.toLowerCase();
+            for await (const m of client.fetch(`${start}:${total}`, { envelope: true, uid: true } as any) as any) {
+              const env = (m as any).envelope ?? {};
+              const fromAddr = (addrToString(env.from?.[0]) ?? "").toLowerCase();
+              const toArr: string[] = [
+                ...((env.to ?? []).map(addrToString) as string[]),
+                ...((env.cc ?? []).map(addrToString) as string[]),
+                ...((env.bcc ?? []).map(addrToString) as string[]),
+              ].filter(Boolean).map((s) => s.toLowerCase());
+              if (fromAddr.includes(target) || toArr.some((t) => t.includes(target))) uids.push((m as any).uid);
+            }
+            console.log(`[email-search] fallback scan en ${folder}: ${uids.length} hits para "${target}"`);
           }
-          console.log(`[email-search] scan ${seqRange} en ${folder}: ${uids.length} hits para "${target}"`);
         }
       } else if (built.targetEmail) {
-        // No-Gmail: usar IMAP search estándar
+        // No-Gmail: IMAP search estándar por from/to/cc.
         const fromHits = ((await client.search({ from: built.targetEmail }).catch(() => [])) as number[]) || [];
         const toHits = ((await client.search({ to: built.targetEmail }).catch(() => [])) as number[]) || [];
         const ccHits = ((await client.search({ cc: built.targetEmail }).catch(() => [])) as number[]) || [];
         uids = Array.from(new Set([...fromHits, ...toHits, ...ccHits]));
-      } else if (isGmail) {
-        try {
-          uids = ((await client.search({ gmailRaw: built.query } as any).catch(() => [])) as number[]) || [];
-        } catch {
-          uids = [];
-        }
       } else {
-        try {
-          uids = ((await client.search({
-            or: [{ from: query }, { to: query }, { subject: query }, { body: query }] as any,
-          } as any).catch(() => [])) as number[]) || [];
-        } catch {
-          uids = [];
-        }
+        uids = ((await client.search({
+          or: [{ from: query }, { to: query }, { subject: query }, { body: query }] as any,
+        } as any).catch(() => [])) as number[]) || [];
       }
       if (!Array.isArray(uids)) uids = [];
       const lastUids = uids.slice(-max);
@@ -218,7 +216,7 @@ export async function searchEmails(
             to,
             subject,
             preview,
-            date: (m.internalDate ?? new Date()).toISOString(),
+            date: new Date(m.internalDate ?? Date.now()).toISOString(),
           });
         } catch {
           /* skip */

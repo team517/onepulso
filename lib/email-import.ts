@@ -99,22 +99,30 @@ export async function importThread(opts: {
       let uids: number[] = [];
       try {
         if (opts.gm_thrid) {
-          // En Gmail no hay forma directa de buscar por threadId via search().
-          // Workaround: fetch últimos 200 mensajes del folder, filtrar por threadId.
-          // Más rápido que buscar por subject en una carpeta de 7000 mensajes.
-          const status = await client.status(folder, { messages: true });
-          const total = (status as any).messages ?? 0;
-          if (total > 0) {
-            const start = Math.max(1, total - 500);
-            const seqRange = `${start}:${total}`;
-            const found: number[] = [];
-            for await (const m of client.fetch(seqRange, { threadId: true, uid: true } as any)) {
-              if ((m as any).threadId === opts.gm_thrid) {
-                found.push((m as any).uid);
+          // Gmail: buscar por participante en el ÍNDICE de Gmail (X-GM-RAW → cubre
+          // TODO el historial) y filtrar por threadId → coge el hilo completo aunque
+          // sea antiguo. Respaldo: escaneo de los últimos 1000 filtrando por threadId.
+          const found: number[] = [];
+          let candidates: number[] = [];
+          if (opts.participant_seed) {
+            candidates = ((await client.search({ gmailRaw: `from:${opts.participant_seed} OR to:${opts.participant_seed}` } as any).catch(() => [])) as number[]) || [];
+          }
+          if (candidates.length) {
+            for await (const m of client.fetch(candidates, { threadId: true, uid: true } as any)) {
+              if ((m as any).threadId === opts.gm_thrid) found.push((m as any).uid);
+            }
+          }
+          if (!found.length) {
+            const status = await client.status(folder, { messages: true });
+            const total = (status as any).messages ?? 0;
+            if (total > 0) {
+              const start = Math.max(1, total - 1000);
+              for await (const m of client.fetch(`${start}:${total}`, { threadId: true, uid: true } as any)) {
+                if ((m as any).threadId === opts.gm_thrid) found.push((m as any).uid);
               }
             }
-            uids = found;
           }
+          uids = found;
         } else if (opts.subject_seed) {
           const r = await client.search({ subject: opts.subject_seed.replace(/^(re:|fwd?:)\s*/gi, "") });
           uids = Array.isArray(r) ? r : [];
